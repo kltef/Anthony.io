@@ -37,8 +37,24 @@ the usual neutral spread. Scenario games are intentionally **not** ranked on the
 leaderboard.
 
 The implementation is entirely within `assets/web/index.html` (search for
-`SCENARIO BUILDER`, `startScenario`, `allocateTerritory`). The native shell,
-manifest, and resources are unchanged.
+`SCENARIO BUILDER`, `startScenario`, `allocateTerritory`).
+
+## Other additions
+
+- **Landscape support.** The native shell was locked to portrait
+  (`android:screenOrientation="userPortrait"`, value `12`). It's now
+  `fullUser` (value `13`), so the app rotates to any orientation the device
+  allows. The activity already declares `configChanges="…|orientation|screenSize|…"`,
+  so rotating doesn't recreate the activity — the WebView just resizes and the
+  game's existing `resize()` handler reflows the map. The menu overlay is now
+  scrollable and tightens its layout on short (landscape) viewports
+  (`@media (max-height: 560px)`). This is a one-byte patch of the binary
+  `AndroidManifest.xml` (the `screenOrientation` int at file offset `2380`,
+  `0x0C` → `0x0D`).
+- **0.5× game speed.** The speed button now cycles
+  `0.5× · 1× · 2× · 3× · 5× · 10×`. The loop runs whole simulation sub-steps and
+  then a fractional step for the remainder (`update(dt * frac)`), which slows the
+  whole sim uniformly — handy for watching the AI think in slow motion.
 
 ## Rebuilding the APK
 
