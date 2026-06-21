@@ -7,6 +7,20 @@ troop simulation, and the trained reinforcement-learning AI — lives in that on
 self-contained HTML file. The editable source is mirrored at
 [`src/web/index.html`](src/web/index.html).
 
+## Mobile tap fix & Airdrop arm-then-tap
+
+- **Mobile tap selection bug (root cause).** `gameMove()` flagged the gesture as a *drag* on
+  **any** pointer movement, so a finger tap's few px of jitter made `gameUp()` clear the
+  selection. On a phone, tapping your own state therefore never selected it — leaving the
+  **Airdrop** and **Upgrade** buttons greyed out and tap-then-tap sending unreliable. Fixed with
+  a **12px tap dead-zone** (`TAP_SLOP`): the gesture only becomes a drag once the pointer leaves
+  that radius (`downCss` recorded in `gameDown`). Synthetic test clicks have zero jitter, which is
+  why this slipped past earlier automated runs.
+- **Airdrop is now arm-then-tap.** Instead of "select a state, then press a greyed-out button,"
+  tap **🪂 Airdrop** to *arm* it (it highlights and reads "🪂 Tap a state…"), then tap one of your
+  states to drop +25 troops there and spend a charge. No hidden select-first step. (`airdropArmed`,
+  handled in `gameUp`/`refreshHud`.)
+
 ## Scenario back button & orb-shape perk
 
 - **Fixed "← Back" on menu screens.** The in-game `❮` arrow only helps once a match is

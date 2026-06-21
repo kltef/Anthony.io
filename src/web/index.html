@@ -176,6 +176,7 @@
   #upgradeBtn { font-size: 14px !important; }
   #upgradeBtn:not(:disabled) { background: #f5c84a; color: #3a2c00; }
   #airdropBtn { font-size: 14px !important; background: #8fd6a6; color: #143421; }
+  #airdropBtn.armed { background: #f5a623; color: #fff; box-shadow: 0 0 0 3px rgba(245,166,35,.4); }
   .coinline { color: #ffd479; font-weight: 800; font-size: 16px; opacity: .95; margin-top: -6px; }
   #shopPanel { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20;
     width: min(460px, 94vw); max-height: 86vh; overflow-y: auto; pointer-events: auto;
@@ -488,6 +489,9 @@
   let nnVizT = 0;                              // throttle clock for the per-frame NN viz recompute
   let lastTime = 0, selected = null, dragPos = null, pointerDown = false;
   let selSet = [], moved = false;   // states chosen for a joint (combined) attack while dragging
+  let downCss = null;               // press point (CSS px) for the tap-vs-drag dead-zone
+  const TAP_SLOP = 12;              // px the pointer may wander and still count as a tap (not a drag)
+  let airdropArmed = false;         // Reinforcement-Airdrop "armed" state (tap a state to drop)
   let aiTimers = {};
   // ---- scenario mode ----
   // A "scenario" is a hand-authored board: the player pre-sets how much of the map each team
@@ -805,7 +809,7 @@
 
     // Cap upgrades, special tiles & shop perks are single-player only (off in netplay → no desync).
     upgradesOn = tilesOn = !netMode;
-    boomUntil = 0;
+    boomUntil = 0; airdropArmed = false;
 
     for (const s of states) {
       s.owner = NEUTRAL;
@@ -871,7 +875,7 @@
   function toMenu() {
     running = false;
     scenarioMode = false; scenarioObserver = false;
-    upgradesOn = tilesOn = false; boomUntil = 0;
+    upgradesOn = tilesOn = false; boomUntil = 0; airdropArmed = false;
     if (NET.es) { NET.es.close(); NET.es = null; }
     netMode = null; myOwner = PLAYER; mpEnemies = null;
     nnBtn.classList.remove('gone');
@@ -2085,14 +2089,19 @@
   // release on a target so the whole group attacks together (joint attack).
   function gameDown(cssPt){
     if (!running) return;
-    pointerDown=true; moved=false;
+    pointerDown=true; moved=false; downCss=cssPt;
     const pos=screenToWorld(cssPt); const s=stateAt(pos);
     if (s && s.owner===myOwner){ selSet=[s]; dragPos=pos; selected=null; }
-    else { selSet=[]; if (selected){ if (s) issueMove(selected,s); selected=null; } }
+    else { selSet=[]; airdropArmed=false; if (selected){ if (s) issueMove(selected,s); selected=null; } }
   }
   function gameMove(cssPt){
     if (!running||!pointerDown||!selSet.length) return;
-    dragPos=screenToWorld(cssPt); moved=true;
+    if (!moved){
+      const dx=cssPt.x-downCss.x, dy=cssPt.y-downCss.y;
+      if (dx*dx+dy*dy < TAP_SLOP*TAP_SLOP) return;   // within the tap dead-zone — ignore finger jitter
+      moved=true;
+    }
+    dragPos=screenToWorld(cssPt);
     const over=stateAt(dragPos);
     if (over && over.owner===myOwner && !selSet.includes(over)) selSet.push(over);  // add to joint attack
   }
@@ -2104,8 +2113,15 @@
         if (target) for (const s of selSet) if (s!==target) issueMove(s, target);
         selSet=[]; selected=null;
       } else {
-        // a tap (no drag) on a single state -> keep it selected for tap-then-tap
-        selected = selSet[0]; selSet=[];
+        // a tap (no drag) on one of your states. If an airdrop is armed, drop on it;
+        // otherwise keep it selected for tap-then-tap sending / the Upgrade button.
+        const s = selSet[0];
+        if (airdropArmed && s.owner===myOwner && PERK.airdrops>0){
+          s.troops += 25; s.pulse = 1.2; PERK.airdrops--; savePerk('airdrops'); airdropArmed=false; refreshHud();
+        } else {
+          selected = s;
+        }
+        selSet=[];
       }
     }
     dragPos=null;
@@ -2722,7 +2738,7 @@
     myOwner = PLAYER;
     scenarioMode = true; scenarioObserver = !hasYou;
     // scenario rule toggles (shop perks never apply here)
-    upgradesOn = scnUpgradesOn; tilesOn = scnTilesOn; boomUntil = 0;
+    upgradesOn = scnUpgradesOn; tilesOn = scnTilesOn; boomUntil = 0; airdropArmed = false;
 
     allocateTerritory(targets);
 
@@ -2790,17 +2806,18 @@
     const uKey = uShow ? uLabel+(uDis?'·d':'') : '';
     if (uKey!==hudUpg){ hudUpg=uKey; upgradeBtn.style.display = uShow?'':'none';
       if (uShow){ upgradeBtn.textContent=uLabel; upgradeBtn.disabled=uDis; } }
-    // 🪂 Airdrop — visible in solo when you own charges
+    // 🪂 Airdrop — visible in solo when you own charges. Tap to ARM, then tap one of your states.
     const aShow = (!netMode && running && PERK.airdrops>0);
-    const aReady = !!(selected && selected.owner===myOwner);
-    const aKey = aShow ? PERK.airdrops+'/'+(aReady?1:0) : '';
+    if (!aShow) airdropArmed = false;
+    const aKey = aShow ? PERK.airdrops+'/'+(airdropArmed?'A':'_') : '';
     if (aKey!==hudAir){ hudAir=aKey; airdropBtn.style.display = aShow?'':'none';
-      if (aShow){ airdropBtn.textContent='🪂 Airdrop ('+PERK.airdrops+')'; airdropBtn.disabled=!aReady; } }
+      if (aShow){ airdropBtn.disabled=false; airdropBtn.classList.toggle('armed', airdropArmed);
+        airdropBtn.textContent = airdropArmed ? '🪂 Tap a state…' : ('🪂 Airdrop ('+PERK.airdrops+')'); } }
   }
   if (upgradeBtn) upgradeBtn.addEventListener('click', ()=>{ if (tryUpgrade(selected)) refreshHud(); });
   if (airdropBtn) airdropBtn.addEventListener('click', ()=>{
-    if (!running || netMode || PERK.airdrops<=0 || !selected || selected.owner!==myOwner) return;
-    selected.troops += 25; selected.pulse = 1.2; PERK.airdrops--; savePerk('airdrops'); refreshHud();
+    if (!running || netMode || PERK.airdrops<=0) return;
+    airdropArmed = !airdropArmed; refreshHud();    // arm/disarm; the next tap on your state drops +25
   });
 
   // ============================ SHOP ============================
