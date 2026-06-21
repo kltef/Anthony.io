@@ -1,0 +1,2545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>State.io — USA</title>
+<link rel="icon" type="image/svg+xml" href="logo.svg">
+<link rel="apple-touch-icon" href="logo.svg">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; background: #e3e9ee; font-family: 'Segoe UI', system-ui, sans-serif; }
+  #game { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: pointer; }
+
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 64px;
+    display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 5;
+  }
+  #back {
+    position: fixed; top: 14px; left: 16px; width: 40px; height: 40px; z-index: 6;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; pointer-events: auto;
+    color: #3a4654; font-size: 30px; font-weight: 800; line-height: 1; user-select: none;
+  }
+  #back:active { transform: scale(.9); }
+  #zoom { position: fixed; right: 14px; bottom: 14px; z-index: 6; display: flex; flex-direction: column; gap: 8px; }
+  #zoom button {
+    width: 44px; height: 44px; border-radius: 11px; border: none; cursor: pointer;
+    background: rgba(255,255,255,.92); color: #3a4654; font-size: 26px; font-weight: 700; line-height: 1;
+    box-shadow: 0 1px 5px rgba(0,0,0,.28); display: flex; align-items: center; justify-content: center;
+  }
+  #zoom button:active { transform: scale(.92); }
+  #speed { position: fixed; left: 14px; bottom: 14px; z-index: 6; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  #speed button {
+    height: 44px; min-width: 56px; padding: 0 14px; border-radius: 11px; border: none; cursor: pointer;
+    background: rgba(255,255,255,.92); color: #3a4654; font-size: 18px; font-weight: 800; line-height: 1;
+    box-shadow: 0 1px 5px rgba(0,0,0,.28); display: flex; align-items: center; justify-content: center;
+    white-space: nowrap;
+  }
+  #speed button:active { transform: scale(.92); }
+  #nnBtn { font-size: 14px !important; }
+  #nnBtn.on { background: #46a6ef; color: #fff; }
+  #fracBtn { font-size: 14px !important; }
+  #fracBtn.on { background: #f5a623; color: #fff; }   /* highlighted when not "All" */
+  #nnpanel { position: fixed; right: 14px; top: 70px; z-index: 6; display: none;
+    max-height: calc(100dvh - 84px); max-width: calc(100vw - 28px); overflow-y: auto; overflow-x: hidden;
+    background: rgba(22,28,37,.94); border-radius: 12px; box-shadow: 0 2px 14px rgba(0,0,0,.5);
+    -webkit-overflow-scrolling: touch; }
+  #nnpanel.on { display: block; }
+  #nntabs { display: flex; gap: 6px; padding: 8px 8px 6px; position: sticky; top: 0; z-index: 2;
+    background: rgba(22,28,37,.97); }
+  .nntab { flex: 1; padding: 7px 0; border: 1px solid rgba(255,255,255,.14); background: transparent;
+    color: #9aa6b4; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; }
+  .nntab.on { background: #46a6ef; border-color: #46a6ef; color: #fff; }
+  .who { margin: 4px 0 12px; color: #cdd9ea; font-size: 14px; display: flex; gap: 10px;
+    align-items: center; justify-content: center; flex-wrap: wrap; pointer-events: auto; }
+  #playerName { background: #16233b; color: #fff; border: 1px solid #2a3850; border-radius: 8px;
+    padding: 6px 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .mini2 { background: #16233b; color: #cdd9ea; border: 1px solid #2a3850; border-radius: 8px;
+    padding: 6px 12px; font-weight: 700; font-size: 13px; cursor: pointer; pointer-events: auto; }
+  .mini2:hover { border-color: #46a6ef; }
+  #lbPanel { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20;
+    width: min(440px, 92vw); max-height: 80vh; overflow-y: auto; pointer-events: auto;
+    background: rgba(16,23,37,.98); border: 1px solid #2a3850; border-radius: 14px; padding: 20px 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.6); }
+  #lbPanel.gone { display: none; }
+  .lbh { color: #ffd479; margin: 0 0 14px; font-size: 20px; }
+  .lbbody table { width: 100%; border-collapse: collapse; }
+  .lbbody th { color: #7fa8d8; font-size: 11px; text-transform: uppercase; text-align: right; padding: 4px 8px; font-weight: 700; }
+  .lbbody th:nth-child(2), .lbbody td:nth-child(2) { text-align: left; }
+  .lbbody td { padding: 7px 8px; border-top: 1px solid rgba(255,255,255,.08); text-align: right; color: #dfe8f5; font-size: 14px; }
+  .lbbody tr.me td { color: #fff; font-weight: 800; background: rgba(70,166,239,.10); }
+  .lbbody .rank { color: #8aa0c0; }
+  .lbbody tr.lbrow { cursor: pointer; }
+  .lbbody tr.lbrow:hover td { background: rgba(255,255,255,.06); }
+  .lbav { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%;
+    color: #fff; font-weight: 800; vertical-align: middle; margin-right: 8px; }
+  .lbdet .lbhead { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .lbname { font-size: 22px; font-weight: 800; color: #fff; }
+  .lbrec { color: #9aa6b4; font-size: 13px; margin-top: 2px; }
+  .lbarch { display: inline-block; background: rgba(255,212,121,.14); color: #ffd479; font-weight: 800;
+    padding: 4px 12px; border-radius: 999px; font-size: 14px; margin-bottom: 12px; }
+  .lblist { margin: 0 0 14px; padding-left: 18px; color: #dfe8f5; font-size: 14px; line-height: 1.6; }
+  .lblist li { margin-bottom: 6px; }
+  .lbdh { color: #7fa8d8; font-size: 11px; text-transform: uppercase; font-weight: 700; margin: 8px 0 4px; }
+  .seltitle { color: #9aa6b4; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; font-weight: 700; margin: 8px 0 3px; }
+  #nnpanel::-webkit-scrollbar { width: 8px; }
+  #nnpanel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
+  #nncanvas { display: block; }
+  #bar {
+    width: min(360px, 60vw); height: 16px; border-radius: 10px; overflow: hidden;
+    background: #b7bdc4; display: flex; box-shadow: 0 1px 4px rgba(0,0,0,.2);
+  }
+  #bar > div { height: 100%; transition: width .25s ease; }
+
+  #overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(20,32,48,.88); color: #fff; text-align: center; z-index: 10; gap: 18px; padding: 20px;
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+  }
+  #overlay.hidden { display: none; }
+  /* Landscape / short viewports (phones turned sideways): the menu can be taller than the
+     screen, so top-align it, let it scroll, and tighten the vertical rhythm so it still fits. */
+  @media (max-height: 560px) {
+    #overlay { justify-content: flex-start; gap: 10px; padding: 14px 20px; }
+    #overlay h1 { font-size: clamp(22px, 5vh, 38px); }
+    #overlay p { line-height: 1.4; }
+    .panel { gap: 10px; }
+    .who { margin: 2px 0 6px; }
+    #introText, #scnIntro { font-size: 13px; }
+  }
+  #overlay h1 { font-size: clamp(28px, 7vw, 54px); letter-spacing: 2px; }
+  #overlay p { font-size: 15px; max-width: 460px; line-height: 1.55; opacity: .92; }
+  #overlay .result { font-size: clamp(24px, 6vw, 42px); font-weight: 800; }
+  .btn {
+    pointer-events: auto; background: #46a6ef; color: #fff; border: none; padding: 14px 38px;
+    font-size: 18px; font-weight: 700; border-radius: 30px; cursor: pointer; transition: transform .1s, background .2s;
+  }
+  .btn:hover { background: #5fb4f4; }
+  .btn:active { transform: scale(.96); }
+  .btn:disabled { background: #5b6776; cursor: default; }
+  .levels { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .lvl { pointer-events: auto; background: rgba(255,255,255,.12); color:#fff; border:1px solid rgba(255,255,255,.28);
+    padding: 10px 18px; border-radius: 12px; cursor: pointer; font-weight: 600; }
+  .lvl.active { background: #46a6ef; border-color: #46a6ef; }
+  .hint { font-size: 13px; opacity: .65; }
+  .gone { display: none !important; }
+  .modes { display: flex; gap: 8px; margin-bottom: 6px; }
+  .mode { pointer-events: auto; cursor: pointer; padding: 9px 18px; border-radius: 11px; font-weight: 700; font-size: 15px;
+    background: rgba(255,255,255,.1); color: #cfe0f0; border: 1px solid rgba(255,255,255,.18); }
+  .mode.active { background: #46a6ef; border-color: #46a6ef; color: #fff; }
+  .panel { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .mini { pointer-events: auto; cursor: pointer; width: 30px; height: 30px; border-radius: 8px; border: none;
+    background: rgba(255,255,255,.16); color: #fff; font-size: 18px; font-weight: 800; margin: 0 3px; }
+  .tin { pointer-events: auto; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25); color: #fff;
+    border-radius: 10px; padding: 11px 16px; font-size: 17px; text-align: center; width: 220px; letter-spacing: 1px; }
+  .tin::placeholder { color: rgba(255,255,255,.4); letter-spacing: 1px; }
+  #codeInput { text-transform: uppercase; font-weight: 800; font-size: 22px; }
+  .plist { display: flex; flex-direction: column; gap: 6px; min-width: 240px; max-width: 320px; }
+  .pchip { display: flex; align-items: center; gap: 9px; background: rgba(255,255,255,.08); border-radius: 9px;
+    padding: 8px 12px; font-size: 14px; }
+  .pchip .sw { width: 13px; height: 13px; border-radius: 50%; flex: none; }
+  .roombox { font-size: 15px; }
+  .roombox b { font-size: 30px; letter-spacing: 4px; color: #7fe0a0; }
+  /* ---- scenario builder ---- */
+  .scn-row { display: flex; align-items: center; gap: 8px; width: min(330px, 88vw);
+    background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 10px; padding: 7px 9px; }
+  .scn-sw { width: 16px; height: 16px; border-radius: 5px; flex: none;
+    box-shadow: inset 0 0 0 2px rgba(0,0,0,.22); }
+  .scn-ctrl { pointer-events: auto; cursor: pointer; border: none; border-radius: 8px;
+    padding: 6px 11px; font-weight: 800; font-size: 12px; min-width: 48px; }
+  .scn-ctrl.you { background: #46a6ef; color: #fff; }
+  .scn-ctrl.ai { background: rgba(255,255,255,.16); color: #cfe0f0; }
+  .scn-share { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+  .scn-share b { min-width: 44px; text-align: center; font-size: 15px; }
+  .scn-cnt { font-size: 11px; opacity: .6; min-width: 54px; text-align: right; }
+  .scn-x { pointer-events: auto; cursor: pointer; border: none; background: transparent;
+    color: #f0928a; font-size: 15px; font-weight: 800; padding: 2px 3px; }
+  .scn-add { pointer-events: auto; cursor: pointer; background: rgba(56,196,111,.16);
+    border: 1px solid #38c46f; color: #bdf3cf; border-radius: 9px; padding: 7px 14px;
+    font-weight: 800; font-size: 13px; }
+  .scn-presets { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 360px; }
+  .scn-preset { pointer-events: auto; cursor: pointer; background: rgba(255,255,255,.1);
+    border: 1px solid rgba(255,255,255,.2); color: #cfe0f0; border-radius: 9px;
+    padding: 6px 11px; font-size: 12px; font-weight: 700; }
+  .scn-preset:hover { border-color: #46a6ef; }
+  #scnBar { width: min(330px, 88vw); height: 14px; border-radius: 8px; overflow: hidden;
+    display: flex; background: #b4bbc2; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  #scnBar > div { height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="back">&#10094;</div>
+<div id="topbar"><div id="bar"></div></div>
+<div id="zoom"><button id="zoomIn" title="Zoom in">+</button><button id="zoomOut" title="Zoom out">&minus;</button></div>
+<div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="nnBtn" title="Show the Master AI's neural network">AI brain</button></div>
+<div id="nnpanel">
+  <div id="nntabs">
+    <button class="nntab on" data-viz="brain">AI Brain</button>
+    <button class="nntab" data-viz="planner">Rollout Planner</button>
+  </div>
+  <canvas id="nncanvas" width="320" height="1180"></canvas>
+</div>
+
+<div id="overlay">
+  <h1>STATE.IO</h1>
+  <p class="result" id="resultText"></p>
+
+  <div class="modes" id="modes">
+    <div class="mode active" data-mode="solo">vs Computer</div>
+    <div class="mode" data-mode="scenario">Scenario</div>
+    <div class="mode" data-mode="host">Host Online</div>
+    <div class="mode" data-mode="join">Join Online</div>
+  </div>
+
+  <div class="who">Playing as
+    <select id="playerName">
+      <option>Anthony</option>
+      <option>Chris</option>
+      <option>Melissa</option>
+    </select>
+    <button class="mini2" id="lbBtn">🏆 Leaderboard</button>
+  </div>
+
+  <!-- solo (vs AI) -->
+  <div class="panel" id="soloPanel">
+    <p id="introText">
+      Each <b>state</b> is a territory. Drag from <b>your state</b> to another to send
+      <b>all</b> its troops.<br>
+      Send more than the target holds to capture it. States grow troops over time.<br>
+      Conquer every active state to win.
+    </p>
+    <div class="levels" id="levels"></div>
+    <button class="btn" id="startBtn" disabled>Loading map…</button>
+    <p class="hint">Drag from a state you own to a neighbor — or tap your state, then tap a target.</p>
+  </div>
+
+  <!-- host online -->
+  <div class="panel gone" id="hostPanel">
+    <label class="hint" style="display:flex;align-items:center;justify-content:center;gap:8px;pointer-events:auto;cursor:pointer;margin-bottom:10px">
+      <input type="checkbox" id="hostP2P" style="width:18px;height:18px"> Serverless P2P — no server needed</label>
+    <button class="btn" id="hostCreateBtn" disabled>Create a room</button>
+    <div class="panel gone" id="hostLobby">
+      <p class="roombox">Room code &nbsp;<b id="roomCode">····</b></p>
+      <p class="hint" id="joinUrl"></p>
+      <div class="seltitle">Map</div>
+      <div class="levels" id="hostRegions"></div>
+      <div class="seltitle">Difficulty</div>
+      <div class="levels" id="hostLevels"></div>
+      <p class="hint">AI opponents to add: <button class="mini" id="aiMinus">&minus;</button>
+        <b id="aiFillVal" style="font-size:18px">1</b><button class="mini" id="aiPlus">+</button></p>
+      <div class="plist" id="hostPlayers"></div>
+      <button class="btn" id="hostStartBtn">Start match</button>
+      <p class="hint">Share the code or the link. Players join on their own phone/computer.</p>
+    </div>
+  </div>
+
+  <!-- join online -->
+  <div class="panel gone" id="joinPanel">
+    <label class="hint" style="display:flex;align-items:center;justify-content:center;gap:8px;pointer-events:auto;cursor:pointer;margin-bottom:10px">
+      <input type="checkbox" id="joinP2P" style="width:18px;height:18px"> Serverless P2P — no server needed</label>
+    <input id="codeInput" class="tin" maxlength="4" placeholder="ROOM CODE" autocomplete="off">
+    <input id="nameInput" class="tin" maxlength="14" placeholder="Your name" autocomplete="off">
+    <button class="btn" id="joinBtn" disabled>Join room</button>
+    <div class="panel gone" id="joinLobby">
+      <p id="joinStatus" class="hint">Connecting…</p>
+      <div class="plist" id="joinPlayers"></div>
+      <p class="hint">Waiting for the host to start the match…</p>
+    </div>
+  </div>
+
+  <!-- scenario builder -->
+  <div class="panel gone" id="scenarioPanel">
+    <p id="scnIntro">Build a custom board: choose how much of the map each team starts with, then
+      <b>drop the AI in</b> and watch it play — or take a team yourself.</p>
+    <div class="seltitle">Map</div>
+    <div class="levels" id="scnRegions"></div>
+    <div class="seltitle">AI brain</div>
+    <div class="levels" id="scnLevels"></div>
+    <div class="seltitle">Teams &amp; starting share of the map</div>
+    <div id="scnTeams" class="panel" style="gap:8px"></div>
+    <div id="scnBar"></div>
+    <p class="hint" id="scnSummary"></p>
+    <div class="scn-presets" id="scnPresets"></div>
+    <button class="btn" id="scnStartBtn" disabled>Loading map…</button>
+    <p class="hint">Set every team to <b>AI</b> to sit back and watch the AIs fight it out.</p>
+  </div>
+
+  <p class="hint"><a id="watchLink" href="watch.html" target="_blank" style="color:#9fd9b0;pointer-events:auto">Open spectator view ↗</a></p>
+</div>
+
+<div id="lbPanel" class="gone">
+  <h2 class="lbh">🏆 Leaderboard</h2>
+  <div id="lbBody" class="lbbody">Loading…</div>
+  <button class="btn" id="lbClose" style="margin-top:14px">Close</button>
+</div>
+
+<script src="d3.min.js"></script>
+<script src="topojson-client.min.js"></script>
+<script src="peerjs.min.js"></script>
+<script src="net_webrtc.js"></script>
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const resultText = document.getElementById('resultText');
+  const introText = document.getElementById('introText');
+  const startBtn = document.getElementById('startBtn');
+  const levelsEl = document.getElementById('levels');
+  const barEl = document.getElementById('bar');
+  const backEl = document.getElementById('back');
+
+  // ---- owners & colors ----
+  const NEUTRAL = 0, PLAYER = 1;
+  const COLORS = { 0:'#b4bbc2', 1:'#46a6ef', 2:'#ef5b52', 3:'#f1a13a', 4:'#9b6cf0', 5:'#38c46f', 6:'#e36ec9', 7:'#46c7d6', 8:'#d9b53a' };
+  const DARK   = { 0:'#8b939c', 1:'#2c7fc4', 2:'#c43d36', 3:'#c47d24', 4:'#7549c4', 5:'#27975a', 6:'#b94fa1', 7:'#2f9aa8', 8:'#b08f22' };
+
+  // selectable regions (continental US only). list:null = all of the lower 48.
+  const EXCLUDE = new Set(['Alaska','Hawaii','District of Columbia','Puerto Rico',
+    'American Samoa','Guam','Commonwealth of the Northern Mariana Islands','United States Virgin Islands']);
+  const REGIONS = [
+    { name:'East Coast', list:[
+      'Maine','New Hampshire','Vermont','Massachusetts','Rhode Island','Connecticut',
+      'New York','New Jersey','Pennsylvania','Delaware','Maryland','West Virginia',
+      'Virginia','North Carolina','South Carolina','Georgia','Florida',
+      'Ohio','Kentucky','Tennessee','Alabama','Indiana' ] },
+    { name:'Midwest', list:[
+      'Ohio','Michigan','Indiana','Illinois','Wisconsin','Minnesota','Iowa','Missouri',
+      'Kansas','Nebraska','South Dakota','North Dakota','Oklahoma','Kentucky' ] },
+    { name:'West Coast', list:[
+      'California','Oregon','Washington','Nevada','Idaho','Arizona','Utah',
+      'Montana','Wyoming','Colorado','New Mexico' ] },
+    { name:'Continental U.S.', list:null },
+  ];
+  let regionIdx = 0;
+  function buildStatesForRegion(){
+    const r = REGIONS[regionIdx], set = r.list ? new Set(r.list) : null;
+    states = allFeatures
+      .filter(f => set ? set.has(f.properties.name) : !EXCLUDE.has(f.properties.name))
+      .map((f,i) => ({ id:i, name:f.properties.name, feature:f, owner:NEUTRAL, troops:0, growAcc:0, pulse:0 }));
+  }
+
+  const MAX_TROOPS = 150;
+  const LEVELS = [
+    // Easy: weak neutrals, fast player growth, slow & passive AI that grows slower than you
+    { name:'Easy',   enemies:1, aiSpeed:2.6, aiAggro:0.30, neutralMin:5,  neutralMax:18, growRate:1.7, playerStart:45, enemyStart:22, enemyGrow:0.65 },
+    { name:'Medium', enemies:2, aiSpeed:1.4, aiAggro:0.70, neutralMin:10, neutralMax:34, growRate:1.2, playerStart:35, enemyStart:30, enemyGrow:0.9  },
+    { name:'Hard',   enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:36, enemyGrow:1.0  },
+    // Master: identical settings to Hard, but enemies are driven by a trained reinforcement-learning policy
+    { name:'Master', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:36, enemyGrow:1.0, rl:true },
+    // Grandmaster: same RL policy, but wrapped in a shallow-rollout PLANNER that simulates each
+    // candidate move ~5s into the future and picks the one with the best projected board.
+    // Grandmaster plays fair: enemies start with the SAME unit count as the player (30) and the
+    // same growth rate (1.0×). No economic handicap — the difficulty comes purely from the planner.
+    { name:'Grandmaster', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true },
+  ];
+  let levelIdx = 0;
+
+  let W=0, H=0, DPR=1;
+  let projection, geoPath;
+  // Orb travel speed in px/sec. Recomputed per map in buildGeo() so it scales
+  // with the map's on-screen size — this keeps the *pace* (seconds to cross the
+  // map) identical on every device, instead of small screens (phones) running
+  // fast and big screens (desktops) running slow. In multiplayer the host's
+  // simulation sets the pace, so this also makes a phone-host and a desktop-host
+  // play at the same speed.
+  let ORB_SPEED = 70;
+  // The native Android app loads from the virtual host stateio.local; the web app
+  // does not. We only normalize orb speed in the native app (phones), leaving the
+  // web app at its original fixed speed.
+  const IS_NATIVE_APP = (typeof location !== 'undefined' && location.hostname === 'stateio.local');
+  let allFeatures = [];     // every us state feature (for background)
+  let states = [];          // active playable states
+  let bgCanvas = null;      // cached static background
+  let markR = 17;           // base node radius — recomputed per layout so icons fit on mobile
+  let troops = [];
+  let running = false, ready = false;
+  let gameSpeed = 1;   // 1x / 2x / 3x — runs extra update sub-steps per frame
+  let gameTick = 0, gameElapsed = 0;          // sim-step counter & elapsed sim seconds
+  let orbSeq = 0;                             // monotonic id stamped on each launched orb (for guest interpolation)
+  let fps = 0, fpsFrames = 0, fpsT = 0;        // rendered frames-per-second
+  let nnVizT = 0;                              // throttle clock for the per-frame NN viz recompute
+  let lastTime = 0, selected = null, dragPos = null, pointerDown = false;
+  let selSet = [], moved = false;   // states chosen for a joint (combined) attack while dragging
+  let aiTimers = {};
+  // ---- scenario mode ----
+  // A "scenario" is a hand-authored board: the player pre-sets how much of the map each team
+  // owns (e.g. one team 50%, another 25%, the AI 25%) and drops in to watch / play it out.
+  // scenarioObserver = every team is AI (the human just watches the AIs fight).
+  let scenarioMode = false, scenarioObserver = false;
+
+  // How long an AI waits between actions. FAST_AI lets it fire almost every frame (bounded
+  // by a tiny floor) instead of ~once per second, so it reacts and stacks coordinated waves
+  // far more aggressively. Set FAST_AI=false to restore the classic per-difficulty cadence.
+  const FAST_AI = true;
+  // NOTE: the Grandmaster (lv.plan) tier is already naturally rate-limited — each decision is a
+  // server round-trip whose MCTS runs for ~250ms (see mcts.tbudget), and planPending allows only
+  // one request in flight per enemy. So we keep the small cooldown for ALL tiers; adding an extra
+  // throttle here previously starved the planner and left it unable to expand.
+  function aiCooldown(lv){ return FAST_AI ? rand(0.06, 0.14) : rand(lv.aiSpeed*0.6, lv.aiSpeed*1.4); }
+  let lastSalvo = null;   // {owner, tgt, count, troops, t} — most recent coordinated salvo (for the AI-brain banner)
+
+  // ---- networking ----
+  // netMode: null = solo vs AI · 'host' = run the sim & broadcast · 'guest' = render snapshots & send intents
+  let netMode = null;
+  let myOwner = PLAYER;             // which color the local human controls (PLAYER for solo/host)
+  let slotControl = {};             // owner(2..5) -> 'ai' | { cid, name }  (who drives each enemy slot)
+  let mpEnemies = null;             // override enemy count in newGame for multiplayer (else null)
+  let netLastSend = 0;              // throttle for host snapshot broadcasts
+  const NET = { room:null, cid:null, role:null, es:null, lobby:[], p2p:false };
+  // When NET.p2p is on, route the same calls through the serverless WebRTC
+  // transport (net_webrtc.js) instead of the HTTP/SSE server. Same paths,
+  // same data — see P2P.api / P2P.openStream.
+  function api(path, body){
+    if (NET.p2p && window.P2P) return P2P.api(path, body);
+    return fetch(path, { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body||{}) });
+  }
+
+  // ---- camera (zoom + pan) ----
+  const cam = { scale:1, ox:0, oy:0 };
+  const MIN_SCALE = 1, MAX_SCALE = 6;
+  function clampOffset(){
+    cam.ox = Math.max(W - W*cam.scale, Math.min(0, cam.ox));
+    cam.oy = Math.max(H - H*cam.scale, Math.min(0, cam.oy));
+  }
+  function screenToWorld(p){ return { x:(p.x-cam.ox)/cam.scale, y:(p.y-cam.oy)/cam.scale }; }
+  function zoomAt(cssX, cssY, factor){
+    const wx = (cssX-cam.ox)/cam.scale, wy = (cssY-cam.oy)/cam.scale;
+    cam.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, cam.scale*factor));
+    cam.ox = cssX - wx*cam.scale;
+    cam.oy = cssY - wy*cam.scale;
+    clampOffset();
+    if (!running) render();
+  }
+  function resetCam(){ cam.scale=1; cam.ox=0; cam.oy=0; }
+
+  function rand(a,b){ return a + Math.random()*(b-a); }
+
+  // ---- load map ----
+  fetch('us-states.json')
+    .then(r => r.json())
+    .then(topo => {
+      const fc = topojson.feature(topo, topo.objects.states);
+      allFeatures = fc.features;
+      buildStatesForRegion();
+      ready = true;
+      startBtn.disabled = false;
+      startBtn.textContent = 'Play';
+      const hcb = document.getElementById('hostCreateBtn'); if (hcb) hcb.disabled = false;
+      buildRegionButtons();
+      refreshJoinBtn();
+      if (typeof renderScn === 'function') renderScn();   // enable the scenario "Start" button
+      resize();
+    })
+    .catch(err => {
+      startBtn.textContent = 'Map failed to load';
+      console.error(err);
+    });
+
+  // ---- load trained reinforcement-learning policy (for Master difficulty) ----
+  let rlPolicy = null;          // { feat_norm, num_features, noop_bias, layers:[{W,b,act}] }
+  let rlDiag = Math.SQRT2;       // distance normalizer (set from map bounds in buildGeo)
+  fetch('rl_policy.json')
+    .then(r => r.ok ? r.json() : null)
+    .then(p => { if (p) rlPolicy = p; })
+    .catch(() => { /* Master falls back to heuristic AI if policy missing */ });
+
+  // forward pass through the exported MLP: feats[F] -> scalar logit.
+  // If `capture` is passed, it is filled with [input, ...each layer's activations] for the NN viz.
+  function rlScore(feats, capture) {
+    let x = feats;
+    if (capture) { capture.length = 0; capture.push(feats.slice()); }
+    for (const layer of rlPolicy.layers) {
+      const out = new Array(layer.b.length);
+      for (let o=0; o<layer.b.length; o++) {
+        let acc = layer.b[o];
+        const row = layer.W[o];
+        for (let i=0; i<row.length; i++) acc += row[i]*x[i];
+        out[o] = layer.act==='tanh' ? Math.tanh(acc) : acc;
+      }
+      x = out;
+      if (capture) capture.push(out);
+    }
+    return x[0];
+  }
+
+  // ---- neural-network visualizer state ----
+  let showNN = false;       // toggle
+  let vizMode = 'brain';    // which overlay view: 'brain' (neural net) | 'planner' (rollout tree)
+  let planViz = null;       // last Grandmaster planner decision, for the overlay
+  let planVizDirty = false;
+  let planPending = {};     // owner -> true while a server /api/plan request is in flight
+  const SERVER_SIMS = 2500; // Grandmaster simulations per decision (run on the server)
+  let matchTrack = null;    // accumulates the local player's move stats this game (for their profile)
+  let rlViz = null;         // { acts:[...], src, tgt, owner, score } from the last RL decision
+  let rlVizDirty = false;   // redraw only when activations change
+  const nnHist = [];        // rolling [topProb, noopProb] samples for the confidence sparkline
+  const NN_HIST_MAX = 140;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W*DPR; canvas.height = H*DPR;
+    canvas.style.width = W+'px'; canvas.style.height = H+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    if (ready) { buildGeo(); buildBackground(); clampOffset(); render(); }
+  }
+  window.addEventListener('resize', resize);
+
+  function buildGeo() {
+    projection = d3.geoAlbersUsa();
+    // frame the active region so it fills the screen (Continental ≈ whole map)
+    const af = states.map(s => s.feature);
+    const fc = { type:'FeatureCollection', features: af.length ? af : allFeatures };
+    projection.fitExtent([[12, 70],[W-12, H-16]], fc);
+    geoPath = d3.geoPath(projection);
+
+    for (const s of states) {
+      s.d = geoPath(s.feature);
+      s.path = new Path2D(s.d);
+      const c = geoPath.centroid(s.feature);
+      s.cx = c[0]; s.cy = c[1];
+      s.polys = projectedPolys(s.feature);   // for hit testing
+    }
+    // diagonal of the active-state bounding box, used to normalize move distances for the RL policy
+    let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+    for (const s of states){ minx=Math.min(minx,s.cx); miny=Math.min(miny,s.cy); maxx=Math.max(maxx,s.cx); maxy=Math.max(maxy,s.cy); }
+    rlDiag = Math.hypot(maxx-minx, maxy-miny) || 1;
+    // Web app: keep the original fixed speed (unchanged from before).
+    // Native Android app: normalize orb speed to the map's on-screen size so the
+    // pace is the same on every phone — "snappy": ~8 s to cross the map diagonal
+    // (a normal state-to-state hop is ~1.3 s), regardless of screen size.
+    const MAP_CROSS_SECONDS = 8;
+    ORB_SPEED = IS_NATIVE_APP ? Math.max(8, Math.min(320, rlDiag / MAP_CROSS_SECONDS)) : 70;
+
+    // Responsive marker size: scale node radius to the typical gap between neighbouring
+    // states so the icons stay readable and don't overlap on small / mobile screens.
+    const nn = [];
+    for (const s of states){
+      let m = Infinity;
+      for (const o of states){ if (o===s) continue; const d=Math.hypot(o.cx-s.cx, o.cy-s.cy); if (d<m) m=d; }
+      if (isFinite(m)) nn.push(m);
+    }
+    nn.sort((a,b)=>a-b);
+    const med = nn.length ? nn[nn.length>>1] : 40;
+    markR = Math.max(8, Math.min(20, med*0.46));   // ~45% of the gap, clamped
+  }
+
+  function projectedPolys(feature) {
+    const out = [];
+    const g = feature.geometry;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+    for (const poly of polys) {
+      const ring = poly[0]; // outer ring
+      const pts = [];
+      for (const coord of ring) {
+        const p = projection(coord);
+        if (p) pts.push(p);
+      }
+      if (pts.length > 2) out.push(pts);
+    }
+    return out;
+  }
+
+  function pointInPoly(pts, x, y) {
+    let inside = false;
+    for (let i=0, j=pts.length-1; i<pts.length; j=i++) {
+      const xi=pts[i][0], yi=pts[i][1], xj=pts[j][0], yj=pts[j][1];
+      if (((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) inside = !inside;
+    }
+    return inside;
+  }
+
+  function buildBackground() {
+    bgCanvas = document.createElement('canvas');
+    bgCanvas.width = W*DPR; bgCanvas.height = H*DPR;
+    const b = bgCanvas.getContext('2d');
+    b.setTransform(DPR,0,0,DPR,0,0);
+    // ocean / base
+    b.fillStyle = '#e3e9ee';
+    b.fillRect(0,0,W,H);
+    // inactive states (everything not in the active region): light blue with dot texture
+    const activeNames = new Set(states.map(s => s.name));
+    for (const f of allFeatures) {
+      if (activeNames.has(f.properties.name)) continue;
+      const d = geoPath(f);
+      if (!d) continue;
+      const p = new Path2D(d);
+      b.save();
+      b.fillStyle = '#c4d3e2';
+      b.fill(p);
+      b.clip(p);
+      b.fillStyle = 'rgba(120,150,185,0.45)';
+      for (let y=0; y<H; y+=26) for (let x=(Math.floor(y/26)%2)*13; x<W; x+=26) {
+        b.beginPath(); b.arc(x, y, 3, 0, Math.PI*2); b.fill();
+      }
+      b.restore();
+      b.strokeStyle = 'rgba(255,255,255,0.7)'; b.lineWidth = 1; b.stroke(p);
+    }
+  }
+
+  function buildLevelButtons() {
+    for (const el of [levelsEl, document.getElementById('hostLevels')]) {
+      if (!el) continue;
+      el.innerHTML = '';
+      LEVELS.forEach((lv,i) => {
+        const b = document.createElement('div');
+        b.className = 'lvl' + (i===levelIdx?' active':'');
+        b.textContent = lv.name;
+        b.onclick = () => { levelIdx=i; buildLevelButtons(); };
+        el.appendChild(b);
+      });
+    }
+  }
+  buildLevelButtons();
+
+  function buildRegionButtons() {
+    for (const el of [document.getElementById('regions'), document.getElementById('hostRegions')]) {
+      if (!el) continue;
+      el.innerHTML = '';
+      REGIONS.forEach((r,i) => {
+        const b = document.createElement('div');
+        b.className = 'lvl' + (i===regionIdx?' active':'');
+        b.textContent = r.name;
+        b.onclick = () => {
+          regionIdx = i;
+          if (ready && !running){ buildStatesForRegion(); buildGeo(); buildBackground(); clampOffset(); render(); }
+          buildRegionButtons();
+        };
+        el.appendChild(b);
+      });
+    }
+  }
+
+
+  // ---- new game ----
+  function farthestPick(starters) {
+    let best=null, bestD=-1;
+    for (const s of states) {
+      if (starters.includes(s)) continue;
+      let d = 1e9;
+      for (const st of starters) { const dx=st.cx-s.cx, dy=st.cy-s.cy; d=Math.min(d, dx*dx+dy*dy); }
+      if (starters.length===0) d=0;
+      if (d>bestD){ bestD=d; best=s; }
+    }
+    return best;
+  }
+
+  let cfg = LEVELS[0];
+  function growRateFor(owner) {
+    if (owner === PLAYER) return cfg.growRate;
+    if (owner >= 2) return cfg.growRate * cfg.enemyGrow;
+    return 0;
+  }
+
+  function newGame() {
+    if (!ready) return;
+    scenarioMode = false; scenarioObserver = false;
+    const lv = LEVELS[levelIdx];
+    cfg = lv;
+    troops = []; selected=null; dragPos=null; aiTimers={}; planPending={}; resetCam();
+    matchTrack = { attacks:0, early:0, earlyEnemy:0, sumWeak:0, sumSrc:0, sumDist:0 };
+    if (netMode!=='host') myOwner = PLAYER;
+    if (!netMode && regionIdx!==0){ regionIdx=0; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default map
+    buildGeo();
+
+    for (const s of states) {
+      s.owner = NEUTRAL;
+      s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax));
+      s.growAcc = 0; s.pulse = 0;
+    }
+    const enemyCount = Math.max(1, Math.min((mpEnemies!=null) ? mpEnemies : lv.enemies, states.length-1));
+    const starters = [];
+    const first = states[Math.floor(Math.random()*states.length)];
+    first.owner = PLAYER; first.troops = lv.playerStart; starters.push(first);
+    for (let e=0; e<enemyCount; e++) {
+      const b = farthestPick(starters);
+      b.owner = 2+e; b.troops = lv.enemyStart; starters.push(b);
+    }
+    // solo / guest-less: every enemy is AI. (Host sets slotControl before calling.)
+    if (netMode!=='host') { slotControl = {}; for (let e=0; e<enemyCount; e++) slotControl[2+e] = 'ai'; }
+
+    running = true;
+    gameTick = 0; gameElapsed = 0; nnHist.length = 0;
+    overlay.classList.add('hidden');
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  function ownersAlive() {
+    const set = new Set();
+    for (const s of states) if (s.owner!==NEUTRAL) set.add(s.owner);
+    for (const t of troops) if (t.owner!==NEUTRAL) set.add(t.owner);
+    return set;
+  }
+
+  function endGame(won) {
+    running = false;
+    overlay.classList.remove('hidden');
+    introText.style.display = 'none';
+    resultText.textContent = won ? 'VICTORY!' : 'DEFEAT';
+    resultText.style.color = won ? '#38c46f' : '#ef5b52';
+    startBtn.textContent = 'Play Again';
+    recordResult(won);
+  }
+
+  function toMenu() {
+    running = false;
+    scenarioMode = false; scenarioObserver = false;
+    if (NET.es) { NET.es.close(); NET.es = null; }
+    netMode = null; myOwner = PLAYER; mpEnemies = null;
+    nnBtn.classList.remove('gone');
+    overlay.classList.remove('hidden');
+    introText.style.display = '';
+    resultText.textContent = '';
+    startBtn.textContent = ready ? 'Play' : 'Loading map…';
+  }
+  backEl.addEventListener('click', toMenu);
+
+  // ---- send troops ----
+  // denom: 1 (or omitted) sends ALL; N sends ~1/N, leaving the remainder behind.
+  // AI callers always omit denom, so AI behaviour is unchanged (still sends all).
+  function sendTroops(from, to, denom) {
+    if (!from || !to || from===to) return;
+    if (from.owner===NEUTRAL) return;
+    denom = (denom && denom > 1) ? Math.floor(denom) : 1;
+    const amount = denom > 1 ? Math.floor(from.troops / denom) : from.troops;
+    if (amount < 1) return;
+    from.troops -= amount;             // leave the remainder (all of it when denom===1)
+    from.pulse = 1;
+    const dist = Math.hypot(to.cx-from.cx, to.cy-from.cy) || 1;
+    troops.push({
+      owner: from.owner, x: from.cx, y: from.cy, tx: to.cx, ty: to.cy,
+      ox: from.cx, oy: from.cy, fromId: from.id,   // origin (for network snapshots / progress)
+      targetId: to.id, count: amount, speed: ORB_SPEED, uid: ++orbSeq,   // uid: lets guests track an orb across snapshots
+      r: Math.min(17, 7 + Math.sqrt(amount)) * (markR/17),
+    });
+  }
+
+  // Fractional sends: hold Ctrl and press a digit to send 1/N of a state's troops.
+  // Ctrl+1 = all, Ctrl+2 = half, Ctrl+3 = a third … Releasing Ctrl resets to "send all",
+  // so a plain drag (no Ctrl) always sends everything.
+  let ctrlDown = false, sendDenom = 1;
+  // stickyDenom: the persistent fraction chosen via the on-screen "Send" button
+  // (1 = All, 2 = Half, 4 = Quarter). Applies to every send until changed.
+  // Holding Ctrl + a digit still temporarily overrides it (power-user shortcut).
+  let stickyDenom = 1;
+  function currentSendDenom(){ return ctrlDown ? sendDenom : stickyDenom; }
+  window.addEventListener('keydown', e => {
+    if (e.key==='Control' || e.ctrlKey) ctrlDown = true;
+    if (ctrlDown && e.code && /^Digit[1-9]$/.test(e.code)) {
+      sendDenom = +e.code.slice(5);   // Digit3 -> 3
+      e.preventDefault();             // don't let the browser hijack Ctrl+number (tab switch)
+    }
+  });
+  window.addEventListener('keyup', e => { if (e.key==='Control'){ ctrlDown = false; sendDenom = 1; } });
+  window.addEventListener('blur', () => { ctrlDown = false; sendDenom = 1; });
+
+  // A local human move. Host/solo apply it directly; a guest sends the intent to the host.
+  function issueMove(from, to) {
+    if (!from || !to || from===to) return;
+    trackPlayerMove(from, to);
+    const denom = currentSendDenom();
+    if (netMode==='guest') { api('/api/action?room='+NET.room, { cid:NET.cid, from:from.id, to:to.id, denom }); return; }
+    sendTroops(from, to, denom);
+  }
+  // observe the local human's move to learn their style (folded into their profile at game end)
+  function trackPlayerMove(from, to) {
+    if (!matchTrack || from.owner!==myOwner) return;
+    const cands = states.filter(s => s.owner!==myOwner);
+    const stronger = cands.filter(s => s.troops > to.troops).length;
+    const weak = cands.length ? stronger/cands.length : 0.5;   // 1 = chose the weakest available target
+    matchTrack.attacks++;
+    matchTrack.sumWeak += weak;
+    matchTrack.sumSrc  += from.troops;
+    matchTrack.sumDist += Math.hypot(to.cx-from.cx, to.cy-from.cy);
+    if (gameElapsed < 20) { matchTrack.early++; if (to.owner!==NEUTRAL) matchTrack.earlyEnemy++; }
+  }
+
+  function arrive(t) {
+    const to = states.find(s => s.id===t.targetId);
+    if (!to) return;
+    // No cap on incoming troops: stacking via attacks/reinforcements can exceed MAX_TROOPS.
+    // (MAX_TROOPS only limits passive auto-generation, handled in update().)
+    if (to.owner===t.owner) {
+      to.troops += t.count;
+    } else {
+      to.troops -= t.count;
+      if (to.troops < 0) { to.owner=t.owner; to.troops=-to.troops; to.pulse=1.2; }
+    }
+  }
+
+  // ---- AI ----
+  // Score every legal (src,tgt) move for one enemy with the trained policy plus a learned
+  // no-op, applying the gameplay biases. Returns { bestSrc, bestTgt, noop, cands } without
+  // committing anything. `collect` => also gather the full candidate list (for the viz).
+  // Feature order MUST match train_rl.py features(): see C:\Users\antho\stateio\train_rl.py.
+  function rlEvaluate(owner, collect) {
+    const FN = rlPolicy.feat_norm || 50;
+    const total = states.length;
+    let ownCount = 0;
+    for (const s of states) if (s.owner===owner) ownCount++;
+    const ownFrac = ownCount/total;
+    const srcs = states.filter(s=>s.owner===owner && s.troops>=5);
+    const noop = rlPolicy.noop_bias || 0;      // no-op logit (do nothing this tick)
+    if (!srcs.length) return { bestSrc:null, bestTgt:null, noop, cands:[] };
+
+    // Bias the policy to claim neutral land (the ring around the player first) and fight
+    // rival AIs, holding off on the player until the neutral land is gone.
+    const neutralsLeft = states.some(s=>s.owner===NEUTRAL);
+    const rivalsLeft   = states.some(s=>s.owner>=2 && s.owner!==owner);
+    const endgame = !neutralsLeft && !rivalsLeft;   // only this AI and the player are left
+    const playerStates = states.filter(s=>s.owner===PLAYER);
+    const distToPlayer = tg => {
+      let m = Infinity;
+      for (const p of playerStates) { const d=Math.hypot(tg.cx-p.cx, tg.cy-p.cy); if (d<m) m=d; }
+      return m===Infinity ? 9999 : m;
+    };
+    // In the endgame, stop turtling: lower the bar to act so the AI keeps striking the
+    // player from any state strong enough to win, while its other states keep growing
+    // (it does both at once instead of stacking one huge army first).
+    const noopEff = endgame ? noop - 1 : noop;
+    let bestScore = noopEff;
+    let bestSrc=null, bestTgt=null;
+    const cands = collect ? [] : null;
+    for (const src of srcs) {
+      for (const tg of states) {
+        if (tg===src) continue;
+        if (tg.owner===owner) continue;   // never relocate onto own states (causes degenerate stacking)
+        const st=src.troops, tt=tg.troops;
+        const feats = [
+          st/FN,
+          tt/FN,
+          (st-tt)/FN,
+          Math.hypot(tg.cx-src.cx, tg.cy-src.cy)/rlDiag,
+          tg.owner===NEUTRAL ? 1 : 0,
+          (tg.owner!==NEUTRAL && tg.owner!==owner) ? 1 : 0,
+          st>tt ? 1 : 0,
+          ownFrac,
+        ];
+        const raw = rlScore(feats);
+        let score = raw, bias = 0;
+        if (tg.owner===NEUTRAL) {
+          if (playerStates.length) bias = Math.max(0, 1.2 - distToPlayer(tg)/rlDiag); // ring around player first
+        }
+        else if (tg.owner>=2 && tg.owner!==owner) bias = 1.5;          // fight rival AIs
+        else if (tg.owner===PLAYER) {
+          if (!endgame) bias = -6;                                     // wait until land & rivals are gone
+          else bias = (st>tt ? 3 : -4);                               // endgame: strike whenever a state can win; keep growing otherwise
+        }
+        score += bias;
+        if (cands) cands.push({ src, tg, score, raw, bias, feats });
+        if (score>bestScore){ bestScore=score; bestSrc=src; bestTgt=tg; }
+      }
+    }
+    return { bestSrc, bestTgt, noop: noopEff, cands: cands||[] };
+  }
+
+  const OWNER_TYPE = (o, self) => o===NEUTRAL ? 'neutral' : (o===PLAYER ? 'PLAYER' : (o===self ? 'self' : 'rival'));
+  // Build the live NN-viz object from an evaluation: captures activations of the top move,
+  // a full softmax over all candidates + no-op, decision entropy, the top-5 candidates and
+  // a snapshot of the game context for the enemy being shown.
+  function rlSetViz(owner, ev) {
+    const cands = ev.cands;
+    // game-state context for this enemy
+    let ownC=0, neuC=0, rivC=0, plyC=0, ownTroops=0;
+    for (const s of states){
+      if (s.owner===owner){ ownC++; ownTroops+=s.troops; }
+      else if (s.owner===NEUTRAL) neuC++;
+      else if (s.owner===PLAYER) plyC++;
+      else rivC++;
+    }
+    const ctx0 = { ownC, neuC, rivC, plyC, ownTroops, total:states.length, ownFrac:ownC/Math.max(1,states.length) };
+
+    if (!cands.length) {
+      rlViz = { acts:[new Array(rlPolicy.num_features||8).fill(0)].concat(rlPolicy.layers.map(l=>l.b.map(()=>0))),
+                src:null, tgt:null, owner, score:0, noop:ev.noop, waiting:true,
+                noopProb:1, entropy:0, numMoves:0, beatNoop:0, candidates:[], ctx:ctx0 };
+      rlVizDirty = true; return;
+    }
+    cands.sort((a,b)=>b.score-a.score);
+    const top = cands[0];
+    const acts = [];
+    const raw = rlScore(top.feats, acts);
+    const scores = cands.map(c=>c.score).concat([ev.noop]);
+    const mx = Math.max(...scores);
+    let sum=0; for (const s of scores) sum += Math.exp(s-mx);
+    const prob = s => Math.exp(s-mx)/sum;
+    // Shannon entropy of the full decision distribution (nats) + normalized [0..1]
+    let ent=0; for (const s of scores){ const p=prob(s); if (p>1e-9) ent -= p*Math.log(p); }
+    const entNorm = ent/Math.log(scores.length);
+    const top1p = prob(top.score);
+    let beat=0; for (const c of cands) if (c.score>ev.noop) beat++;
+    const FN = rlPolicy.feat_norm || 50;
+    rlViz = {
+      acts, src:top.src, tgt:top.tg, owner, score:raw, noop:ev.noop,
+      waiting: !ev.bestSrc,
+      noopProb: prob(ev.noop),
+      entropy: ent, entropyNorm: entNorm,
+      numMoves: cands.length, beatNoop: beat,
+      ctx: ctx0,
+      candidates: cands.slice(0,5).map(c=>({
+        from:c.src.name, to:c.tg.name, score:c.score, raw:c.raw, bias:c.bias,
+        prob:prob(c.score), s:c.src, t:c.tg,
+        type: OWNER_TYPE(c.tg.owner, owner),
+        dist: c.feats[3]*rlDiag, delta: c.src.troops - c.tg.troops,
+        srcT: c.src.troops, tgtT: c.tg.troops,
+      })),
+    };
+    nnHist.push([top1p, prob(ev.noop)]);
+    if (nnHist.length > NN_HIST_MAX) nnHist.shift();
+    rlVizDirty = true;
+  }
+
+  // One actual AI decision (commits a move if one beats the no-op).
+  function rlMove(owner) {
+    const ev = rlEvaluate(owner, showNN);
+    if (showNN) rlSetViz(owner, ev);
+    if (ev.bestSrc && ev.bestTgt) sendTroops(ev.bestSrc, ev.bestTgt);
+  }
+
+  // ---- Joint-attack coordination ----
+  // The per-move policy/MCTS only ever asks "can ONE of my states beat that target?" — so a
+  // player who turtles 2000 troops onto a single state is individually unbeatable and the AI
+  // freezes (every single attack looks like a loss). This layer reasons over the SUM of the
+  // AI's states: it finds an enemy "wall" no single state can crack but the combined force can,
+  // then launches a coordinated salvo from the strongest states until the math wins. Because
+  // the player's mega-stack is above MAX_TROOPS it can't regrow, so staggered waves chip it
+  // down cumulatively and flip it. Returns true if it committed a salvo (consumes the tick).
+  function coordinatedAssault(owner) {
+    const mine = states.filter(s => s.owner === owner);
+    if (mine.length < 2) return false;                      // need multiple states to coordinate
+    let bestSingle = 0;
+    for (const s of mine) if (s.troops > bestSingle) bestSingle = s.troops;
+
+    const neutralsLeft = states.some(s => s.owner === NEUTRAL);
+    const rivalsLeft   = states.some(s => s.owner >= 2 && s.owner !== owner);
+    const endgame = !neutralsLeft && !rivalsLeft;          // only this AI and the player remain
+
+    // Candidate "walls": enemy states no single state of ours can take alone. Coordinate against
+    // rivals anytime, and against the player only once the neutral land is gone (endgame focus).
+    const walls = states.filter(s => {
+      if (s.owner === owner || s.owner === NEUTRAL) return false;
+      if (s.troops < bestSingle) return false;             // a single state could handle it — no need
+      if (s.owner === PLAYER) return endgame;              // don't gang up on the player too early
+      return true;                                         // rival AI wall
+    });
+    if (!walls.length) return false;
+    // cheapest wall to crack first (smallest garrison we can still overwhelm)
+    walls.sort((a, b) => a.troops - b.troops);
+
+    for (const tg of walls) {
+      const needed = tg.troops + Math.max(6, Math.ceil(tg.troops * 0.12));   // win + safety margin
+      // commit the strongest states first, keeping the rest as garrison, until we clear `needed`.
+      const force = mine.filter(s => s !== tg && s.troops >= 8).sort((a, b) => b.troops - a.troops);
+      let sum = 0; const salvo = [];
+      for (const s of force) { salvo.push(s); sum += s.troops; if (sum >= needed) break; }
+      if (sum < needed) continue;                          // can't beat this wall even jointly — try next
+      if (salvo.length < 2) continue;                      // a single state suffices; let normal logic handle it
+      for (const s of salvo) sendTroops(s, tg);            // fire the coordinated wave
+      lastSalvo = { owner, tgt: tg.name, count: salvo.length, troops: Math.round(sum), t: gameElapsed };
+      return true;
+    }
+    return false;
+  }
+
+  // ---- Grandmaster: shallow-rollout PLANNER (built on the same trained net) ----
+  // Self-contained forward simulation over a lightweight snapshot; never mutates live state.
+  // Planner travel-time estimates use the same per-map ORB_SPEED as live orbs.
+  function takeSnapshot() {
+    const n = states.length;
+    const snap = { n, cx:[], cy:[], owner:[], troops:[], armies:[], idToIdx:{} };
+    states.forEach((s,i) => { snap.cx[i]=s.cx; snap.cy[i]=s.cy; snap.owner[i]=s.owner; snap.troops[i]=s.troops; snap.idToIdx[s.id]=i; });
+    for (const t of troops) {                       // fold in-flight armies into the sim
+      const ti = snap.idToIdx[t.targetId]; if (ti==null) continue;
+      const rem = Math.hypot(t.tx-t.x, t.ty-t.y) / (t.speed||ORB_SPEED);
+      snap.armies.push({ owner:t.owner, count:t.count, ti, t:0, ttotal:Math.max(0.02, rem) });
+    }
+    return snap;
+  }
+  function cloneSnap(s) {
+    return { n:s.n, cx:s.cx, cy:s.cy, owner:s.owner.slice(), troops:s.troops.slice(),
+             armies:s.armies.map(a=>({...a})), idToIdx:s.idToIdx };
+  }
+  function snapStep(snap, dt) {
+    for (let i=0;i<snap.n;i++)
+      if (snap.owner[i]!==NEUTRAL && snap.troops[i]<MAX_TROOPS)
+        snap.troops[i] = Math.min(MAX_TROOPS, snap.troops[i] + growRateFor(snap.owner[i])*dt);
+    const still = [];
+    for (const a of snap.armies) {
+      a.t += dt;
+      if (a.t >= a.ttotal) {
+        if (snap.owner[a.ti]===a.owner) snap.troops[a.ti] += a.count;
+        else { snap.troops[a.ti] -= a.count; if (snap.troops[a.ti]<0){ snap.owner[a.ti]=a.owner; snap.troops[a.ti]=-snap.troops[a.ti]; } }
+      } else still.push(a);
+    }
+    snap.armies = still;
+  }
+  function snapSend(snap, si, ti) {
+    const amt = snap.troops[si]; if (amt<1 || snap.owner[si]===NEUTRAL) return;
+    snap.troops[si] = 0;
+    const d = Math.hypot(snap.cx[ti]-snap.cx[si], snap.cy[ti]-snap.cy[si]);
+    snap.armies.push({ owner:snap.owner[si], count:amt, ti, t:0, ttotal:Math.max(0.05, d/ORB_SPEED) });
+  }
+  // greedy move for one owner on a snapshot — mirrors rlEvaluate()'s net + biases exactly.
+  function snapGreedy(snap, owner) {
+    const FN = rlPolicy.feat_norm || 50;
+    let ownCount=0; for (let i=0;i<snap.n;i++) if (snap.owner[i]===owner) ownCount++;
+    if (!ownCount) return null;
+    const ownFrac = ownCount/snap.n;
+    let srcs=[]; for (let i=0;i<snap.n;i++) if (snap.owner[i]===owner && snap.troops[i]>=5) srcs.push(i);
+    if (!srcs.length) return null;
+    // rollout speed: only weigh each owner's strongest couple of sources (their realistic attackers)
+    if (srcs.length>2) srcs = srcs.sort((a,b)=>snap.troops[b]-snap.troops[a]).slice(0,2);
+    const noop = rlPolicy.noop_bias || 0;
+    let neutralsLeft=false, rivalsLeft=false; const playerIdx=[];
+    for (let i=0;i<snap.n;i++){ const o=snap.owner[i];
+      if (o===NEUTRAL) neutralsLeft=true; else if (o>=2 && o!==owner) rivalsLeft=true;
+      if (o===PLAYER) playerIdx.push(i); }
+    const endgame = !neutralsLeft && !rivalsLeft;
+    const noopEff = endgame ? noop-1 : noop;
+    const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(snap.cx[ti]-snap.cx[p], snap.cy[ti]-snap.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
+    let best=noopEff, bs=null, bt=null;
+    for (const si of srcs){ const st=snap.troops[si];
+      for (let ti=0; ti<snap.n; ti++){ if (ti===si || snap.owner[ti]===owner) continue;
+        const tt=snap.troops[ti];
+        const feats=[ st/FN, tt/FN, (st-tt)/FN, Math.hypot(snap.cx[ti]-snap.cx[si], snap.cy[ti]-snap.cy[si])/rlDiag,
+                      snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ];
+        let score=rlScore(feats);
+        if (snap.owner[ti]===NEUTRAL){ if (playerIdx.length) score += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
+        else if (snap.owner[ti]>=2 && snap.owner[ti]!==owner) score += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
+        else if (snap.owner[ti]===PLAYER) score += endgame ? (st>tt?3:-4) : -6;
+        if (score>best){ best=score; bs=si; bt=ti; }
+      }
+    }
+    return bs==null ? null : [bs, bt];
+  }
+  // cheap (net-free) opponent model for inside the search tree — mirrors the heuristic AI.
+  function snapHeuristic(s, owner) {
+    let si=-1, bestT=-1;
+    for (let i=0;i<s.n;i++) if (s.owner[i]===owner && s.troops[i]>bestT){ bestT=s.troops[i]; si=i; }
+    if (si<0 || s.troops[si]<12) return null;
+    let neutralsLeft=false; for (let i=0;i<s.n;i++) if (s.owner[i]===NEUTRAL){ neutralsLeft=true; break; }
+    const st=s.troops[si]; let bt=-1, best=-1e9;
+    for (let ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue;
+      const tt=s.troops[ti], d=Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si]);
+      let sc = -d*0.02 - tt*1.1;
+      if (s.owner[ti]===NEUTRAL) sc+=8; else if (s.owner[ti]>=2) sc+=10; else sc += neutralsLeft ? -50 : 8;  // rivals 10: partial infighting
+      if (st>tt) sc+=25;
+      if (sc>best){ best=sc; bt=ti; }
+    }
+    return bt<0 ? null : [si,bt];
+  }
+  function snapPhi(snap, owner) {
+    const cnt={}; let tr=0;
+    for (let i=0;i<snap.n;i++){ const o=snap.owner[i]; cnt[o]=(cnt[o]||0)+1; if (o===owner) tr+=snap.troops[i]; }
+    const mine=cnt[owner]||0; let enemy=0;
+    for (const o in cnt){ const k=+o; if (k!==owner && k!==NEUTRAL) enemy=Math.max(enemy, cnt[o]); }
+    return (mine-enemy) + 0.002*tr;
+  }
+  // simulate one candidate (or null = do nothing) HORIZON seconds ahead; return projected standing.
+  const planName = i => (states[i] && states[i].name) || ('#'+i);
+  function planRollout(base, owner, opt, horizon, dt, cap) {
+    const lv = LEVELS[levelIdx];
+    const snap = cloneSnap(base);
+    if (cap) cap.events = [];
+    if (opt) { snapSend(snap, opt[0], opt[1]); if (cap) cap.events.push({ t:0, o:owner, from:planName(opt[0]), to:planName(opt[1]) }); }
+    const owners = new Set();
+    for (let i=0;i<snap.n;i++) if (snap.owner[i]!==NEUTRAL) owners.add(snap.owner[i]);
+    for (const a of snap.armies) if (a.owner!==NEUTRAL) owners.add(a.owner);
+    const timers = {};
+    owners.forEach(o => timers[o] = (o===owner) ? rand(lv.aiSpeed*0.6, lv.aiSpeed*1.4)
+                       : (aiTimers[o]!==undefined ? Math.max(0.05, aiTimers[o]) : rand(0.1, lv.aiSpeed)));
+    const steps = Math.round(horizon/dt); let simT = 0;
+    for (let s=0; s<steps; s++) {
+      snapStep(snap, dt); simT += dt;
+      owners.forEach(o => { timers[o]-=dt; if (timers[o]<=0){ timers[o]=rand(lv.aiSpeed*0.6, lv.aiSpeed*1.4);
+        const mv=snapGreedy(snap,o); if (mv){ snapSend(snap, mv[0], mv[1]);
+          if (cap && cap.events.length<16) cap.events.push({ t:simT, o, from:planName(mv[0]), to:planName(mv[1]) }); } } });
+      const alive=new Set();
+      for (let i=0;i<snap.n;i++) if (snap.owner[i]!==NEUTRAL) alive.add(snap.owner[i]);
+      for (const a of snap.armies) alive.add(a.owner);
+      if (alive.size===1 && alive.has(owner)){ if (cap) cap.board=snap.owner.slice(); return 1000; }
+      if (!alive.has(owner)){ if (cap) cap.board=snap.owner.slice(); return -1000; }
+    }
+    if (cap) cap.board = snap.owner.slice();
+    return snapPhi(snap, owner);
+  }
+  // Grandmaster decision: rank candidates with the net, roll each one out, commit the best future.
+  // `prior` blends a little of the net's own score back in so a single noisy rollout can't pick a silly move.
+  const PLAN = { horizon:11.0, dt:0.4 };   // plan further ahead (11s) at finer time resolution (0.4s)
+  const MCTS = { tbudget:10, maxIter:400, cPuct:1.3, K:5 };  // AlphaGo-style PUCT search; K=5 widens the move fan-out
+  // (tbudget/maxIter here are only the local in-browser FALLBACK; the real server search is sized below)
+
+  function snapAdvance(s, T){ const n=Math.max(1,Math.round(T/PLAN.dt)), d=T/n; for (let k=0;k<n;k++) snapStep(s,d); }
+  function snapOwners(s){ const set=new Set(); for (let i=0;i<s.n;i++) if (s.owner[i]!==NEUTRAL) set.add(s.owner[i]); for (const a of s.armies) set.add(a.owner); return set; }
+  // tree edge: apply the AI's move, then advance ~one decision-cadence while every opponent plays greedily.
+  function mctsAdvance(parentSnap, owner, mv, parentTime){
+    const s = cloneSnap(parentSnap), events = [];
+    if (mv){ snapSend(s, mv[0], mv[1]); events.push({ t:parentTime, o:owner, from:planName(mv[0]), to:planName(mv[1]) }); }
+    const cad = LEVELS[levelIdx].aiSpeed, half = cad/2;
+    snapAdvance(s, half);
+    for (const o of snapOwners(s)){ if (o===owner) continue; const m=snapHeuristic(s,o);
+      if (m){ snapSend(s, m[0], m[1]); events.push({ t:parentTime+half, o, from:planName(m[0]), to:planName(m[1]) }); } }
+    snapAdvance(s, half);
+    return { snap:s, time:parentTime+cad, events };
+  }
+  // leaf evaluation: territory standing for the owner, squashed to [-1,1] (±1 = win/loss).
+  function nodeVal(s, owner){
+    // Mirrors planner.js: value = territory (the growth engine) + standing army, so the search
+    // rewards a big stacked attack force, not just raw state count.
+    const cnt={}, mass={};
+    for (let i=0;i<s.n;i++){ const o=s.owner[i]; if (o!==NEUTRAL){ cnt[o]=(cnt[o]||0)+1; mass[o]=(mass[o]||0)+s.troops[i]; } }
+    const myStates=cnt[owner]||0; if (myStates===0) return -1;
+    if (Object.keys(cnt).length===1) return 1;
+    const strength=o=>(cnt[o]||0)+(mass[o]||0)/30;
+    const mine=strength(owner);
+    let best=0; for (const o in cnt){ const k=+o; if (k!==owner) best=Math.max(best,strength(k)); }
+    return Math.tanh(0.22*(mine-best));
+  }
+  // score all candidate moves on a snapshot with the net + biases (mirrors snapGreedy), then
+  // soft-max the top K (+ no-op) into policy priors for PUCT.
+  function computeUntried(s, owner){
+    const FN = rlPolicy.feat_norm || 50;
+    let ownCount=0; for (let i=0;i<s.n;i++) if (s.owner[i]===owner) ownCount++;
+    const ownFrac = ownCount/s.n;
+    let srcs=[]; for (let i=0;i<s.n;i++) if (s.owner[i]===owner && s.troops[i]>=5) srcs.push(i);
+    let neutralsLeft=false, rivalsLeft=false; const playerIdx=[];
+    for (let i=0;i<s.n;i++){ const o=s.owner[i]; if (o===NEUTRAL) neutralsLeft=true; else if (o>=2&&o!==owner) rivalsLeft=true; if (o===PLAYER) playerIdx.push(i); }
+    const endgame=!neutralsLeft && !rivalsLeft, noop=rlPolicy.noop_bias||0;
+    if (srcs.length>3) srcs = srcs.sort((a,b)=>s.troops[b]-s.troops[a]).slice(0,3);
+    const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(s.cx[ti]-s.cx[p], s.cy[ti]-s.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
+    const list=[];
+    for (const si of srcs){ const st=s.troops[si];
+      for (let ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; const tt=s.troops[ti];
+        let sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/rlDiag,
+                         s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ]);
+        if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
+        else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
+        else if (s.owner[ti]===PLAYER) sc += endgame ? (st>tt?3:-4) : -6;
+        list.push({ mv:[si,ti], score:sc });
+      }
+    }
+    list.push({ mv:null, score: endgame ? noop-1 : noop });   // no-op option
+    list.sort((a,b)=>b.score-a.score);
+    const top = list.slice(0, MCTS.K+1);
+    const mx = Math.max(...top.map(c=>c.score)); let sum=0; for (const c of top) sum+=Math.exp(c.score-mx);
+    return top.map(c=>({ mv:c.mv, prior:Math.exp(c.score-mx)/sum }));
+  }
+  function bestPUCT(node){
+    let best=null, bv=-1e18; const sq=Math.sqrt(node.N);
+    for (const c of node.children){ const q=c.N?c.W/c.N:0, u=MCTS.cPuct*c.prior*sq/(1+c.N);
+      if (q+u>bv){ bv=q+u; best=c; } }
+    return best;
+  }
+  function mctsIter(root, owner){
+    let node=root; const path=[node];
+    while (node.untried && node.untried.length===0 && node.children.length>0 && node.time<PLAN.horizon){
+      node = bestPUCT(node); path.push(node);
+    }
+    if (node.time<PLAN.horizon){
+      if (node.untried===null) node.untried = computeUntried(node.snap, owner);
+      if (node.untried.length>0){
+        const pick = node.untried.shift();
+        const adv = mctsAdvance(node.snap, owner, pick.mv, node.time);
+        const child = { snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events };
+        node.children.push(child); path.push(child); node=child;
+      }
+    }
+    const v = nodeVal(node.snap, owner);
+    for (const n of path){ n.N++; n.W+=v; }
+  }
+  function pvLeaf(node){ let n=node; while (n.children.length){ let nx=null; for (const c of n.children) if (!nx||c.N>nx.N) nx=c; n=nx; } return n; }
+
+  // Build the serializable board the server needs to plan a move for `owner`.
+  function buildPlanRequest(owner){
+    const idToIdx = {}; states.forEach((s,i)=>idToIdx[s.id]=i);
+    const cx=[], cy=[], ow=[], tr=[], names=[];
+    states.forEach(s=>{ cx.push(s.cx); cy.push(s.cy); ow.push(s.owner); tr.push(s.troops); names.push(s.name); });
+    const armies=[];
+    for (const t of troops){ const ti=idToIdx[t.targetId]; if (ti==null) continue;
+      const rem=Math.hypot(t.tx-t.x, t.ty-t.y)/(t.speed||ORB_SPEED);
+      armies.push({ owner:t.owner, count:t.count, ti, ttotal:Math.max(0.02, rem) }); }
+    const lv=LEVELS[levelIdx];
+    // tell the server which slots are humans (so it models them with their learned profiles)
+    const humans = {}; humans[myOwner] = playerName;
+    for (const k in slotControl){ const sc=slotControl[k]; if (sc && sc!=='ai' && sc.name) humans[k]=sc.name; }
+    return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies,
+      aiSpeed:lv.aiSpeed, rlDiag, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
+      horizon:PLAN.horizon, dt:PLAN.dt, ownerId:owner, wantViz: showNN && vizMode==='planner',
+      humans, mcts:{ tbudget:450, maxIter:SERVER_SIMS, cPuct:MCTS.cPuct, K:MCTS.K } };
+  }
+  // Ask the server to run the heavy 1000-sim MCTS off-thread; apply the move when it returns.
+  function plannerMoveServer(owner){
+    if (planPending[owner]) return;                  // already thinking about this enemy
+    planPending[owner] = true;
+    api('/api/plan', buildPlanRequest(owner))
+      .then(r => r.json())
+      .then(res => {
+        planPending[owner] = false;
+        if (!running) return;
+        if (res && res.viz && showNN && vizMode==='planner'){ planViz = res.viz; planVizDirty = true; }
+        if (res && res.move){ const s=states[res.move[0]], t=states[res.move[1]];
+          // guard against staleness; and don't let it instantly flee a freshly-threatened
+          // state — it must wait out REACT_DELAY before evacuating troops from one.
+          if (s && t && s!==t && s.owner===owner && !freshThreat(s)) sendTroops(s, t); }
+      })
+      .catch(() => { planPending[owner] = false; plannerMove(owner); });   // fallback: local MCTS
+  }
+
+  function plannerMove(owner){
+    const ev = rlEvaluate(owner, true);
+    if (showNN && vizMode==='brain') rlSetViz(owner, ev);   // keep the AI-brain panel live
+    const base = takeSnapshot();
+    const root = { snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[] };
+    const t0 = performance.now(); let iter=0;
+    while (iter<MCTS.maxIter && performance.now()-t0 < MCTS.tbudget){ mctsIter(root, owner); iter++; }
+    let bestChild=null; for (const c of root.children) if (!bestChild || c.N>bestChild.N) bestChild=c;   // most-visited
+    if (showNN && vizMode==='planner') buildPlanViz(owner, root, bestChild, iter);
+    if (bestChild && bestChild.move){ const s=states[bestChild.move[0]];
+      if (!freshThreat(s)) sendTroops(s, states[bestChild.move[1]]); }   // wait out the reaction delay
+  }
+  function buildPlanViz(owner, root, bestChild, iters){
+    const typeOfMv = mv => !mv ? 'noop' : (states[mv[1]].owner===NEUTRAL ? 'neutral' : (states[mv[1]].owner===PLAYER ? 'player' : 'rival'));
+    const children = root.children.slice().sort((a,b)=>b.N-a.N);
+    const cands = children.map(c => { const leaf=pvLeaf(c);
+      return { from: c.move?planName(c.move[0]):'—', to: c.move?planName(c.move[1]):'—',
+               type: typeOfMv(c.move), visits:c.N, value:c.N?c.W/c.N:0, chosen:c===bestChild,
+               board: leaf.snap.owner.slice() }; });
+    // principal variation: follow the most-visited child each ply -> the AI's main line
+    const line=[]; let node=root;
+    while (node.children.length){ let nx=null; for (const c of node.children) if (!nx||c.N>nx.N) nx=c;
+      for (const e of nx.events) if (line.length<16) line.push(e); node=nx; }
+    // extend the PV to the full horizon with a greedy tail so the imagined line reaches 8s
+    if (node.time < PLAN.horizon){ const cap={}; planRollout(node.snap, owner, null, PLAN.horizon-node.time, PLAN.dt, cap);
+      for (const e of (cap.events||[])) if (line.length<22) line.push({ t:node.time+e.t, o:e.o, from:e.from, to:e.to }); }
+    planViz = { owner, horizon:PLAN.horizon, n:root.children.length, iters, cands, line };
+    planVizDirty = true;
+  }
+
+  // Continuous, per-frame NN viz — runs every frame so the panel animates live even while
+  // the AI is idle between its action ticks. Does NOT commit any move.
+  function updateNNViz() {
+    if (!rlPolicy || !LEVELS[levelIdx]?.rl) return;
+    if (!showNN && netMode!=='host') return;   // host computes it anyway so spectators can watch the AI
+    // visualize whichever live AI-controlled enemy will act next (smallest timer), else lowest id
+    let owner=null, bestT=Infinity;
+    const alive = new Set();
+    for (const s of states) if (s.owner>=2 && (!slotControl[s.owner] || slotControl[s.owner]==='ai')) alive.add(s.owner);
+    if (!alive.size) { rlViz=null; return; }
+    alive.forEach(o => { const t = aiTimers[o]===undefined ? 0 : aiTimers[o]; if (t<bestT){ bestT=t; owner=o; } });
+    if (owner==null) return;
+    rlSetViz(owner, rlEvaluate(owner, true));
+  }
+
+  // Reaction delay (Grandmaster): track when each state first came under an incoming
+  // hostile army. The planner is then forbidden from evacuating ("dodging out of") a
+  // freshly threatened state until REACT_DELAY has elapsed, so it can't instantly flee
+  // the moment you commit troops toward it.
+  const REACT_DELAY = 0.5;   // seconds it must wait before reacting to a new threat
+  function updateThreats() {
+    const incoming = {};   // targetId -> total incoming hostile troops
+    for (const t of troops) {
+      const to = states[t.targetId];   // state id === array index (see buildStatesForRegion)
+      if (to && to.owner!==NEUTRAL && t.owner!==to.owner) incoming[t.targetId] = (incoming[t.targetId]||0) + t.count;
+    }
+    for (const s of states) {
+      const inc = incoming[s.id] || 0;
+      s._threatTroops = inc;
+      if (inc > 0) { if (s._threatAt==null) s._threatAt = gameElapsed; }
+      else s._threatAt = null;
+    }
+  }
+  // True only while a state is FRESHLY threatened (< REACT_DELAY) AND the incoming force would
+  // actually take it. That's exactly the "about to lose it, instinct to flee the garrison"
+  // case we want to delay — it does NOT block normal offence from a lightly-poked state.
+  function freshThreat(s) {
+    return s && s._threatAt!=null && (gameElapsed - s._threatAt) < REACT_DELAY
+        && (s._threatTroops||0) >= s.troops;
+  }
+
+  function updateAI(dt) {
+    const lv = LEVELS[levelIdx];
+    const useRL = lv.rl && rlPolicy;
+    const enemies = new Set();
+    for (const s of states) if (s.owner>=2) enemies.add(s.owner);
+    enemies.forEach(owner => {
+      if (slotControl[owner] && slotControl[owner]!=='ai') return;   // human-controlled — driven by relayed moves
+      if (aiTimers[owner]===undefined) aiTimers[owner]=rand(0.4, lv.aiSpeed);
+      aiTimers[owner]-=dt;
+      if (aiTimers[owner]>0) return;
+      aiTimers[owner]=aiCooldown(lv);
+
+      // Coordinated multi-state salvo (only the trained tiers): overwhelm a turtled wall that
+      // no single state can crack. Pre-empts the single-move logic when it fires.
+      if ((lv.rl || lv.plan) && coordinatedAssault(owner)) return;
+
+      if (lv.plan && rlPolicy) { plannerMoveServer(owner); return; }   // server runs the 1000-sim MCTS
+      if (useRL) { rlMove(owner); return; }
+
+      const mine = states.filter(s=>s.owner===owner);
+      if (!mine.length) return;
+      mine.sort((a,b)=>b.troops-a.troops);
+      const src = mine[0];
+      if (src.troops < 12) return;
+
+      const targets = states.filter(s=>s.owner!==owner);
+      if (!targets.length) return;
+      // Strategy: grab all the neutral land first (especially the ring around the player,
+      // boxing them in) and fight rival AIs. Only turn on the player once the neutral
+      // land is gone.
+      const neutralsLeft = states.some(s=>s.owner===NEUTRAL);
+      const playerStates = states.filter(s=>s.owner===PLAYER);
+      const distToPlayer = tg => {
+        let m = Infinity;
+        for (const p of playerStates) { const d=Math.hypot(tg.cx-p.cx, tg.cy-p.cy); if (d<m) m=d; }
+        return m===Infinity ? 9999 : m;
+      };
+      let best=null, bestScore=-1e9;
+      for (const tg of targets) {
+        const dist = Math.hypot(tg.cx-src.cx, tg.cy-src.cy);
+        const canTake = src.troops > tg.troops;
+        let score = -dist*0.02 - tg.troops*1.1;
+        if (tg.owner===NEUTRAL) {
+          score += 8;
+          // race to claim the land around the player first — closer neutral scores higher
+          if (playerStates.length) score += Math.max(0, 10 - distToPlayer(tg)*0.03);
+        }
+        else if (tg.owner>=2) score += 14;                       // fight rival AIs
+        else if (tg.owner===PLAYER) score += neutralsLeft ? -50 : 8*lv.aiAggro; // wait until land is claimed
+        if (canTake) score += 25;
+        score += rand(-3,3);
+        if (score>bestScore){ bestScore=score; best=tg; }
+      }
+      if (best && (Math.random()<lv.aiAggro || best.owner===NEUTRAL)) sendTroops(src, best);
+    });
+  }
+
+  function update(dt) {
+    gameTick++; gameElapsed += dt;
+    updateThreats();
+    for (const s of states) {
+      if (s.owner!==NEUTRAL && s.troops<MAX_TROOPS) {
+        s.growAcc += growRateFor(s.owner)*dt;
+        while (s.growAcc>=1){ s.growAcc-=1; if (s.troops<MAX_TROOPS) s.troops++; }
+      }
+      if (s.pulse>0) s.pulse = Math.max(0, s.pulse-dt*3);
+    }
+    for (let i=troops.length-1; i>=0; i--) {
+      const t = troops[i];
+      const dx=t.tx-t.x, dy=t.ty-t.y, dist=Math.hypot(dx,dy), step=t.speed*dt;
+      if (dist<=step+2){ arrive(t); troops.splice(i,1); }
+      else { t.x+=dx/dist*step; t.y+=dy/dist*step; }
+    }
+    updateAI(dt);
+
+    if (running) {
+      const alive = ownersAlive();
+      if (netMode==='host') {
+        // multiplayer: the host keeps simulating until a single owner is left,
+        // even if the host's own color was eliminated.
+        if (alive.size<=1) endGameMP([...alive][0] ?? null);
+      } else if (scenarioMode && scenarioObserver) {
+        // watch-the-AIs mode: there is no human team, so run until one owner is left standing
+        if (alive.size<=1) endScenario([...alive][0] ?? null);
+      } else {
+        if (!alive.has(PLAYER)) endGame(false);
+        else if (alive.size===1 && alive.has(PLAYER)) {
+          // win when no enemies remain AND all active states owned
+          const allOwned = states.every(s=>s.owner===PLAYER);
+          const noEnemy = !states.some(s=>s.owner>=2) && !troops.some(t=>t.owner>=2);
+          if (allOwned || noEnemy) endGame(true);
+        }
+      }
+    }
+  }
+
+  // ---- render ----
+  function drawArrow(x1,y1,x2,y2,color) {
+    const ang = Math.atan2(y2-y1, x2-x1);
+    const ik = 1/cam.scale;
+    ctx.strokeStyle=color; ctx.lineWidth=4*ik; ctx.setLineDash([10*ik,8*ik]);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.setLineDash([]);
+    const ah=14*ik; ctx.fillStyle=color;
+    ctx.beginPath(); ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-ah*Math.cos(ang-0.4), y2-ah*Math.sin(ang-0.4));
+    ctx.lineTo(x2-ah*Math.cos(ang+0.4), y2-ah*Math.sin(ang+0.4));
+    ctx.closePath(); ctx.fill();
+  }
+
+  // counter-scale factor for on-map markers. Full counter-scale (1/scale) keeps them
+  // a fixed screen size; the 0.6 exponent lets them grow a bit as you zoom in so they
+  // don't get too small, while still shrinking relative to the enlarged states.
+  function zk(){ return 1/Math.pow(cam.scale, 0.6); }
+
+  function node(x,y,count,owner,sel,pulse) {
+    const k = zk();
+    const r = (markR + (pulse||0)*2) * k;
+    if (sel){ ctx.strokeStyle='#2b3440'; ctx.lineWidth=3*k; ctx.beginPath(); ctx.arc(x,y,r+6*k,0,Math.PI*2); ctx.stroke(); }
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    ctx.lineWidth=3*k; ctx.strokeStyle = owner===NEUTRAL ? '#cfd4da' : DARK[owner];
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle='#2b3440'; ctx.font='bold '+(markR*0.85*k)+'px Segoe UI, sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(count, x, y+1*k);
+  }
+
+  function render() {
+    ctx.setTransform(DPR*cam.scale, 0, 0, DPR*cam.scale, DPR*cam.ox, DPR*cam.oy);
+    if (bgCanvas) ctx.drawImage(bgCanvas, 0,0, W,H);
+    else { ctx.fillStyle='#e3e9ee'; ctx.fillRect(0,0,W,H); }
+
+    // active states
+    for (const s of states) {
+      ctx.fillStyle = COLORS[s.owner];
+      ctx.fill(s.path);
+      ctx.strokeStyle='#ffffff'; ctx.lineWidth=1.5; ctx.stroke(s.path);
+    }
+    const highlight = selSet.length ? selSet : (selected ? [selected] : []);
+    for (const s of highlight){
+      ctx.save(); ctx.strokeStyle='#2b3440'; ctx.lineWidth=2.5/cam.scale; ctx.stroke(s.path); ctx.restore();
+    }
+    if (dragPos && selSet.length){
+      for (const s of selSet) drawArrow(s.cx, s.cy, dragPos.x, dragPos.y, DARK[s.owner]);
+    }
+
+    // moving troops (orbs) — same counter-scaling as state nodes
+    const tk = zk();
+    for (const t of troops) {
+      const r = t.r*tk;
+      ctx.fillStyle=DARK[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r+2*tk,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=COLORS[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r,0,Math.PI*2); ctx.fill();
+      if (t.count>1){ ctx.fillStyle='#fff'; ctx.font='bold '+(t.r*tk)+'px Segoe UI, sans-serif';
+        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(t.count, t.x, t.y+1*tk); }
+    }
+
+    // nodes
+    for (const s of states) node(s.cx, s.cy, s.troops, s.owner, selected===s, s.pulse);
+
+    updateBar();
+    // Recompute the NN viz at ~12/sec instead of every frame — a full net eval over all
+    // candidates per frame was needless work (and jank) in host/spectator mode.
+    const _now = performance.now();
+    if (_now - nnVizT > 80){ nnVizT = _now; updateNNViz(); }
+    if (showNN && vizMode==='brain' && rlViz && LEVELS[levelIdx]?.rl) drawMapPreview();
+    if (showNN) {
+      if (vizMode==='brain') { if (rlVizDirty) { drawNN(); rlVizDirty = false; } }
+      else if (planVizDirty) { drawPlanner(); planVizDirty = false; }
+    }
+  }
+
+  // Draw the AI's candidate moves directly on the map: the top move as a bright animated
+  // arrow, runner-ups as fainter ones, plus a ring around the source/target it's eyeing.
+  function drawMapPreview() {
+    const cands = rlViz.candidates || [];
+    if (!cands.length) return;
+    const ik = 1/cam.scale;
+    const t = performance.now()/1000;
+    for (let i=cands.length-1; i>=0; i--) {
+      const c=cands[i]; if (!c.s || !c.t) continue;
+      const chosen = (i===0 && !rlViz.waiting);
+      const col = chosen ? '#5fd07a' : (i===0 ? '#f0c24a' : 'rgba(150,165,180,0.55)');
+      ctx.save();
+      ctx.globalAlpha = i===0 ? 1 : 0.5;
+      ctx.strokeStyle = col; ctx.fillStyle = col;
+      ctx.lineWidth = (i===0?4:2)*ik;
+      const dash = i===0 ? [10*ik,8*ik] : [5*ik,7*ik];
+      ctx.setLineDash(dash); ctx.lineDashOffset = -((t*40)%1000)*ik;  // marching ants
+      const ang = Math.atan2(c.t.cy-c.s.cy, c.t.cx-c.s.cx);
+      ctx.beginPath(); ctx.moveTo(c.s.cx,c.s.cy); ctx.lineTo(c.t.cx,c.t.cy); ctx.stroke();
+      ctx.setLineDash([]);
+      const ah=(i===0?15:10)*ik;
+      ctx.beginPath(); ctx.moveTo(c.t.cx,c.t.cy);
+      ctx.lineTo(c.t.cx-ah*Math.cos(ang-0.4), c.t.cy-ah*Math.sin(ang-0.4));
+      ctx.lineTo(c.t.cx-ah*Math.cos(ang+0.4), c.t.cy-ah*Math.sin(ang+0.4));
+      ctx.closePath(); ctx.fill();
+      if (i===0) {
+        // pulsing ring on the target the AI is eyeing
+        const pr = (22 + Math.sin(t*4)*4)*zk();
+        ctx.globalAlpha = 0.9; ctx.lineWidth = 2.5*ik; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(c.t.cx, c.t.cy, pr, 0, Math.PI*2); ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // ---- neural-network visualizer ----
+  const nnPanel = document.getElementById('nnpanel');
+  const nnCanvas = document.getElementById('nncanvas');
+  const nnctx = nnCanvas.getContext('2d');
+  const NN_W = 320, NN_H = 1400;
+  (function initNN(){
+    const d = Math.min(window.devicePixelRatio || 1, 2);
+    nnCanvas.width = NN_W*d; nnCanvas.height = NN_H*d;
+    nnCanvas.style.width = NN_W+'px'; nnCanvas.style.height = NN_H+'px';
+    nnctx.scale(d, d);
+  })();
+  const FEAT_LABELS = ['src','tgt','src−tgt','dist','neutral?','enemy?','stronger?','own%'];
+  const LAYER_NAMES = ['hidden 1','hidden 2','output'];
+  let nnWeightStats = null;
+  function actColor(v, scale, minA){
+    const t = Math.min(1, Math.abs(Math.tanh(v*scale)));
+    const a = (minA||0.2) + (1-(minA||0.2))*t;
+    return v>=0 ? `rgba(70,166,239,${a})` : `rgba(239,91,82,${a})`;
+  }
+  function computeWeightStats(){
+    return rlPolicy.layers.map(l=>{
+      let n=0,sum=0,sq=0,mn=Infinity,mx=-Infinity;
+      const acc=v=>{ n++; sum+=v; sq+=v*v; if(v<mn)mn=v; if(v>mx)mx=v; };
+      for(const row of l.W) for(const w of row) acc(w);
+      for(const b of l.b) acc(b);
+      const mean=sum/n, std=Math.sqrt(Math.max(0,sq/n-mean*mean));
+      return { n, nW:l.W.length*(l.W[0]?l.W[0].length:0), nB:l.b.length, mean, std, mn, mx, l2:Math.sqrt(sq), act:l.act };
+    });
+  }
+  function actStats(arr){
+    let n=arr.length||1,sum=0,sq=0,mn=Infinity,mx=-Infinity,fire=0,sat=0;
+    for(const v of arr){ sum+=v; sq+=v*v; if(v<mn)mn=v; if(v>mx)mx=v; if(Math.abs(v)>0.5)fire++; if(Math.abs(v)>0.9)sat++; }
+    const mean=sum/n, std=Math.sqrt(Math.max(0,sq/n-mean*mean));
+    return { n, mean, std, mn:isFinite(mn)?mn:0, mx:isFinite(mx)?mx:0, fire, sat, l2:Math.sqrt(sq) };
+  }
+
+  function drawNN(){
+    nnctx.clearRect(0,0,NN_W,NN_H);
+    const PW=NN_W, pad=12;
+    nnctx.textAlign='left'; nnctx.textBaseline='top';
+    let Y=10;
+    // --- helpers (cursor-based flowing layout) ---
+    const tr  = nm => (nm && nm.length>10) ? nm.slice(0,10) : (nm||'—');
+    const pct = p => (p*100).toFixed(p>=0.1?0:1)+'%';
+    const sgn = x => (x>=0?'+':'')+x.toFixed(2);
+    const sec = title => { Y+=8; nnctx.strokeStyle='rgba(255,255,255,.10)'; nnctx.lineWidth=1;
+      nnctx.beginPath(); nnctx.moveTo(pad,Y+0.5); nnctx.lineTo(PW-pad,Y+0.5); nnctx.stroke(); Y+=8;
+      nnctx.textAlign='left'; nnctx.textBaseline='top'; nnctx.font='bold 10px Segoe UI, sans-serif';
+      nnctx.fillStyle='#7fa9d6'; nnctx.fillText(title.toUpperCase(), pad, Y); Y+=18; };
+    const kv = (k,v,vcol) => { nnctx.textBaseline='top'; nnctx.font='11px Segoe UI, sans-serif';
+      nnctx.fillStyle='#909cab'; nnctx.textAlign='left'; nnctx.fillText(k, pad, Y);
+      nnctx.fillStyle=vcol||'#e7edf3'; nnctx.textAlign='right'; nnctx.fillText(v, PW-pad, Y); Y+=16; };
+    const small = (txt,col) => { nnctx.textAlign='left'; nnctx.textBaseline='top';
+      nnctx.font='9px Segoe UI, sans-serif'; nnctx.fillStyle=col||'#8a97a6'; nnctx.fillText(txt, pad, Y); Y+=13; };
+    const bar = (frac,col,h) => { const bw=PW-2*pad, bh=h||5; nnctx.fillStyle='rgba(255,255,255,.08)';
+      nnctx.fillRect(pad,Y,bw,bh); nnctx.fillStyle=col; nnctx.fillRect(pad,Y,bw*Math.min(1,Math.max(0,frac)),bh); Y+=bh+6; };
+
+    // ===== header =====
+    nnctx.fillStyle='#e7edf3'; nnctx.font='bold 13px Segoe UI, sans-serif';
+    nnctx.fillText('Master AI · policy network', pad, Y);
+    if (!rlPolicy || !LEVELS[levelIdx]?.rl){
+      Y+=22; nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
+      nnctx.fillText('Play the Master difficulty', pad, Y); Y+=16;
+      nnctx.fillText('to watch the AI think.', pad, Y); return;
+    }
+    if (!nnWeightStats) nnWeightStats = computeWeightStats();
+    const totParams = nnWeightStats.reduce((a,s)=>a+s.n,0);
+    const arch = [rlPolicy.num_features||8].concat(rlPolicy.layers.map(l=>l.b.length)).join('→');
+    Y+=18; nnctx.font='10px Segoe UI, sans-serif'; nnctx.fillStyle='#7c8794'; nnctx.textAlign='left';
+    nnctx.fillText('MLP '+arch+' · tanh · '+totParams+' params', pad, Y);
+    if (!rlViz){ Y+=18; nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
+      nnctx.fillText('Waiting for the AI to move…', pad, Y); return; }
+    // controlling-enemy swatch (top-right)
+    nnctx.fillStyle=(COLORS[rlViz.owner]||'#ef5b52');
+    nnctx.beginPath(); nnctx.arc(PW-22,16,6,0,Math.PI*2); nnctx.fill();
+    nnctx.fillStyle='#9aa6b4'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.textAlign='right';
+    nnctx.fillText('enemy '+(rlViz.owner-1), PW-32, 11); nnctx.textAlign='left';
+    Y+=14;
+
+    // ===== network diagram =====
+    const layers = rlViz.acts, n = layers.length;
+    const padL=104, padR=44, top=Y, bot=Y+196;
+    const colW=(PW-padL-padR)/(n-1);
+    const pos = layers.map((arr,li)=>{ const x=padL+colW*li, m=arr.length;
+      return arr.map((v,ni)=>({ x, y: m===1 ? (top+bot)/2 : top+(bot-top)*ni/(m-1), v })); });
+    for (let li=0; li<n-1; li++){
+      const Wm=rlPolicy.layers[li].W;
+      for (let o=0;o<pos[li+1].length;o++){ const row=Wm[o];
+        for (let i=0;i<pos[li].length;i++){ const w=row[i]; if (Math.abs(w)<0.35) continue;
+          nnctx.strokeStyle=(w>=0?'rgba(70,166,239,':'rgba(239,91,82,')+Math.min(0.45,Math.abs(w)*0.3)+')';
+          nnctx.lineWidth=0.5; nnctx.beginPath(); nnctx.moveTo(pos[li][i].x,pos[li][i].y); nnctx.lineTo(pos[li+1][o].x,pos[li+1][o].y); nnctx.stroke(); } } }
+    for (let li=0; li<n; li++){ const r = li===n-1?8:(li===0?5:3.4);
+      for (const p of pos[li]){ nnctx.beginPath(); nnctx.arc(p.x,p.y,r,0,Math.PI*2);
+        nnctx.fillStyle=actColor(p.v, li===0?1:1.3, 0.18); nnctx.fill();
+        nnctx.lineWidth=0.6; nnctx.strokeStyle='rgba(255,255,255,.25)'; nnctx.stroke(); } }
+    nnctx.textBaseline='middle';
+    for (let i=0;i<pos[0].length;i++){ const y=pos[0][i].y, v=layers[0][i];
+      nnctx.textAlign='left'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.fillStyle='#aeb9c6'; nnctx.fillText(FEAT_LABELS[i], 8, y);
+      nnctx.textAlign='right'; nnctx.font='bold 10px Segoe UI, sans-serif'; nnctx.fillStyle=v>=0?'#7fb8ee':'#ee9089'; nnctx.fillText(v.toFixed(2), pos[0][i].x-9, y); }
+    for (let li=1; li<n-1; li++){ let hot=0; for (const v of layers[li]) if (Math.abs(v)>0.5) hot++;
+      nnctx.textAlign='center'; nnctx.textBaseline='top'; nnctx.font='9px Segoe UI, sans-serif'; nnctx.fillStyle='#8a97a6';
+      nnctx.fillText(hot+'/'+layers[li].length, pos[li][0].x, bot+6); }
+    const out=pos[n-1][0]; nnctx.textAlign='left'; nnctx.textBaseline='middle'; nnctx.fillStyle='#e7edf3'; nnctx.font='bold 11px Segoe UI, sans-serif';
+    nnctx.fillText('score', out.x+12, out.y-7); nnctx.fillText(rlViz.score.toFixed(2), out.x+12, out.y+7);
+    Y = bot + 18;
+
+    // ===== decision =====
+    sec('decision');
+    nnctx.textBaseline='top';
+    // coordinated multi-state salvo banner (overrides the single-move readout for ~2s after it fires)
+    const salvoActive = lastSalvo && lastSalvo.owner===rlViz.owner && (gameElapsed - lastSalvo.t) < 2.2;
+    if (salvoActive){ nnctx.font='bold 12px Segoe UI, sans-serif'; nnctx.fillStyle='#ff7a6b'; nnctx.textAlign='left';
+      nnctx.fillText('⚔ COORDINATED ASSAULT → '+tr(lastSalvo.tgt), pad, Y); Y+=18;
+      nnctx.font='11px Segoe UI, sans-serif'; nnctx.fillStyle='#cdd6e0';
+      nnctx.fillText(lastSalvo.count+' states · '+lastSalvo.troops+' troops committed', pad, Y); Y+=20; }
+    else if (rlViz.waiting){ nnctx.font='bold 12px Segoe UI, sans-serif'; nnctx.fillStyle='#f0c24a'; nnctx.textAlign='left';
+      nnctx.fillText('▮ WAIT — no move beats no-op', pad, Y); Y+=20; }
+    else if (!salvoActive){ nnctx.font='bold 12px Segoe UI, sans-serif'; nnctx.fillStyle='#5fd07a'; nnctx.textAlign='left';
+      nnctx.fillText('▶ '+tr(rlViz.src.name)+' → '+tr(rlViz.tgt.name), pad, Y); Y+=20; }
+    const c0 = rlViz.candidates[0];
+    if (c0){
+      kv('chosen move', tr(c0.from)+' → '+tr(c0.to));
+      kv('target type', c0.type, c0.type==='PLAYER'?'#ef8e87':(c0.type==='rival'?'#f0c24a':'#9fd9b0'));
+      kv('troops', c0.srcT+' vs '+c0.tgtT+'  (Δ '+(c0.delta>=0?'+':'')+c0.delta+')');
+      kv('distance', c0.dist.toFixed(0)+' px');
+      kv('net score / +bias', c0.raw.toFixed(2)+'  /  '+sgn(c0.bias));
+    }
+
+    // ===== policy distribution =====
+    sec('policy distribution (softmax)');
+    kv('top-1 confidence', pct(c0?c0.prob:0), '#5fd07a');
+    bar(c0?c0.prob:0, '#5fd07a');
+    kv('no-op (wait) prob', pct(rlViz.noopProb), '#f0c24a');
+    bar(rlViz.noopProb, '#f0c24a');
+    kv('decision entropy', rlViz.entropy.toFixed(2)+' nats  ('+pct(rlViz.entropyNorm)+')');
+    bar(rlViz.entropyNorm, '#7fa9d6');
+    kv('legal moves', String(rlViz.numMoves));
+    kv('moves beating no-op', String(rlViz.beatNoop));
+    kv('no-op threshold', rlViz.noop.toFixed(2));
+    // probability-mass strip
+    Y+=2; nnctx.textAlign='left'; nnctx.textBaseline='top'; nnctx.font='9px Segoe UI, sans-serif'; nnctx.fillStyle='#8a97a6';
+    nnctx.fillText('probability mass', pad, Y); Y+=12;
+    { const sw=PW-2*pad, sh=14; const cands=rlViz.candidates;
+      const segs=[ {p:cands[0]?cands[0].prob:0, col: rlViz.waiting?'#6f93b8':'#5fd07a'},
+                   {p:cands[1]?cands[1].prob:0, col:'#6f93b8'}, {p:cands[2]?cands[2].prob:0, col:'#4f6b86'} ];
+      const used=segs.reduce((a,s)=>a+s.p,0)+rlViz.noopProb;
+      segs.push({p:Math.max(0,1-used), col:'#3a4654'}); segs.push({p:rlViz.noopProb, col:'#f0c24a'});
+      let cx=pad; nnctx.fillStyle='rgba(255,255,255,.06)'; nnctx.fillRect(pad,Y,sw,sh);
+      for (const s of segs){ const w=sw*Math.min(1,s.p); nnctx.fillStyle=s.col; nnctx.fillRect(cx,Y,w,sh); cx+=w; } Y+=sh+6;
+      const dot=(x,col,txt)=>{ nnctx.fillStyle=col; nnctx.fillRect(x,Y,8,8); nnctx.fillStyle='#9aa6b4'; nnctx.font='9px Segoe UI, sans-serif'; nnctx.fillText(txt,x+11,Y); };
+      dot(pad,'#5fd07a','best'); dot(pad+58,'#6f93b8','2-3'); dot(pad+118,'#3a4654','others'); dot(pad+188,'#f0c24a','wait'); Y+=14; }
+
+    // ===== top moves table (top 5) =====
+    sec('top moves considered');
+    const cands=rlViz.candidates;
+    for (let i=0;i<cands.length;i++){
+      const c=cands[i], chosen=!rlViz.waiting&&i===0, beats=c.score>rlViz.noop;
+      nnctx.textBaseline='top'; nnctx.textAlign='left';
+      nnctx.font=chosen?'bold 11px Segoe UI, sans-serif':'11px Segoe UI, sans-serif';
+      nnctx.fillStyle=chosen?'#5fd07a':(beats?'#cdd6e0':'#7c8794');
+      nnctx.fillText((i+1)+'. '+tr(c.from)+'→'+tr(c.to), pad, Y);
+      nnctx.textAlign='right'; nnctx.fillText(pct(c.prob)+'  '+c.score.toFixed(2), PW-pad, Y); Y+=14;
+      small('   '+c.type+' · d '+c.dist.toFixed(0)+' · Δ'+(c.delta>=0?'+':'')+c.delta+' · net '+c.raw.toFixed(2)+' '+sgn(c.bias), beats?'#8a97a6':'#6b7682');
+      nnctx.fillStyle='rgba(255,255,255,.08)'; nnctx.fillRect(pad,Y,PW-2*pad,3);
+      nnctx.fillStyle=chosen?'#5fd07a':'#5a6675'; nnctx.fillRect(pad,Y,(PW-2*pad)*Math.min(1,c.prob),3); Y+=8;
+    }
+
+    // ===== input features =====
+    sec('input features (8)');
+    for (let i=0;i<FEAT_LABELS.length;i++){
+      const v=layers[0][i];
+      nnctx.textBaseline='top'; nnctx.textAlign='left'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.fillStyle='#909cab';
+      nnctx.fillText(FEAT_LABELS[i], pad, Y);
+      nnctx.textAlign='right'; nnctx.font='bold 10px Segoe UI, sans-serif'; nnctx.fillStyle=v>=0?'#7fb8ee':'#ee9089';
+      nnctx.fillText(v.toFixed(3), PW-pad, Y); Y+=13;
+      // signed bar centered at midpoint
+      const bw=PW-2*pad, cxp=pad+bw/2, bh=4, f=Math.max(-1,Math.min(1,v/1.5)), w=(bw/2)*Math.abs(f);
+      nnctx.fillStyle='rgba(255,255,255,.06)'; nnctx.fillRect(pad,Y,bw,bh);
+      nnctx.fillStyle=v>=0?'#46a6ef':'#ef5b52'; if(v>=0) nnctx.fillRect(cxp,Y,w,bh); else nnctx.fillRect(cxp-w,Y,w,bh);
+      Y+=bh+5;
+    }
+
+    // ===== layer activations (live) =====
+    sec('layer activations');
+    for (let li=1; li<n; li++){
+      const st=actStats(layers[li]);
+      kv(LAYER_NAMES[li-1], 'μ '+st.mean.toFixed(2)+'  σ '+st.std.toFixed(2));
+      small('   range ['+st.mn.toFixed(2)+', '+st.mx.toFixed(2)+'] · firing '+st.fire+'/'+st.n+' · sat '+st.sat+' · ‖a‖ '+st.l2.toFixed(1));
+    }
+
+    // ===== network weights (static) =====
+    sec('network weights (trained)');
+    for (let li=0; li<nnWeightStats.length; li++){
+      const w=nnWeightStats[li];
+      kv(LAYER_NAMES[li], w.nW+'w + '+w.nB+'b = '+w.n);
+      small('   μ '+w.mean.toFixed(3)+' · σ '+w.std.toFixed(3)+' · ['+w.mn.toFixed(2)+', '+w.mx.toFixed(2)+'] · ‖W‖ '+w.l2.toFixed(1));
+    }
+    kv('no-op bias', (rlPolicy.noop_bias||0).toFixed(3));
+    kv('feature norm', String(rlPolicy.feat_norm||50));
+
+    // ===== game context =====
+    sec('game context (this enemy)');
+    const x=rlViz.ctx;
+    kv('own states', x.ownC+' / '+x.total+'  ('+pct(x.ownFrac)+')', COLORS[rlViz.owner]);
+    kv('own troops', String(x.ownTroops));
+    kv('neutral states', String(x.neuC), '#b7bdc4');
+    kv('rival-AI states', String(x.rivC), '#f0c24a');
+    kv('player states', String(x.plyC), '#7fb8ee');
+
+    // ===== runtime =====
+    sec('runtime');
+    let player=0, enemy=0, neutral=0;
+    for (const s of states){ const v=s.troops+1; if(s.owner===PLAYER)player+=v; else if(s.owner>=2)enemy+=v; else neutral+=v; }
+    kv('difficulty', LEVELS[levelIdx].name);
+    kv('game speed', gameSpeed+'×');
+    kv('fps', fps.toFixed(0));
+    kv('sim tick', String(gameTick));
+    kv('elapsed', gameElapsed.toFixed(1)+'s');
+    kv('orbs in flight', String(troops.length));
+    const nextT = aiTimers[rlViz.owner]===undefined ? 0 : Math.max(0,aiTimers[rlViz.owner]);
+    kv('next AI move in', nextT.toFixed(2)+'s');
+    kv('troops P/E/N', player+' / '+enemy+' / '+neutral);
+
+    // ===== confidence over time =====
+    sec('confidence over time');
+    { const gx=pad, gw=PW-2*pad, gy=Y, gh=80;
+      nnctx.fillStyle='rgba(255,255,255,.05)'; nnctx.fillRect(gx,gy,gw,gh);
+      nnctx.strokeStyle='rgba(255,255,255,.10)'; nnctx.lineWidth=1;
+      for (const f of [0,0.5,1]){ const yy=gy+gh*(1-f); nnctx.beginPath(); nnctx.moveTo(gx,yy); nnctx.lineTo(gx+gw,yy); nnctx.stroke(); }
+      const plot=(idx,col)=>{ if (nnHist.length<2) return; nnctx.strokeStyle=col; nnctx.lineWidth=1.5; nnctx.beginPath();
+        for (let i=0;i<nnHist.length;i++){ const xx=gx+gw*(i/(NN_HIST_MAX-1)), yy=gy+gh*(1-Math.min(1,Math.max(0,nnHist[i][idx]))); if(i===0)nnctx.moveTo(xx,yy); else nnctx.lineTo(xx,yy); } nnctx.stroke(); };
+      plot(1,'#f0c24a'); plot(0,'#5fd07a');
+      nnctx.font='9px Segoe UI, sans-serif'; nnctx.textBaseline='top';
+      nnctx.fillStyle='#5fd07a'; nnctx.textAlign='left'; nnctx.fillText('best move', gx+4, gy+3);
+      nnctx.fillStyle='#f0c24a'; nnctx.textAlign='right'; nnctx.fillText('wait', gx+gw-4, gy+3);
+      Y=gy+gh+8; }
+    // footer legend
+    nnctx.textAlign='left'; nnctx.textBaseline='top'; nnctx.font='9px Segoe UI, sans-serif'; nnctx.fillStyle='#6b7682';
+    nnctx.fillText('node/edge color: blue + · red −   ·   conf = softmax prob', pad, Y);
+  }
+
+  // ===== Rollout-planner view: the candidate moves the Grandmaster simulated, each with its
+  // projected board after the lookahead, the chosen one highlighted. =====
+  function drawPlanner(){
+    nnctx.clearRect(0,0,NN_W,NN_H);
+    const PW=NN_W, pad=12; let Y=12;
+    const tr = nm => (nm && nm.length>11) ? nm.slice(0,11) : (nm||'—');
+    nnctx.textAlign='left'; nnctx.textBaseline='top';
+    nnctx.fillStyle='#e7edf3'; nnctx.font='bold 13px Segoe UI, sans-serif';
+    nnctx.fillText('Rollout Planner', pad, Y); Y+=20;
+    if (!LEVELS[levelIdx]?.plan){
+      nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
+      nnctx.fillText('Play the Grandmaster difficulty', pad, Y); Y+=16;
+      nnctx.fillText('to watch the AI plan ahead.', pad, Y); return;
+    }
+    nnctx.fillStyle='#7c8794'; nnctx.font='10px Segoe UI, sans-serif';
+    nnctx.fillText('MCTS · explores move sequences up to '+PLAN.horizon+'s ahead', pad, Y); Y+=18;
+    if (!planViz){ nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
+      nnctx.fillText('Waiting for the AI to plan…', pad, Y); return; }
+    // controlling-enemy swatch
+    nnctx.fillStyle=(COLORS[planViz.owner]||'#ef5b52'); nnctx.beginPath(); nnctx.arc(PW-20,18,6,0,Math.PI*2); nnctx.fill();
+    nnctx.fillStyle='#9aa6b4'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.textAlign='right';
+    nnctx.fillText('enemy '+(planViz.owner-1), PW-30, 13); nnctx.textAlign='left';
+    nnctx.fillStyle='#909cab'; nnctx.fillText(planViz.iters+' simulations · '+planViz.n+' root moves', pad, Y); Y+=18;
+
+    // map bounds for the per-candidate mini-maps
+    let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+    for (const s of states){ if(s.cx<minx)minx=s.cx; if(s.cx>maxx)maxx=s.cx; if(s.cy<miny)miny=s.cy; if(s.cy>maxy)maxy=s.cy; }
+    const bw=(maxx-minx)||1, bh=(maxy-miny)||1, mapW=80, mapH=52;
+    const miniMap=(x,y,board)=>{
+      nnctx.fillStyle='#0a1322'; nnctx.fillRect(x,y,mapW,mapH);
+      nnctx.strokeStyle='rgba(255,255,255,.12)'; nnctx.lineWidth=1; nnctx.strokeRect(x,y,mapW,mapH);
+      if (!board) return;
+      for (let i=0;i<states.length && i<board.length;i++){
+        const s=states[i];
+        const px=x+4+(s.cx-minx)/bw*(mapW-8), py=y+4+(s.cy-miny)/bh*(mapH-8);
+        nnctx.fillStyle=COLORS[board[i]]||'#b4bbc2';
+        nnctx.beginPath(); nnctx.arc(px,py,1.7,0,Math.PI*2); nnctx.fill();
+      }
+    };
+
+    const cs = planViz.cands.slice().sort((a,b)=>b.visits-a.visits);
+    const maxV=Math.max(1,...cs.map(c=>c.visits));
+    const rowH=64, barW=PW-2*pad-mapW-10;
+    for (const c of cs){
+      const top=Y;
+      if (c.chosen){ nnctx.fillStyle='rgba(95,208,122,.10)'; nnctx.fillRect(pad-5,top-4,PW-2*pad+10,rowH-4);
+        nnctx.strokeStyle='rgba(95,208,122,.55)'; nnctx.lineWidth=1; nnctx.strokeRect(pad-5,top-4,PW-2*pad+10,rowH-4); }
+      const label = c.type==='noop' ? '⏸ do nothing' : (tr(c.from)+' → '+tr(c.to));
+      nnctx.textAlign='left'; nnctx.font='bold 12px Segoe UI, sans-serif';
+      nnctx.fillStyle=c.chosen?'#5fd07a':'#e7edf3'; nnctx.fillText((c.chosen?'▶ ':'   ')+label, pad, top);
+      if (c.type!=='noop'){ const tc=c.type==='player'?'#ef8e87':(c.type==='rival'?'#f0c24a':'#9fd9b0');
+        nnctx.fillStyle=tc; nnctx.font='10px Segoe UI, sans-serif'; nnctx.fillText(c.type, pad+2, top+16); }
+      nnctx.fillStyle='#909cab'; nnctx.font='10px Segoe UI, sans-serif';
+      nnctx.fillText(c.visits+' visits    value '+(c.value>=0?'+':'')+c.value.toFixed(2), pad, top+31);
+      const frac=c.visits/maxV;
+      nnctx.fillStyle='rgba(255,255,255,.08)'; nnctx.fillRect(pad,top+46,barW,6);
+      nnctx.fillStyle=c.chosen?'#5fd07a':'#46a6ef'; nnctx.fillRect(pad,top+46,barW*Math.max(0.04,frac),6);
+      miniMap(PW-pad-mapW, top+4, c.board);
+      Y+=rowH;
+    }
+    nnctx.fillStyle='#6b7682'; nnctx.font='9px Segoe UI, sans-serif'; nnctx.textAlign='left';
+    nnctx.fillText('each mini-map = projected board after the '+planViz.horizon+'s lookahead', pad, Y+4);
+    Y+=16;
+
+    // ===== imagined line: the multi-step future the AI simulated for its chosen move =====
+    Y+=8; nnctx.strokeStyle='rgba(255,255,255,.10)'; nnctx.lineWidth=1;
+    nnctx.beginPath(); nnctx.moveTo(pad,Y+.5); nnctx.lineTo(PW-pad,Y+.5); nnctx.stroke(); Y+=10;
+    nnctx.textAlign='left'; nnctx.font='bold 10px Segoe UI, sans-serif'; nnctx.fillStyle='#7fa9d6';
+    nnctx.fillText('PRINCIPAL VARIATION — BEST LINE FOUND', pad, Y); Y+=18;
+    const line = planViz.line || [];
+    if (!line.length){ nnctx.fillStyle='#9aa6b4'; nnctx.font='11px Segoe UI, sans-serif';
+      nnctx.fillText('(searching…)', pad, Y); Y+=16; }
+    for (const ev of line){
+      const col = COLORS[ev.o] || '#b4bbc2';
+      const label = ev.o===PLAYER ? 'you' : 'enemy '+(ev.o-1);
+      nnctx.textBaseline='middle';
+      nnctx.fillStyle=col; nnctx.beginPath(); nnctx.arc(pad+4, Y+7, 3.2, 0, Math.PI*2); nnctx.fill();
+      nnctx.textAlign='left'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.fillStyle='#8a97a6';
+      nnctx.fillText('+'+ev.t.toFixed(1)+'s', pad+14, Y+7);
+      nnctx.fillStyle=col; nnctx.font='bold 10px Segoe UI, sans-serif'; nnctx.fillText(label, pad+52, Y+7);
+      nnctx.fillStyle='#e7edf3'; nnctx.font='10px Segoe UI, sans-serif';
+      const nm = s => s && s.length>9 ? s.slice(0,9) : s;
+      nnctx.fillText(nm(ev.from)+' → '+nm(ev.to), pad+108, Y+7);
+      nnctx.textBaseline='top'; Y+=17;
+    }
+  }
+
+  // Build the 3 bar segments ONCE; afterwards we only nudge their widths. The old code
+  // wiped and re-created DOM nodes every frame, forcing a layout reflow per animation
+  // frame — the main cause of the orb stutter on mobile. Now the DOM is touched only when
+  // a width actually changes (rounded to 0.1%), so most frames do zero layout work.
+  let barSegs = null, barLast = ['', '', ''];
+  function buildBarSegs(){
+    barEl.innerHTML='';
+    const mk = c => { const d=document.createElement('div'); d.style.background=c; barEl.appendChild(d); return d; };
+    barSegs = [ mk(COLORS[1]), mk(COLORS[2]), mk('#b7bdc4') ];
+    barLast = ['', '', ''];
+  }
+  function updateBar() {
+    let player=0, enemy=0, neutral=0;
+    for (const s of states) {
+      const v = s.troops + 1;
+      if (s.owner===PLAYER) player+=v; else if (s.owner>=2) enemy+=v; else neutral+=v;
+    }
+    for (const t of troops){ if (t.owner===PLAYER) player+=t.count; else if (t.owner>=2) enemy+=t.count; }
+    const total = player+enemy+neutral || 1;
+    if (!barSegs || barSegs[0].parentNode!==barEl) buildBarSegs();
+    const w = [player, enemy, neutral].map(v => (v/total*100).toFixed(1)+'%');
+    for (let i=0;i<3;i++) if (w[i]!==barLast[i]){ barSegs[i].style.width=w[i]; barLast[i]=w[i]; }   // touch DOM only on change
+  }
+
+  function loop(now) {
+    const dt = Math.min(0.05, (now-lastTime)/1000); lastTime=now;
+    // fps (rolling, updated ~4x/sec)
+    fpsFrames++; if (now-fpsT > 250){ fps = fpsFrames*1000/(now-fpsT); fpsFrames=0; fpsT=now; }
+    if (running) {
+      if (netMode==='guest') guestUpdate(dt);                       // render-only; sim lives on the host
+      else {
+        // gameSpeed may be fractional (0.5×): run whole sub-steps, then a partial step for the
+        // remainder. Scaling dt slows the whole sim uniformly (growth, orbs, AI timers all use dt).
+        let s = gameSpeed;
+        while (s >= 1){ update(dt); s -= 1; }
+        if (s > 0) update(dt * s);
+      }
+    }
+    if (netMode==='host' && running && now-netLastSend>=100) {       // broadcast the board ~10x/sec
+      netLastSend = now; api('/api/state?room='+NET.room, buildSnapshot());
+    }
+    render();
+    if (running) requestAnimationFrame(loop);
+  }
+
+  // Guests don't simulate. For each orb we dead-reckon the host's true progress forward from the
+  // last snapshot (by wall-clock, so it's robust to jitter and frame drops) and ease the rendered
+  // progress toward it. Continuous correction instead of a per-snapshot teleport = smooth motion.
+  function guestUpdate(dt) {
+    const now = performance.now();
+    for (let i=troops.length-1; i>=0; i--) {
+      const t = troops[i];
+      const rate = (t.speed * guestSpeed) / (t.len || 1);              // progress units per second
+      const predicted = Math.min(1, (t.authProg||0) + rate * ((now - (t.authT||now)) / 1000));
+      if (t.prog==null) t.prog = predicted;
+      const k = Math.min(1, dt * 10);                                  // smoothing toward truth
+      t.prog += (predicted - t.prog) * k;
+      t.prog = Math.min(1, Math.max(t.prog, t.prog + rate*dt*0.15));   // guarantee a little forward creep
+      if (t.prog >= 0.999) { troops.splice(i,1); continue; }
+      t.x = t.ox + (t.tx - t.ox) * t.prog;
+      t.y = t.oy + (t.ty - t.oy) * t.prog;
+    }
+    for (const s of states) if (s.pulse>0) s.pulse = Math.max(0, s.pulse-dt*3);
+  }
+
+  // ---- input ----
+  // CSS-pixel pointer position relative to canvas
+  function getCss(pt){ const r=canvas.getBoundingClientRect(); return {x:pt.clientX-r.left, y:pt.clientY-r.top}; }
+  // world position (accounts for zoom/pan)
+  function getWorld(pt){ return screenToWorld(getCss(pt)); }
+  function stateAt(pos){
+    // node first (hit radius scales with zoom so it stays easy to tap)
+    const hit = 24/cam.scale;
+    for (const s of states){ const dx=s.cx-pos.x, dy=s.cy-pos.y; if (dx*dx+dy*dy<=hit*hit) return s; }
+    // then polygon
+    for (const s of states){ for (const poly of s.polys) if (pointInPoly(poly,pos.x,pos.y)) return s; }
+    return null;
+  }
+
+  // -- game interaction (single pointer) --
+  // Drag from one of your states, sweep over your OTHER states to add them, then
+  // release on a target so the whole group attacks together (joint attack).
+  function gameDown(cssPt){
+    if (!running) return;
+    pointerDown=true; moved=false;
+    const pos=screenToWorld(cssPt); const s=stateAt(pos);
+    if (s && s.owner===myOwner){ selSet=[s]; dragPos=pos; selected=null; }
+    else { selSet=[]; if (selected){ if (s) issueMove(selected,s); selected=null; } }
+  }
+  function gameMove(cssPt){
+    if (!running||!pointerDown||!selSet.length) return;
+    dragPos=screenToWorld(cssPt); moved=true;
+    const over=stateAt(dragPos);
+    if (over && over.owner===myOwner && !selSet.includes(over)) selSet.push(over);  // add to joint attack
+  }
+  function gameUp(){
+    if (!running) return; pointerDown=false;
+    if (selSet.length){
+      const target = dragPos ? stateAt(dragPos) : null;
+      if (moved){
+        if (target) for (const s of selSet) if (s!==target) issueMove(s, target);
+        selSet=[]; selected=null;
+      } else {
+        // a tap (no drag) on a single state -> keep it selected for tap-then-tap
+        selected = selSet[0]; selSet=[];
+      }
+    }
+    dragPos=null;
+  }
+
+  // -- mouse: left = play, right/middle drag = pan, wheel = zoom --
+  let panning=false, panLast=null;
+  canvas.addEventListener('mousedown', e=>{
+    e.preventDefault();
+    if (e.button===0) gameDown(getCss(e));
+    else { panning=true; panLast=getCss(e); }
+  });
+  window.addEventListener('mousemove', e=>{
+    if (panning){
+      const p=getCss(e); cam.ox += p.x-panLast.x; cam.oy += p.y-panLast.y; panLast=p; clampOffset();
+      if (!running) render();
+    } else gameMove(getCss(e));
+  });
+  window.addEventListener('mouseup', e=>{ if (panning){ panning=false; } else gameUp(); });
+  canvas.addEventListener('contextmenu', e=>e.preventDefault());
+  canvas.addEventListener('wheel', e=>{
+    e.preventDefault();
+    const p=getCss(e);
+    zoomAt(p.x, p.y, e.deltaY<0 ? 1.15 : 1/1.15);
+  }, {passive:false});
+
+  // -- touch: 1 finger = play, 2 fingers = pinch-zoom + pan --
+  let pinch=null;
+  function touchMid(t0,t1){ return {x:(t0.x+t1.x)/2, y:(t0.y+t1.y)/2}; }
+  canvas.addEventListener('touchstart', e=>{
+    e.preventDefault();
+    if (e.touches.length===1){ pinch=null; gameDown(getCss(e.touches[0])); }
+    else if (e.touches.length>=2){
+      pointerDown=false; selSet=[];   // cancel any in-progress joint-attack drag
+      const a=getCss(e.touches[0]), b=getCss(e.touches[1]);
+      pinch={ dist:Math.hypot(a.x-b.x,a.y-b.y), mid:touchMid(a,b) };
+      dragPos=null;
+    }
+  }, {passive:false});
+  canvas.addEventListener('touchmove', e=>{
+    e.preventDefault();
+    if (e.touches.length>=2 && pinch){
+      const a=getCss(e.touches[0]), b=getCss(e.touches[1]);
+      const dist=Math.hypot(a.x-b.x,a.y-b.y), mid=touchMid(a,b);
+      cam.ox += mid.x-pinch.mid.x; cam.oy += mid.y-pinch.mid.y;   // pan
+      zoomAt(mid.x, mid.y, dist/(pinch.dist||dist));               // zoom about midpoint
+      pinch={ dist, mid };
+    } else if (e.touches.length===1 && !pinch){
+      gameMove(getCss(e.touches[0]));
+    }
+  }, {passive:false});
+  canvas.addEventListener('touchend', e=>{
+    e.preventDefault();
+    if (pinch && e.touches.length<2) pinch=null;
+    if (e.touches.length===0) gameUp();
+  }, {passive:false});
+
+  // -- zoom buttons --
+  document.getElementById('zoomIn').addEventListener('click', ()=>zoomAt(W/2,H/2,1.3));
+  document.getElementById('zoomOut').addEventListener('click', ()=>zoomAt(W/2,H/2,1/1.3));
+  const speedBtn = document.getElementById('speedBtn');
+  const SPEEDS = [0.5,1,2,3,5,10];   // 0.5× = slow-motion, handy for watching the AI think
+  speedBtn.addEventListener('click', ()=>{
+    const idx = SPEEDS.indexOf(gameSpeed);
+    gameSpeed = SPEEDS[(idx<0 ? 1 : idx+1) % SPEEDS.length];
+    speedBtn.innerHTML = gameSpeed + '&times;';
+  });
+  function redrawViz(){
+    if (!showNN) return;
+    if (vizMode==='brain') { rlVizDirty = true; drawNN(); }
+    else { planVizDirty = true; drawPlanner(); }
+  }
+  document.querySelectorAll('.nntab').forEach(t => {
+    t.addEventListener('click', () => {
+      vizMode = t.dataset.viz;
+      document.querySelectorAll('.nntab').forEach(x => x.classList.toggle('on', x===t));
+      redrawViz();
+    });
+  });
+  const nnBtn = document.getElementById('nnBtn');
+  nnBtn.addEventListener('click', ()=>{
+    showNN = !showNN;
+    nnBtn.classList.toggle('on', showNN);
+    nnPanel.classList.toggle('on', showNN);
+    if (showNN) { redrawViz(); }   // draw immediately (even if just a hint)
+  });
+
+  // ---- sticky send-fraction button (All / Half / Quarter) ----
+  const fracBtn = document.getElementById('fracBtn');
+  const FRAC_CYCLE = [1, 2, 4];
+  const FRAC_LABEL = { 1:'Send: All', 2:'Send: ½', 4:'Send: ¼' };
+  function updateFracBtn(){
+    fracBtn.textContent = FRAC_LABEL[stickyDenom] || 'Send: All';
+    fracBtn.classList.toggle('on', stickyDenom !== 1);   // orange unless "All"
+  }
+  fracBtn.addEventListener('click', ()=>{
+    const i = FRAC_CYCLE.indexOf(stickyDenom);
+    stickyDenom = FRAC_CYCLE[(i + 1) % FRAC_CYCLE.length];
+    updateFracBtn();
+  });
+  updateFracBtn();
+
+  startBtn.addEventListener('click', newGame);
+
+  // ============================ ONLINE MULTIPLAYER ============================
+  function esc(s){ return String(s==null?'':s).replace(/[<>&]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
+
+  const modesEl    = document.getElementById('modes');
+  const soloPanel  = document.getElementById('soloPanel');
+  const hostPanel  = document.getElementById('hostPanel');
+  const joinPanel  = document.getElementById('joinPanel');
+  const hostCreateBtn = document.getElementById('hostCreateBtn');
+  const hostLobby  = document.getElementById('hostLobby');
+  const roomCodeEl = document.getElementById('roomCode');
+  const joinUrlEl  = document.getElementById('joinUrl');
+  const hostPlayersEl = document.getElementById('hostPlayers');
+  const hostStartBtn  = document.getElementById('hostStartBtn');
+  const aiFillVal  = document.getElementById('aiFillVal');
+  const codeInput  = document.getElementById('codeInput');
+  const nameInput  = document.getElementById('nameInput');
+  const joinBtn    = document.getElementById('joinBtn');
+  const joinLobby  = document.getElementById('joinLobby');
+  const joinStatus = document.getElementById('joinStatus');
+  const joinPlayersEl = document.getElementById('joinPlayers');
+  let aiFill = 1;
+
+  // ---- serverless (P2P) toggle ----
+  const hostP2P = document.getElementById('hostP2P');
+  const joinP2P = document.getElementById('joinP2P');
+  function setP2P(on){
+    NET.p2p = !!on;
+    if (hostP2P) hostP2P.checked = NET.p2p;
+    if (joinP2P) joinP2P.checked = NET.p2p;
+    if (NET.p2p && !window.P2P) alert('Serverless mode needs peerjs.min.js — check it loaded.');
+  }
+  if (hostP2P) hostP2P.addEventListener('change', () => setP2P(hostP2P.checked));
+  if (joinP2P) joinP2P.addEventListener('change', () => setP2P(joinP2P.checked));
+
+  // ---- mode tabs ----
+  modesEl.addEventListener('click', e => { const m = e.target.dataset.mode; if (m) setMode(m); });
+  function setMode(m){
+    [...modesEl.children].forEach(c => c.classList.toggle('active', c.dataset.mode===m));
+    soloPanel.classList.toggle('gone', m!=='solo');
+    hostPanel.classList.toggle('gone', m!=='host');
+    joinPanel.classList.toggle('gone', m!=='join');
+    const scnP = document.getElementById('scenarioPanel'); if (scnP) scnP.classList.toggle('gone', m!=='scenario');
+    if (m==='solo' || m==='scenario'){ if (NET.es){ NET.es.close(); NET.es=null; } if (NET.p2p && window.P2P) P2P.close(); netMode=null; mpEnemies=null; myOwner=PLAYER; }
+    if (m==='scenario') renderScn();
+  }
+
+  // ---- generic SSE stream ----
+  function openStream(role, name){
+    if (NET.es){ NET.es.close(); NET.es=null; }
+    NET.role = role;
+    // One handler for every event, fed by either SSE (server) or WebRTC (P2P).
+    const dispatch = (event, d) => {
+      if (event==='hello'){ if (role==='player'){ if (d.cid) NET.cid=d.cid; if (d.owner) myOwner=d.owner; joinStatus.textContent='Joined room '+NET.room+' — you are '+colorName(myOwner)+'.'; } }
+      else if (event==='roster'){ NET.lobby=(d.players)||[]; if (role==='host') renderHostPlayers(); else renderJoinPlayers(); }
+      else if (event==='action'){ if (role==='host') applyRemoteAction(d); }
+      else if (event==='start'){ if (role==='player') guestStart(d); }
+      else if (event==='state'){ if (role==='player') guestApplySnapshot(d); }
+      else if (event==='result'){ if (role==='player') guestResult(d); }
+      else if (event==='fatal'){ netFatal(d.msg); }
+    };
+    if (NET.p2p && window.P2P){ P2P.openStream(role, name, dispatch, { room:NET.room, cid:NET.cid }); return; }
+    let u = '/api/stream?room='+NET.room+'&role='+role+'&cid='+NET.cid;
+    if (name) u += '&name='+encodeURIComponent(name);
+    const es = new EventSource(u); NET.es = es;
+    es.addEventListener('hello',  e => dispatch('hello',  JSON.parse(e.data)));
+    es.addEventListener('roster', e => dispatch('roster', JSON.parse(e.data)));
+    es.addEventListener('action', e => dispatch('action', JSON.parse(e.data)));
+    es.addEventListener('start',  e => dispatch('start',  JSON.parse(e.data)));
+    es.addEventListener('state',  e => dispatch('state',  JSON.parse(e.data)));
+    es.addEventListener('result', e => dispatch('result', JSON.parse(e.data)));
+    es.addEventListener('fatal',  e => dispatch('fatal',  JSON.parse(e.data)));
+  }
+  function netFatal(msg){
+    if (NET.es){ NET.es.close(); NET.es=null; }
+    if (NET.p2p && window.P2P) P2P.close();
+    running=false; netMode=null; overlay.classList.remove('hidden');
+    joinStatus.textContent = msg||'Disconnected'; joinBtn.disabled=false;
+    hostCreateBtn.classList.remove('gone'); hostLobby.classList.add('gone'); hostCreateBtn.disabled=!ready;
+  }
+  function colorName(o){ return ({1:'Blue',2:'Red',3:'Orange',4:'Purple',5:'Green',6:'Pink',7:'Cyan',8:'Gold'})[o] || ('Player '+o); }
+
+  // ---- host ----
+  hostCreateBtn.addEventListener('click', async () => {
+    hostCreateBtn.disabled = true;
+    NET.hostName = 'Host';
+    try {
+      const r = await api('/api/create', { hostName:NET.hostName });
+      const j = await r.json();
+      NET.room=j.room; NET.cid=j.token; NET.role='host';
+      roomCodeEl.textContent = j.room;
+      joinUrlEl.textContent = NET.p2p
+        ? 'Serverless P2P — friends tick "Serverless P2P" and enter code ' + j.room
+        : location.host + '  →  Join Online, code ' + j.room;
+      hostCreateBtn.classList.add('gone'); hostLobby.classList.remove('gone');
+      renderHostPlayers();
+      openStream('host');
+    } catch(err){ hostCreateBtn.disabled=false; alert('Could not reach the server. Is it running? (node server.js)'); }
+  });
+  document.getElementById('aiMinus').onclick = () => { aiFill=Math.max(0,aiFill-1); aiFillVal.textContent=aiFill; };
+  document.getElementById('aiPlus').onclick  = () => { aiFill=Math.min(5,aiFill+1); aiFillVal.textContent=aiFill; };
+
+  function renderHostPlayers(){
+    hostPlayersEl.innerHTML='';
+    const chip = (name,owner,tag) => { const d=document.createElement('div'); d.className='pchip';
+      d.innerHTML='<span class="sw" style="background:'+COLORS[owner]+'"></span>'+esc(name)+(tag?' '+tag:''); hostPlayersEl.appendChild(d); };
+    chip(NET.hostName||'Host', PLAYER, '(you · host)');
+    for (const p of NET.lobby) chip(p.name, p.owner, '· '+colorName(p.owner));
+    if (!NET.lobby.length){ const d=document.createElement('div'); d.className='hint'; d.textContent='No one has joined yet.'; hostPlayersEl.appendChild(d); }
+  }
+  function renderJoinPlayers(){
+    joinPlayersEl.innerHTML='';
+    const chip = (name,owner,me) => { const d=document.createElement('div'); d.className='pchip';
+      d.innerHTML='<span class="sw" style="background:'+COLORS[owner]+'"></span>'+esc(name)+(me?' (you)':''); joinPlayersEl.appendChild(d); };
+    for (const p of NET.lobby) chip(p.name, p.owner, p.cid===NET.cid);
+  }
+
+  hostStartBtn.addEventListener('click', () => {
+    const MAX_OPP = Math.min(7, states.length-1);  // owners 2..8, bounded by map size
+    const humans = NET.lobby.slice(0, MAX_OPP);
+    let total = Math.min(MAX_OPP, humans.length + aiFill);
+    if (total < 1) total = 1;                     // always at least one opponent
+    slotControl = {}; const owners = []; let o = 2;
+    const usedHumans = humans.slice(0, Math.min(humans.length, total));
+    for (const h of usedHumans){ slotControl[o] = { cid:h.cid, name:h.name }; owners.push({ cid:h.cid, owner:o, name:h.name }); o++; }
+    for (let k = usedHumans.length; k < total; k++){ slotControl[o] = 'ai'; o++; }
+    mpEnemies = total; netMode = 'host'; myOwner = PLAYER;
+    const lv = LEVELS[levelIdx];
+    api('/api/host?room='+NET.room, { to:'all', event:'start', data:{ levelName:lv.name, rl:!!lv.rl, owners, hostName:NET.hostName, regionName:REGIONS[regionIdx].name } });
+    newGame();
+  });
+
+  // host applies a remote player's intent after validating ownership
+  function applyRemoteAction(a){
+    if (!running || netMode!=='host') return;
+    let owner = null;
+    for (const k in slotControl){ const sc=slotControl[k]; if (sc && sc!=='ai' && sc.cid===a.cid){ owner=+k; break; } }
+    if (owner==null) return;
+    const from = states.find(s=>s.id===a.from), to = states.find(s=>s.id===a.to);
+    if (!from || !to || from.owner!==owner) return;
+    sendTroops(from, to, a.denom);
+  }
+
+  // ---- join (guest) ----
+  function refreshJoinBtn(){ if (joinBtn) joinBtn.disabled = !ready || codeInput.value.trim().length < 4; }
+  codeInput.addEventListener('input', () => { codeInput.value = codeInput.value.toUpperCase(); refreshJoinBtn(); });
+  joinBtn.addEventListener('click', () => {
+    const code = codeInput.value.trim().toUpperCase();
+    const name = (nameInput.value.trim() || 'Player').slice(0,14);
+    if (code.length < 4) return;
+    NET.cid = Math.random().toString(36).slice(2,10); NET.room = code; NET.role='player'; NET.hostName = name; NET.lobby = [];
+    joinLobby.classList.remove('gone'); joinBtn.disabled = true; joinStatus.textContent = 'Connecting…';
+    openStream('player', name);
+  });
+
+  function guestStart(d){
+    const me = (d.owners||[]).find(x => x.cid===NET.cid);
+    if (me) myOwner = me.owner;
+    const li = LEVELS.findIndex(l => l.name===d.levelName); if (li>=0) levelIdx = li;
+    const ri = REGIONS.findIndex(r => r.name===d.regionName); if (ri>=0 && ri!==regionIdx){ regionIdx=ri; buildRegionButtons(); }
+    netMode = 'guest'; troops = []; selected=null; dragPos=null; selSet=[]; resetCam();
+    if (ready){ buildStatesForRegion(); buildGeo(); }   // match the host's map before rendering snapshots
+    for (const s of states){ s.owner=NEUTRAL; s.troops=0; s.pulse=0; }
+    nnBtn.classList.add('gone');                 // guests can't open the host's AI panel
+    running = true; overlay.classList.add('hidden');
+    lastTime = performance.now(); requestAnimationFrame(loop);
+  }
+
+  // Guest interpolation state. Orbs are matched across snapshots by uid and eased toward the
+  // host's authoritative position (dead-reckoned forward by wall-clock), rather than snapped —
+  // so 10 snapshots/sec + network jitter no longer reads as a 10 Hz stutter.
+  let guestSpeed = 1;   // the host's gameSpeed (orbs travel at 70*guestSpeed units/sec)
+  function guestApplySnapshot(snap){
+    if (!ready || netMode!=='guest') return;
+    for (const st of snap.states){ const s=states[st.i] || states.find(x=>x.id===st.i); if (s){ if (s.owner!==st.o) s.pulse=1; s.owner=st.o; s.troops=st.t; } }
+    guestSpeed = snap.speed || 1;
+    const now = performance.now();
+    const byUid = new Map();
+    for (const t of troops) if (t.uid!=null) byUid.set(t.uid, t);
+    const next = [];
+    for (const o of (snap.orbs||[])){
+      const a=states[o.f] || states.find(s=>s.id===o.f), b=states[o.g] || states.find(s=>s.id===o.g);
+      if (!a||!b) continue;
+      const len = Math.hypot(b.cx-a.cx, b.cy-a.cy) || 1;
+      let orb = (o.u!=null) ? byUid.get(o.u) : null;
+      if (orb){                                   // known orb: record new truth, keep rendered pos
+        orb.ox=a.cx; orb.oy=a.cy; orb.tx=b.cx; orb.ty=b.cy; orb.len=len;
+        orb.fromId=a.id; orb.targetId=b.id; orb.count=o.c;
+        orb.authProg=o.p; orb.authT=now;
+      } else {                                    // new orb: spawn at the authoritative position
+        orb = { owner:o.o, ox:a.cx, oy:a.cy, tx:b.cx, ty:b.cy, len, fromId:a.id, targetId:b.id,
+          count:o.c, speed:ORB_SPEED, uid:o.u, prog:o.p, authProg:o.p, authT:now,
+          x:a.cx+(b.cx-a.cx)*o.p, y:a.cy+(b.cy-a.cy)*o.p, r:Math.min(17,7+Math.sqrt(o.c))*(markR/17) };
+      }
+      next.push(orb);
+    }
+    troops = next;   // orbs absent from the snapshot have landed on the host — drop them
+  }
+
+  function guestResult(r){
+    running = false;
+    overlay.classList.remove('hidden'); introText.style.display='none';
+    const win = r && r.winnerOwner===myOwner;
+    resultText.textContent = win ? 'YOU WIN!' : ((r&&r.winner?r.winner:'Someone')+' wins');
+    resultText.style.color = win ? '#38c46f' : '#f0c24a';
+    nnBtn.classList.remove('gone');
+    recordResult(!!win);
+  }
+
+  // ---- snapshot the host broadcasts ----
+  function rosterForSnap(){
+    const arr = [{ owner:PLAYER, name:NET.hostName||'Host' }];
+    for (const k in slotControl){ const sc=slotControl[k]; arr.push({ owner:+k, name: sc==='ai' ? ('AI '+(k-1)) : sc.name }); }
+    return arr;
+  }
+  function rosterText(){ return rosterForSnap().map(p=>p.name).join(', '); }
+  function buildSnapshot(){
+    const st = states.map(s => ({ i:s.id, o:s.owner, t:Math.round(s.troops) }));
+    const orbs = troops.map(t => { const tot=Math.hypot(t.tx-t.ox, t.ty-t.oy)||1, p=Math.min(1, Math.hypot(t.x-t.ox, t.y-t.oy)/tot);
+      return { o:t.owner, f:t.fromId, g:t.targetId, p:+p.toFixed(3), c:t.count, u:t.uid }; });
+    let player=0, enemy=0, neutral=0;
+    for (const s of states){ const v=s.troops+1; if (s.owner===PLAYER) player+=v; else if (s.owner>=2) enemy+=v; else neutral+=v; }
+    for (const t of troops){ if (t.owner===PLAYER) player+=t.count; else if (t.owner>=2) enemy+=t.count; }
+    const lv = LEVELS[levelIdx];
+    const snap = { tick:gameTick, t:+gameElapsed.toFixed(1), states:st, orbs, bar:{player,enemy,neutral},
+      names: states.map(s=>s.name),   // lets the spectator rebuild whatever region/map the host is playing
+      status: running?'playing':'over', speed:gameSpeed, level:lv.name, rl:!!lv.rl, players:rosterForSnap() };
+    if (lv.rl && rlPolicy && rlViz){
+      const v=rlViz;
+      snap.nn = { owner:v.owner, waiting:!!v.waiting, src:v.src?v.src.name:null, tgt:v.tgt?v.tgt.name:null,
+        score:+(v.score||0).toFixed(2), noopProb:+(v.noopProb||0).toFixed(3), entropy:+(v.entropy||0).toFixed(2),
+        entropyNorm:+(v.entropyNorm||0).toFixed(3), numMoves:v.numMoves||0, beatNoop:v.beatNoop||0, ctx:v.ctx,
+        cands:(v.candidates||[]).map(c => ({ from:c.from, to:c.to, prob:+c.prob.toFixed(3), score:+c.score.toFixed(2), type:c.type, from_i:c.s.id, to_i:c.t.id })) };
+    }
+    return snap;
+  }
+
+  // ---- host end-of-match: announce winner, store result ----
+  function endGameMP(winner){
+    running = false;
+    const lv = LEVELS[levelIdx];
+    api('/api/state?room='+NET.room, buildSnapshot());
+    api('/api/result', { room:NET.room, result:{ winner:winner!=null?ownerName(winner):'Nobody', winnerOwner:winner,
+      level:lv.name, duration:Math.round(gameElapsed), players:rosterText() } });
+    overlay.classList.remove('hidden'); introText.style.display='none';
+    const youWon = winner===PLAYER;
+    resultText.textContent = youWon ? 'YOU WIN!' : (winner!=null ? ownerName(winner)+' wins' : 'Draw');
+    resultText.style.color = youWon ? '#38c46f' : '#f0c24a';
+    recordResult(youWon);
+  }
+  function ownerName(o){
+    if (o===PLAYER) return NET.hostName || 'Host';
+    const sc = slotControl[o];
+    return sc ? (sc==='ai' ? ('AI '+(o-1)) : sc.name) : colorName(o);
+  }
+
+  // ---- player identity + leaderboard ----
+  let playerName = 'Anthony';
+  try { const sv = localStorage.getItem('statio_player'); if (sv) playerName = sv; } catch(e){}
+  const playerSel = document.getElementById('playerName');
+  if (playerSel){ playerSel.value = playerName;
+    playerSel.onchange = () => { playerName = playerSel.value; try { localStorage.setItem('statio_player', playerName); } catch(e){} }; }
+  function recordResult(won){
+    if (scenarioMode) { matchTrack = null; return; }   // hand-authored scenarios aren't ranked
+    let profile = null;
+    const a = matchTrack;
+    // Easy games count on the leaderboard but don't shape the profile (stomping a weak AI
+    // with a growth handicap isn't representative of real play).
+    if (a && a.attacks >= 3 && LEVELS[levelIdx].name !== 'Easy'){
+      const clamp = x => Math.max(0, Math.min(1, x));
+      const mins = Math.max(0.2, gameElapsed/60);
+      profile = {
+        aggression:     clamp((a.attacks/mins)/30),       // attacks per minute, ~30 = very aggressive
+        earlyAggro:     a.early ? a.earlyEnemy/a.early : 0.5,
+        targetWeakness: a.sumWeak/a.attacks,
+        armySize:       clamp((a.sumSrc/a.attacks)/120),
+        reach:          clamp((a.sumDist/a.attacks)/(rlDiag||1)),
+      };
+    }
+    api('/api/record', { name: playerName, difficulty: LEVELS[levelIdx].name, won: !!won, profile }).catch(()=>{});
+    matchTrack = null;
+  }
+  const lbEsc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const lbBtn = document.getElementById('lbBtn'), lbPanel = document.getElementById('lbPanel'),
+        lbBody = document.getElementById('lbBody'), lbClose = document.getElementById('lbClose');
+  let lbRows = [];
+  function lbAvatar(name, size){
+    let h=0; for (let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))%360;
+    return `<span class="lbav" style="width:${size}px;height:${size}px;background:hsl(${h},55%,46%);font-size:${Math.round(size*0.46)}px">${lbEsc(name.slice(0,1).toUpperCase())}</span>`;
+  }
+  const pick = (v, lo, mid, hi) => v<0.34 ? lo : (v<0.67 ? mid : hi);
+  // turn the learned stats into plain-English strategy notes + an archetype label
+  function describeProfile(p){
+    if (!p || !p.samples) return null;
+    const lines = [
+      pick(p.aggression, 'Patient and measured — attacks sparingly and waits for the right moment.',
+        'Steady tempo — attacks at a moderate, controlled pace.',
+        'Relentlessly aggressive — attacks constantly and keeps up nonstop pressure.'),
+      pick(p.earlyAggro, 'Grabs neutral land first and avoids fights until established.',
+        'Mixes early expansion with the occasional early skirmish.',
+        'Goes straight for opponents early instead of taking neutral territory.'),
+      pick(p.targetWeakness, 'Fearless about strong positions — will hit well-defended states head-on.',
+        'Picks targets sensibly — usually attacks when the odds look fair.',
+        'Opportunistic — preys on the weakest targets and dodges hard fights.'),
+      pick(p.armySize, 'Strikes with small forces in frequent quick jabs.',
+        'Commits moderate-sized armies.',
+        'Stockpiles large armies before launching big strikes.'),
+      pick(p.reach, 'Plays locally — consolidates and attacks nearby states.',
+        'Balances nearby and distant targets.',
+        'Strikes far across the map, projecting force at range.'),
+    ];
+    let arch = 'The All-Rounder';
+    if (p.aggression>0.66 && p.earlyAggro>0.6) arch = 'The Blitzer';
+    else if (p.aggression<0.34 && p.armySize>0.6) arch = 'The Turtle';
+    else if (p.targetWeakness>0.66) arch = 'The Opportunist';
+    else if (p.reach>0.66 && p.aggression>0.5) arch = 'The Expansionist';
+    else if (p.armySize>0.66) arch = 'The Strategist';
+    return { arch, lines };
+  }
+  function showLeaderboard(){
+    lbPanel.classList.remove('gone'); lbBody.textContent = 'Loading…';
+    fetch('/api/leaderboard').then(r=>r.json()).then(rows=>{ lbRows = rows; renderLbList(); })
+      .catch(()=>{ lbBody.innerHTML = '<p class="hint">Could not load the leaderboard.</p>'; });
+  }
+  function renderLbList(){
+    if (!lbRows.length){ lbBody.innerHTML = '<p class="hint">No games recorded yet — play a game!</p>'; return; }
+    let h = '<table><tr><th>#</th><th>Player</th><th>W</th><th>L</th><th>Win%</th><th>Games</th></tr>';
+    lbRows.forEach((r,i)=>{ h += `<tr class="lbrow ${r.name===playerName?'me':''}" data-i="${i}"><td class="rank">${i+1}</td>`+
+      `<td>${lbAvatar(r.name,22)}${lbEsc(r.name)}</td><td>${r.wins}</td><td>${r.losses}</td><td>${Math.round(r.winRate*100)}%</td><td>${r.games}</td></tr>`; });
+    lbBody.innerHTML = h + '</table><p class="hint" style="margin-top:10px">Tap a player to see how the AI reads their strategy.</p>';
+    lbBody.querySelectorAll('.lbrow').forEach(tr => tr.onclick = () => renderLbDetail(lbRows[+tr.dataset.i]));
+  }
+  function renderLbDetail(r){
+    const d = describeProfile(r.profile);
+    let h = '<button class="mini2" id="lbBack">← Back</button>'+
+      `<div class="lbdet"><div class="lbhead">${lbAvatar(r.name,48)}<div>`+
+      `<div class="lbname">${lbEsc(r.name)}</div>`+
+      `<div class="lbrec">${r.wins}W · ${r.losses}L · ${Math.round(r.winRate*100)}% over ${r.games} games</div></div></div>`;
+    if (!d){
+      h += `<p class="hint">Not enough games yet to read ${lbEsc(r.name)}'s style — play a few more and the AI will start profiling them.</p>`;
+    } else {
+      h += `<div class="lbarch">${d.arch}</div><div class="lbdh">How the AI reads ${lbEsc(r.name)}</div>`+
+        '<ul class="lblist">' + d.lines.map(l => `<li>${l}</li>`).join('') + '</ul>'+
+        `<p class="hint">Built from ${r.samples} game${r.samples===1?'':'s'} of play. Grandmaster uses this to predict and counter them.</p>`;
+    }
+    const bd = r.byDiff || {}, diffs = Object.keys(bd);
+    if (diffs.length){ h += '<div class="lbdh">By difficulty</div><table>';
+      for (const k of diffs) h += `<tr><td style="text-align:left">${lbEsc(k)}</td><td>${bd[k].wins}/${bd[k].games} won</td></tr>`;
+      h += '</table>'; }
+    h += '</div>';
+    lbBody.innerHTML = h;
+    document.getElementById('lbBack').onclick = renderLbList;
+  }
+  if (lbBtn) lbBtn.onclick = showLeaderboard;
+  if (lbClose) lbClose.onclick = () => lbPanel.classList.add('gone');
+
+  // ============================ SCENARIO BUILDER ============================
+  // Lets the player author a starting board — how much of the map each team holds — and drop
+  // the AI into it. Teams are laid out as contiguous blobs grown from spread-out seed states so
+  // the requested shares (e.g. 50 / 25 / 25) hold up visually as well as numerically.
+  const COLOR_NAMES = { 1:'Blue', 2:'Red', 3:'Orange', 4:'Purple', 5:'Green', 6:'Pink', 7:'Cyan', 8:'Gold' };
+  let scnRegionIdx = 0;          // which map
+  let scnLevelIdx = 3;           // which AI brain drives the AI teams (default: Master / RL)
+  let scnTeams = [ {ctrl:'you',share:50}, {ctrl:'ai',share:25}, {ctrl:'ai',share:25} ];  // the user's example
+  const scnTeamsEl   = document.getElementById('scnTeams');
+  const scnBarEl     = document.getElementById('scnBar');
+  const scnSummaryEl = document.getElementById('scnSummary');
+  const scnStartBtn  = document.getElementById('scnStartBtn');
+
+  // Map each team (in order) to a game owner id. Only the first "You" team becomes the human
+  // PLAYER (1); every other team is an AI colour (2,3,4…).
+  function scnTeamOwners(){
+    let aiNext = 2, hasYou = false; const out = [];
+    for (const t of scnTeams){
+      if (t.ctrl==='you' && !hasYou){ out.push(PLAYER); hasYou = true; }
+      else out.push(aiNext++);
+    }
+    return out;
+  }
+  // Turn the % shares into integer state counts for a map of N states (≥1 each, never more than N).
+  function scnCounts(N){
+    const c = scnTeams.map(t => Math.max(1, Math.round(t.share/100*N)));
+    let sum = c.reduce((a,b)=>a+b,0);
+    while (sum>N){ let mi=0; for (let i=1;i<c.length;i++) if (c[i]>c[mi]) mi=i; if (c[mi]<=1) break; c[mi]--; sum--; }
+    return c;
+  }
+  // States in the selected region, without disturbing the live `states` array.
+  function scnRegionStateCount(){
+    if (!allFeatures.length) return 0;
+    const r = REGIONS[scnRegionIdx], set = r.list ? new Set(r.list) : null;
+    return allFeatures.filter(f => set ? set.has(f.properties.name) : !EXCLUDE.has(f.properties.name)).length;
+  }
+  function buildScnRegionButtons(){
+    const el = document.getElementById('scnRegions'); if (!el) return; el.innerHTML='';
+    REGIONS.forEach((r,i) => { const b=document.createElement('div'); b.className='lvl'+(i===scnRegionIdx?' active':'');
+      b.textContent=r.name; b.onclick=()=>{ scnRegionIdx=i; buildScnRegionButtons(); renderScn(); }; el.appendChild(b); });
+  }
+  function buildScnLevelButtons(){
+    const el = document.getElementById('scnLevels'); if (!el) return; el.innerHTML='';
+    LEVELS.forEach((lv,i) => { const b=document.createElement('div'); b.className='lvl'+(i===scnLevelIdx?' active':'');
+      b.textContent=lv.name; b.onclick=()=>{ scnLevelIdx=i; buildScnLevelButtons(); }; el.appendChild(b); });
+  }
+  const SCN_PRESETS = [
+    { name:'50 / 25 / 25', teams:[{ctrl:'you',share:50},{ctrl:'ai',share:25},{ctrl:'ai',share:25}] },
+    { name:'You vs AI',    teams:[{ctrl:'you',share:50},{ctrl:'ai',share:50}] },
+    { name:'Surrounded',   teams:[{ctrl:'you',share:20},{ctrl:'ai',share:40},{ctrl:'ai',share:40}] },
+    { name:'Underdog',     teams:[{ctrl:'you',share:15},{ctrl:'ai',share:55},{ctrl:'ai',share:30}] },
+    { name:'Watch: AI duel', teams:[{ctrl:'ai',share:50},{ctrl:'ai',share:50}] },
+    { name:'Watch: 4-way',   teams:[{ctrl:'ai',share:25},{ctrl:'ai',share:25},{ctrl:'ai',share:25},{ctrl:'ai',share:25}] },
+  ];
+  function buildScnPresets(){
+    const el = document.getElementById('scnPresets'); if (!el) return; el.innerHTML='';
+    SCN_PRESETS.forEach(p => { const b=document.createElement('button'); b.className='scn-preset'; b.textContent=p.name;
+      b.onclick=()=>{ scnTeams=p.teams.map(t=>({...t})); renderScn(); }; el.appendChild(b); });
+  }
+  function renderScn(){
+    if (!scnTeamsEl) return;
+    const owners = scnTeamOwners();
+    const N = scnRegionStateCount();
+    const counts = N ? scnCounts(N) : scnTeams.map(()=>0);
+    scnTeamsEl.innerHTML = '';
+    scnTeams.forEach((t,i) => {
+      const owner = owners[i], col = COLORS[owner] || '#ccc';
+      const row = document.createElement('div'); row.className='scn-row';
+      const sw = document.createElement('div'); sw.className='scn-sw'; sw.style.background=col; row.appendChild(sw);
+      const ctrl = document.createElement('button'); ctrl.className='scn-ctrl '+(t.ctrl==='you'?'you':'ai');
+      ctrl.textContent = t.ctrl==='you' ? 'You' : 'AI';
+      ctrl.title = 'Tap to switch between You and AI';
+      ctrl.onclick = () => { if (t.ctrl==='you'){ t.ctrl='ai'; } else { for (const o of scnTeams) o.ctrl='ai'; t.ctrl='you'; } renderScn(); };
+      row.appendChild(ctrl);
+      const share = document.createElement('div'); share.className='scn-share';
+      const minus = document.createElement('button'); minus.className='mini'; minus.textContent='−';
+      minus.onclick = () => { t.share=Math.max(5, t.share-5); renderScn(); };
+      const val = document.createElement('b'); val.textContent = t.share+'%';
+      const plus = document.createElement('button'); plus.className='mini'; plus.textContent='+';
+      plus.onclick = () => { t.share=Math.min(95, t.share+5); renderScn(); };
+      share.appendChild(minus); share.appendChild(val); share.appendChild(plus); row.appendChild(share);
+      const cnt = document.createElement('div'); cnt.className='scn-cnt'; cnt.textContent=(N?counts[i]:'—')+' states'; row.appendChild(cnt);
+      if (scnTeams.length>2){ const x=document.createElement('button'); x.className='scn-x'; x.textContent='✕';
+        x.title='Remove team'; x.onclick=()=>{ scnTeams.splice(i,1); renderScn(); }; row.appendChild(x); }
+      scnTeamsEl.appendChild(row);
+    });
+    if (scnTeams.length<6){ const add=document.createElement('button'); add.className='scn-add'; add.textContent='+ Add team';
+      add.onclick=()=>{ scnTeams.push({ctrl:'ai',share:15}); renderScn(); }; scnTeamsEl.appendChild(add); }
+    // proportion bar (per-team slices + neutral remainder)
+    scnBarEl.innerHTML = '';
+    const total = N || scnTeams.reduce((a,t)=>a+t.share,0) || 1;
+    let used = 0;
+    scnTeams.forEach((t,i) => { const c = N?counts[i]:t.share; used+=c;
+      const d=document.createElement('div'); d.style.width=(c/total*100)+'%'; d.style.background=COLORS[owners[i]]||'#ccc'; scnBarEl.appendChild(d); });
+    const neutral = Math.max(0, total-used);
+    if (neutral>0){ const d=document.createElement('div'); d.style.width=(neutral/total*100)+'%'; d.style.background='#b4bbc2'; scnBarEl.appendChild(d); }
+    const youCount = scnTeams.filter(t=>t.ctrl==='you').length;
+    const neuPct = Math.round(neutral/total*100);
+    scnSummaryEl.textContent = (N?`${N} states · `:'') + (youCount?'you control 1 team · ':'observer mode · ') + (neuPct>0?`~${neuPct}% neutral`:'no neutral land');
+    scnStartBtn.disabled = !ready;
+    scnStartBtn.textContent = ready ? (youCount?'Start scenario':'Watch AIs battle') : 'Loading map…';
+  }
+
+  // Grow each team's territory as a contiguous blob: seed teams far apart, then repeatedly hand the
+  // neediest team (lowest owned/target ratio) the nearest still-unclaimed state to one it already
+  // holds. Whatever is left over stays neutral. Marks seed states with _seed for the "capital" bonus.
+  function allocateTerritory(targets){
+    const used = [];
+    for (const s of states){ s.owner=NEUTRAL; s._team=-1; s._seed=false; }
+    const owned = targets.map(()=>[]);
+    targets.forEach((t,ti) => { const seed=farthestPick(used); if (seed){ used.push(seed);
+      seed.owner=t.owner; seed._team=ti; seed._seed=true; owned[ti].push(seed); } });
+    let guard = states.length*2 + 4;
+    while (guard-- > 0){
+      let pick=-1, worst=Infinity;
+      targets.forEach((t,ti) => { if (owned[ti].length>=t.count) return; const r=owned[ti].length/t.count; if (r<worst){ worst=r; pick=ti; } });
+      if (pick<0) break;
+      let best=null, bd=Infinity;
+      for (const s of states){ if (s._team!==-1) continue; let d=Infinity;
+        for (const o of owned[pick]){ const dd=(o.cx-s.cx)**2+(o.cy-s.cy)**2; if (dd<d) d=dd; }
+        if (d<bd){ bd=d; best=s; } }
+      if (!best){ targets[pick].count = owned[pick].length; continue; }  // no land left for this team
+      best.owner=targets[pick].owner; best._team=pick; owned[pick].push(best);
+    }
+  }
+
+  function startScenario(){
+    if (!ready) return;
+    if (NET.es){ NET.es.close(); NET.es=null; }
+    if (NET.p2p && window.P2P) P2P.close();
+    netMode = null; mpEnemies = null;
+    levelIdx = scnLevelIdx; const lv = LEVELS[levelIdx]; cfg = lv;
+    if (regionIdx !== scnRegionIdx){ regionIdx = scnRegionIdx; buildStatesForRegion(); buildRegionButtons(); }
+    buildGeo();
+    troops = []; selected=null; dragPos=null; selSet=[]; aiTimers={}; planPending={}; resetCam();
+    matchTrack = null;
+
+    const N = states.length;
+    const owners = scnTeamOwners();
+    const counts = scnCounts(N);
+    const targets = owners.map((o,i) => ({ owner:o, count:counts[i] }));
+    const hasYou = scnTeams.some(t => t.ctrl==='you');
+    myOwner = PLAYER;
+    scenarioMode = true; scenarioObserver = !hasYou;
+
+    allocateTerritory(targets);
+
+    // troops: a team's seed is its "capital" (full start strength); its other states hold a
+    // modest garrison; unclaimed land keeps the usual neutral spread.
+    for (const s of states){
+      s.growAcc = 0; s.pulse = 0;
+      if (s.owner===NEUTRAL){ s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
+      else {
+        const base = s.owner===PLAYER ? lv.playerStart : lv.enemyStart;
+        s.troops = s._seed ? base : Math.max(6, Math.floor(rand(lv.neutralMin, Math.min(lv.neutralMax, base))));
+      }
+    }
+    // every AI colour is driven by the AI; the human (if any) holds PLAYER.
+    slotControl = {};
+    for (const t of targets) if (t.owner>=2) slotControl[t.owner] = 'ai';
+
+    running = true; gameTick = 0; gameElapsed = 0; nnHist.length = 0;
+    overlay.classList.add('hidden');
+    introText.style.display = 'none';
+    resultText.textContent = '';
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  function endScenario(winner){
+    running = false;
+    overlay.classList.remove('hidden');
+    introText.style.display = 'none';
+    if (winner==null){ resultText.textContent='STALEMATE'; resultText.style.color='#cdd9ea'; }
+    else if (winner===PLAYER && !scenarioObserver){ resultText.textContent='VICTORY!'; resultText.style.color='#38c46f'; }
+    else { resultText.textContent=(COLOR_NAMES[winner]||('Team '+winner))+' wins!'; resultText.style.color=COLORS[winner]||'#fff'; }
+  }
+
+  buildScnRegionButtons(); buildScnLevelButtons(); buildScnPresets(); renderScn();
+  if (scnStartBtn) scnStartBtn.addEventListener('click', startScenario);
+
+  setMode('solo');
+})();
+</script>
+</body>
+</html>
