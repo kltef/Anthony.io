@@ -7,6 +7,21 @@ troop simulation, and the trained reinforcement-learning AI — lives in that on
 self-contained HTML file. The editable source is mirrored at
 [`src/web/index.html`](src/web/index.html).
 
+## Scenario back button & orb-shape perk
+
+- **Fixed "← Back" on menu screens.** The in-game `❮` arrow only helps once a match is
+  running; on the Scenario setup screen in landscape on mobile the page scrolls and the mode
+  tabs scroll out of view, leaving no way back. A `position:fixed` **← Back** button
+  (`#menuBack`, z-index above the overlay) now shows on any non-default menu screen and returns
+  to the vs-Computer menu — it stays put no matter how far the panel scrolls. Visibility is
+  driven by `updateMenuBack()` on every overlay show/hide and `setMode()` change.
+- **Orb-shape perk (replaces the old colour perk).** The cosmetic team-colour option is gone;
+  the shop now sells an **orb shape**: Circle (default), Triangle, Jet (F-22), Bomber, Diamond.
+  Your own orbs (`t.owner===myOwner`) render in the chosen silhouette, rotated to point at their
+  target; everyone else's stay circles. It's a purely local cosmetic, so it works in every mode
+  with no networking changes. See `ORB_SHAPES`, `drawOrbShape()` (also used for the shop's canvas
+  previews), and `PERK.orbShape`/`orbUnlocked`.
+
 ## Cap upgrades, special tiles & a coin shop
 
 Three linked single-player systems (all gated to `netMode === null`, so multiplayer and

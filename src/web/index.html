@@ -21,6 +21,13 @@
     color: #3a4654; font-size: 30px; font-weight: 800; line-height: 1; user-select: none;
   }
   #back:active { transform: scale(.9); }
+  /* Fixed Back button for non-default menu screens — stays put even when the panel scrolls
+     (e.g. the Scenario builder in landscape on mobile, where the mode tabs scroll off-screen). */
+  #menuBack { position: fixed; top: 12px; left: 12px; z-index: 11; pointer-events: auto; cursor: pointer;
+    background: rgba(16,23,37,.92); color: #cdd9ea; border: 1px solid #2a3850; border-radius: 9px;
+    padding: 8px 14px; font-weight: 800; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+  #menuBack:hover { border-color: #46a6ef; color: #fff; }
+  #menuBack:active { transform: scale(.94); }
   #zoom { position: fixed; right: 14px; bottom: 14px; z-index: 6; display: flex; flex-direction: column; gap: 8px; }
   #zoom button {
     width: 44px; height: 44px; border-radius: 11px; border: none; cursor: pointer;
@@ -197,6 +204,7 @@
 <body>
 <canvas id="game"></canvas>
 <div id="back">&#10094;</div>
+<button id="menuBack" style="display:none">&#8592; Back</button>
 <div id="topbar"><div id="bar"></div></div>
 <div id="zoom"><button id="zoomIn" title="Zoom in">+</button><button id="zoomOut" title="Zoom out">&minus;</button></div>
 <div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="upgradeBtn" title="Upgrade the selected state's troop cap" style="display:none">⬆ Upgrade</button><button id="airdropBtn" title="Drop reinforcements onto the selected state" style="display:none">🪂 Airdrop</button><button id="nnBtn" title="Show the Master AI's neural network">AI brain</button></div>
@@ -401,24 +409,42 @@
     boomStart:    lsGet('boomStart') === '1',
     investor:     lsGet('investor') === '1',
     airdrops:     +lsGet('airdrops') || 0,           // consumable charges
-    colorUnlocked:lsGet('colorUnlocked') === '1',    // bought the right to recolour
-    color:        lsGet('color') || '',              // hex override for the player's colour
+    orbUnlocked:  lsGet('orbUnlocked') === '1',      // bought the right to reshape your orbs
+    orbShape:     lsGet('orbShape') || '',           // '' = classic circle; else an ORB_SHAPES id
   };
   const savePerk = k => lsSet(k, PERK[k]);
 
-  // cosmetic player-colour palette (light, dark). The classic blue is the default/first entry.
-  const SHOP_COLORS = [
-    { hex:'#46a6ef', dark:'#2c7fc4', name:'Blue' },
-    { hex:'#ef5b52', dark:'#c43d36', name:'Red' },
-    { hex:'#38c46f', dark:'#27975a', name:'Green' },
-    { hex:'#9b6cf0', dark:'#7549c4', name:'Purple' },
-    { hex:'#f1a13a', dark:'#c47d24', name:'Amber' },
-    { hex:'#e36ec9', dark:'#b94fa1', name:'Pink' },
+  // ---- cosmetic orb shapes (the player's own projectiles). Unit-space polygons point +x
+  // (toward the orb's target); they're rotated to the orb heading and scaled by its radius. ----
+  const ORB_SHAPES = [
+    { id:'',        name:'Circle' },
+    { id:'triangle',name:'Triangle', poly:[[1.5,0],[-1,1.05],[-1,-1.05]] },
+    { id:'diamond', name:'Diamond',  poly:[[1.35,0],[0,1.1],[-1.35,0],[0,-1.1]] },
+    { id:'jet',     name:'Jet (F-22)', poly:[
+        [1.9,0],[0.55,0.18],[0.2,0.2],[-0.35,1.15],[-0.7,1.15],[-0.35,0.22],
+        [-1.0,0.5],[-1.35,0.46],[-1.05,0.12],[-1.4,0],
+        [-1.05,-0.12],[-1.35,-0.46],[-1.0,-0.5],[-0.35,-0.22],[-0.7,-1.15],[-0.35,-1.15],[0.2,-0.2],[0.55,-0.18] ] },
+    { id:'bomber',  name:'Bomber',   poly:[
+        [1.5,0],[0.1,0.28],[-0.65,1.5],[-1.0,1.42],[-0.55,0.32],[-1.25,0.3],[-1.15,0],
+        [-1.25,-0.3],[-0.55,-0.32],[-1.0,-1.42],[-0.65,-1.5],[0.1,-0.28] ] },
   ];
-  function applyPlayerColor(){
-    const c = PERK.color ? SHOP_COLORS.find(x=>x.hex===PERK.color) : null;
-    COLORS[PLAYER] = c ? c.hex : '#46a6ef';
-    DARK[PLAYER]   = c ? c.dark : '#2c7fc4';
+  const ORB_POLY = Object.fromEntries(ORB_SHAPES.filter(s=>s.poly).map(s=>[s.id, s.poly]));
+  // draw an oriented orb shape on ctx `c`. Falls back to the classic dark-halo circle for ''/unknown.
+  function drawOrbShape(c, shape, x, y, r, ang, fill, dark, k){
+    const poly = ORB_POLY[shape];
+    if (!poly){
+      c.fillStyle=dark; c.beginPath(); c.arc(x,y,r+2*k,0,Math.PI*2); c.fill();
+      c.fillStyle=fill; c.beginPath(); c.arc(x,y,r,0,Math.PI*2); c.fill();
+      return;
+    }
+    c.save();
+    c.translate(x,y); c.rotate(ang); c.scale(r,r);
+    c.beginPath(); c.moveTo(poly[0][0],poly[0][1]);
+    for (let i=1;i<poly.length;i++) c.lineTo(poly[i][0],poly[i][1]);
+    c.closePath();
+    c.restore();
+    c.fillStyle=fill; c.fill();
+    c.lineWidth=2.4*k; c.lineJoin='round'; c.strokeStyle=dark; c.stroke();
   }
 
   const LEVELS = [
@@ -780,7 +806,6 @@
     // Cap upgrades, special tiles & shop perks are single-player only (off in netplay → no desync).
     upgradesOn = tilesOn = !netMode;
     boomUntil = 0;
-    if (!netMode) applyPlayerColor(); else { COLORS[PLAYER]='#46a6ef'; DARK[PLAYER]='#2c7fc4'; }
 
     for (const s of states) {
       s.owner = NEUTRAL;
@@ -811,7 +836,7 @@
 
     running = true;
     gameTick = 0; gameElapsed = 0; nnHist.length = 0;
-    overlay.classList.add('hidden');
+    overlay.classList.add('hidden'); updateMenuBack();
     lastTime = performance.now();
     requestAnimationFrame(loop);
   }
@@ -834,6 +859,7 @@
     recordResult(won);
     showCoinLine();
     if (shopBtn) shopBtn.textContent = '🪙 Shop ('+PERK.coins+')';
+    updateMenuBack();
   }
   // end-screen "+N 🪙 · total" line (only meaningful after a solo game)
   function showCoinLine(){
@@ -853,7 +879,7 @@
     introText.style.display = '';
     resultText.textContent = '';
     const cl = document.getElementById('coinLine'); if (cl) cl.style.display = 'none';
-    refreshHud();
+    refreshHud(); updateMenuBack();
     startBtn.textContent = ready ? 'Play' : 'Loading map…';
   }
   backEl.addEventListener('click', toMenu);
@@ -1588,8 +1614,10 @@
     const tk = zk();
     for (const t of troops) {
       const r = t.r*tk;
-      ctx.fillStyle=DARK[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r+2*tk,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle=COLORS[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r,0,Math.PI*2); ctx.fill();
+      // only YOUR orbs take the chosen shape; everyone else's stay classic circles
+      const shape = (t.owner===myOwner) ? PERK.orbShape : '';
+      const ang = Math.atan2(t.ty-t.y, t.tx-t.x);
+      drawOrbShape(ctx, shape, t.x, t.y, r, ang, COLORS[t.owner], DARK[t.owner], tk);
       if (t.count>1){ ctx.fillStyle='#fff'; ctx.font='bold '+(t.r*tk)+'px Segoe UI, sans-serif';
         ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(t.count, t.x, t.y+1*tk); }
     }
@@ -2219,6 +2247,7 @@
   // ---- mode tabs ----
   modesEl.addEventListener('click', e => { const m = e.target.dataset.mode; if (m) setMode(m); });
   function setMode(m){
+    curMode = m;
     [...modesEl.children].forEach(c => c.classList.toggle('active', c.dataset.mode===m));
     soloPanel.classList.toggle('gone', m!=='solo');
     hostPanel.classList.toggle('gone', m!=='host');
@@ -2226,7 +2255,17 @@
     const scnP = document.getElementById('scenarioPanel'); if (scnP) scnP.classList.toggle('gone', m!=='scenario');
     if (m==='solo' || m==='scenario'){ if (NET.es){ NET.es.close(); NET.es=null; } if (NET.p2p && window.P2P) P2P.close(); netMode=null; mpEnemies=null; myOwner=PLAYER; }
     if (m==='scenario') renderScn();
+    updateMenuBack();
   }
+  // Fixed "← Back" for non-default menu screens (returns to the vs-Computer menu). Visible only
+  // while the menu overlay is up and we're not already on the default screen.
+  let curMode = 'solo';
+  const menuBackEl = document.getElementById('menuBack');
+  function updateMenuBack(){
+    if (!menuBackEl) return;
+    menuBackEl.style.display = (curMode!=='solo' && !overlay.classList.contains('hidden')) ? '' : 'none';
+  }
+  if (menuBackEl) menuBackEl.onclick = ()=> setMode('solo');
 
   // ---- generic SSE stream ----
   function openStream(role, name){
@@ -2257,7 +2296,7 @@
   function netFatal(msg){
     if (NET.es){ NET.es.close(); NET.es=null; }
     if (NET.p2p && window.P2P) P2P.close();
-    running=false; netMode=null; overlay.classList.remove('hidden');
+    running=false; netMode=null; overlay.classList.remove('hidden'); updateMenuBack();
     joinStatus.textContent = msg||'Disconnected'; joinBtn.disabled=false;
     hostCreateBtn.classList.remove('gone'); hostLobby.classList.add('gone'); hostCreateBtn.disabled=!ready;
   }
@@ -2345,7 +2384,7 @@
     if (ready){ buildStatesForRegion(); buildGeo(); }   // match the host's map before rendering snapshots
     for (const s of states){ s.owner=NEUTRAL; s.troops=0; s.pulse=0; }
     nnBtn.classList.add('gone');                 // guests can't open the host's AI panel
-    running = true; overlay.classList.add('hidden');
+    running = true; overlay.classList.add('hidden'); updateMenuBack();
     lastTime = performance.now(); requestAnimationFrame(loop);
   }
 
@@ -2682,9 +2721,8 @@
     const hasYou = scnTeams.some(t => t.ctrl==='you');
     myOwner = PLAYER;
     scenarioMode = true; scenarioObserver = !hasYou;
-    // scenario rule toggles (shop perks never apply here; the cosmetic colour is harmless)
+    // scenario rule toggles (shop perks never apply here)
     upgradesOn = scnUpgradesOn; tilesOn = scnTilesOn; boomUntil = 0;
-    applyPlayerColor();
 
     allocateTerritory(targets);
 
@@ -2708,7 +2746,7 @@
     for (const t of targets) if (t.owner>=2) slotControl[t.owner] = 'ai';
 
     running = true; gameTick = 0; gameElapsed = 0; nnHist.length = 0;
-    overlay.classList.add('hidden');
+    overlay.classList.add('hidden'); updateMenuBack();
     introText.style.display = 'none';
     resultText.textContent = '';
     lastTime = performance.now();
@@ -2722,6 +2760,7 @@
     if (winner==null){ resultText.textContent='STALEMATE'; resultText.style.color='#cdd9ea'; }
     else if (winner===PLAYER && !scenarioObserver){ resultText.textContent='VICTORY!'; resultText.style.color='#38c46f'; }
     else { resultText.textContent=(COLOR_NAMES[winner]||('Team '+winner))+' wins!'; resultText.style.color=COLORS[winner]||'#fff'; }
+    updateMenuBack();
   }
 
   buildScnRegionButtons(); buildScnLevelButtons(); buildScnPresets(); renderScn();
@@ -2815,22 +2854,24 @@
         btn.disabled = PERK.coins < cost; btn.onclick=()=> buyItem(item); }
       row.appendChild(btn); shopBody.appendChild(row);
     }
-    // cosmetic colour
+    // cosmetic orb shape — your projectiles take the chosen silhouette, aimed at their target
     const crow=document.createElement('div'); crow.className='shop-item';
-    const cic=document.createElement('div'); cic.className='shop-ic'; cic.textContent='🎨'; crow.appendChild(cic);
+    const cic=document.createElement('div'); cic.className='shop-ic'; cic.textContent='🛩️'; crow.appendChild(cic);
     const cmeta=document.createElement('div'); cmeta.className='shop-meta';
-    cmeta.innerHTML='<div class="shop-name">Player colour</div><div class="shop-desc">'+
-      (PERK.colorUnlocked?'Tap a swatch to set your colour.':'Unlock the right to recolour your team.')+'</div>';
+    cmeta.innerHTML='<div class="shop-name">Orb shape</div><div class="shop-desc">'+
+      (PERK.orbUnlocked?'Tap a shape to set how your orbs look.':'Unlock the right to reshape your orbs.')+'</div>';
     const sw=document.createElement('div'); sw.className='shop-colors';
-    SHOP_COLORS.forEach(c=>{ const d=document.createElement('div');
-      d.className='shop-sw'+(((PERK.color||'#46a6ef')===c.hex)?' on':''); d.style.background=c.hex; d.title=c.name;
-      d.onclick=()=>{ if(!PERK.colorUnlocked) return; PERK.color = (c.hex==='#46a6ef'?'':c.hex); savePerk('color'); applyPlayerColor(); buildShop(); };
-      sw.appendChild(d); });
+    ORB_SHAPES.forEach(s=>{ const cv=document.createElement('canvas'); cv.width=28; cv.height=28;
+      cv.className='shop-sw'+((PERK.orbShape===s.id)?' on':''); cv.title=s.name;
+      const cc=cv.getContext('2d');
+      drawOrbShape(cc, s.id, 14, 14, 8, 0, COLORS[PLAYER], DARK[PLAYER], 1);   // preview, pointing right
+      cv.onclick=()=>{ if(!PERK.orbUnlocked) return; PERK.orbShape=s.id; savePerk('orbShape'); buildShop(); };
+      sw.appendChild(cv); });
     cmeta.appendChild(sw); crow.appendChild(cmeta);
     const cbtn=document.createElement('button'); cbtn.className='shop-buy';
-    if (PERK.colorUnlocked){ cbtn.textContent='Unlocked'; cbtn.classList.add('owned'); cbtn.disabled=true; }
+    if (PERK.orbUnlocked){ cbtn.textContent='Unlocked'; cbtn.classList.add('owned'); cbtn.disabled=true; }
     else { cbtn.textContent='Unlock · 400 🪙'; cbtn.disabled = PERK.coins<400;
-      cbtn.onclick=()=>{ if(PERK.coins<400) return; PERK.coins-=400; savePerk('coins'); PERK.colorUnlocked=true; savePerk('colorUnlocked'); buildShop(); refreshShopBtn(); }; }
+      cbtn.onclick=()=>{ if(PERK.coins<400) return; PERK.coins-=400; savePerk('coins'); PERK.orbUnlocked=true; savePerk('orbUnlocked'); buildShop(); refreshShopBtn(); }; }
     crow.appendChild(cbtn); shopBody.appendChild(crow);
   }
   refreshShopBtn();
