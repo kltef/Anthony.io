@@ -2008,24 +2008,31 @@
   // wiped and re-created DOM nodes every frame, forcing a layout reflow per animation
   // frame — the main cause of the orb stutter on mobile. Now the DOM is touched only when
   // a width actually changes (rounded to 0.1%), so most frames do zero layout work.
-  let barSegs = null, barLast = ['', '', ''];
-  function buildBarSegs(){
-    barEl.innerHTML='';
-    const mk = c => { const d=document.createElement('div'); d.style.background=c; barEl.appendChild(d); return d; };
-    barSegs = [ mk(COLORS[1]), mk(COLORS[2]), mk('#b7bdc4') ];
-    barLast = ['', '', ''];
-  }
+  // One segment PER TEAM (in that owner's colour) + a neutral segment, instead of lumping every
+  // enemy into one red bar. The segment DOM is only rebuilt when the set of live owners changes
+  // (e.g. a team is eliminated); otherwise we just nudge widths.
+  let barSegs = null;     // { [owner]: div, neutral: div }
+  let barKey = '';        // signature of the current owner set
+  let barLast = {};       // last width string per segment key
   function updateBar() {
-    let player=0, enemy=0, neutral=0;
+    const tot = {}; let neutral = 0, total = 0;
     for (const s of states) {
-      const v = s.troops + 1;
-      if (s.owner===PLAYER) player+=v; else if (s.owner>=2) enemy+=v; else neutral+=v;
+      const v = s.troops + 1; total += v;
+      if (s.owner===NEUTRAL) neutral += v; else tot[s.owner] = (tot[s.owner]||0) + v;
     }
-    for (const t of troops){ if (t.owner===PLAYER) player+=t.count; else if (t.owner>=2) enemy+=t.count; }
-    const total = player+enemy+neutral || 1;
-    if (!barSegs || barSegs[0].parentNode!==barEl) buildBarSegs();
-    const w = [player, enemy, neutral].map(v => (v/total*100).toFixed(1)+'%');
-    for (let i=0;i<3;i++) if (w[i]!==barLast[i]){ barSegs[i].style.width=w[i]; barLast[i]=w[i]; }   // touch DOM only on change
+    for (const t of troops){ if (t.owner!==NEUTRAL){ tot[t.owner] = (tot[t.owner]||0) + t.count; total += t.count; } }
+    total = total || 1;
+    const owners = Object.keys(tot).map(Number).sort((a,b)=>a-b);   // PLAYER (1) first, then 2,3,4…
+    const key = owners.join(',');
+    if (barKey!==key || !barSegs || barEl.childElementCount!==owners.length+1) {
+      barEl.innerHTML=''; barSegs={}; barLast={};
+      const mk = c => { const d=document.createElement('div'); d.style.background=c; barEl.appendChild(d); return d; };
+      for (const o of owners) barSegs[o] = mk(COLORS[o] || '#888');
+      barSegs.neutral = mk('#b7bdc4');
+      barKey = key;
+    }
+    for (const o of owners){ const w=(tot[o]/total*100).toFixed(1)+'%'; if (barLast[o]!==w){ barSegs[o].style.width=w; barLast[o]=w; } }
+    const nw=(neutral/total*100).toFixed(1)+'%'; if (barLast.neutral!==nw){ barSegs.neutral.style.width=nw; barLast.neutral=nw; }
   }
 
   function loop(now) {

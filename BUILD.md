@@ -7,6 +7,14 @@ troop simulation, and the trained reinforcement-learning AI — lives in that on
 self-contained HTML file. The editable source is mirrored at
 [`src/web/index.html`](src/web/index.html).
 
+## Per-team top bar
+
+The top strength bar used to lump every enemy into one red segment (blue = you, red = all AIs,
+grey = neutral). It now renders **one segment per team in that team's own colour** (you, then
+each AI colour, then neutral). `updateBar()` tallies troops per owner and rebuilds the segment
+DOM only when the set of live owners changes (e.g. a team is eliminated); otherwise it just
+nudges widths.
+
 ## Mobile tap fix & Airdrop arm-then-tap
 
 - **Mobile tap selection bug (root cause).** `gameMove()` flagged the gesture as a *drag* on
