@@ -430,14 +430,16 @@
     // simulates each candidate move several seconds into the future and picks the best projected
     // board. Master plays fair: enemies start with the SAME unit count as the player (30) and the
     // same growth rate (1.0×). No economic handicap — the difficulty comes purely from the planner.
-    { name:'Master', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true },
+    // `hunt` (0..1) = how willing the AI is to attack YOU before the neutral land is gone. Classic
+    // tiers stay timid (0) and ignore the player early; the hard tiers HUNT a leading/turtling human.
+    { name:'Master', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true, hunt:0.6 },
     // Impossible: the SAME trained net + planner, but searched as hard as the device allows. There
     // is NO cap on simulations or depth — it thinks for a longer per-move window (700ms off-thread),
     // refines time at a finer step, widens its move fan-out, and reads each line all the way to a
     // decided board. A fast device explores vastly more than a slow one. It also fields an extra
     // enemy that grows a touch faster. This is the top tier.
     { name:'Impossible', enemies:4, aiSpeed:0.7, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:28, enemyStart:34, enemyGrow:1.1, rl:true, plan:true,
-      planDt:0.3, mctsK:9, tbudget:4000, workerMs:700 },
+      planDt:0.3, mctsK:9, tbudget:4000, workerMs:250, hunt:1.0 },
   ];
   let levelIdx = 0;
 
@@ -995,8 +997,14 @@
         }
         else if (tg.owner>=2 && tg.owner!==owner) bias = 1.5;          // fight rival AIs
         else if (tg.owner===PLAYER) {
-          if (!endgame) bias = -6;                                     // wait until land & rivals are gone
-          else bias = (st>tt ? 3 : -4);                               // endgame: strike whenever a state can win; keep growing otherwise
+          if (endgame) bias = (st>tt ? 3 : -4);                        // endgame: strike whenever a state can win
+          else {
+            // pre-endgame: classic tiers wait (-6); hard tiers HUNT — press a winnable state and
+            // pile on if the human is out-growing us (so turtling no longer goes unpunished).
+            const hunt = LEVELS[levelIdx].hunt || 0;
+            const plyFrac = playerStates.length/total, lead = Math.max(0, Math.min(1, plyFrac-ownFrac));
+            bias = (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5) + lead*10);
+          }
         }
         if (tg.type==='capital' || tg.type==='factory') bias += 1.2;   // value high-growth tiles
         else if (tg.type==='fortress') bias += 0.5;
@@ -1181,7 +1189,9 @@
         let score=rlScore(feats);
         if (snap.owner[ti]===NEUTRAL){ if (playerIdx.length) score += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
         else if (snap.owner[ti]>=2 && snap.owner[ti]!==owner) score += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
-        else if (snap.owner[ti]===PLAYER) score += endgame ? (st>tt?3:-4) : -6;
+        else if (snap.owner[ti]===PLAYER){ if (endgame) score += (st>tt?3:-4);
+          else { const hunt=LEVELS[levelIdx].hunt||0, lead=Math.max(0,Math.min(1,playerIdx.length/snap.n-ownFrac));
+                 score += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10); } }
         if (score>best){ best=score; bs=si; bt=ti; }
       }
     }
@@ -1310,7 +1320,9 @@
                          s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ]);
         if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
         else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
-        else if (s.owner[ti]===PLAYER) sc += endgame ? (st>tt?3:-4) : -6;
+        else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
+          else { const hunt=LEVELS[levelIdx].hunt||0, lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
+                 sc += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10); } }
         list.push({ mv:[si,ti], score:sc });
       }
     }
@@ -1371,6 +1383,7 @@
     const pp = planParams(), worker = mode==='worker';
     return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
+      hunt:lv.hunt||0,
       horizon:pp.horizon, dt:pp.dt, ownerId:owner, wantViz: showNN && vizMode==='planner',
       humans, mcts:{ tbudget: worker?pp.workerMs:pp.serverMs, maxIter: NO_ITER_CAP, cPuct:MCTS.cPuct, K:pp.K } };
   }
@@ -1429,7 +1442,7 @@
     'use strict';
     var NEUTRAL=0, PLAYER=1, MAX_TROOPS=150;
     var POL=null;                                   // trained policy (set on init)
-    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, names=[];
+    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, names=[];
     var DEPTH_CAP=4000;   // safety only — real depth is bounded by think time + terminal boards
     var now = (self.performance && self.performance.now) ? function(){ return self.performance.now(); } : function(){ return Date.now(); };
     function rand(a,b){ return a + Math.random()*(b-a); }
@@ -1514,7 +1527,9 @@
             s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ]);
           if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/DIAG); }
           else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;
-          else if (s.owner[ti]===PLAYER) sc += endgame ? (st>tt?3:-4) : -6;
+          else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
+            else { var lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
+                   sc += (1-HUNT)*(-6) + HUNT*((st>tt?1.0:-1.5)+lead*10); } }
           list.push({ mv:[si,ti], score:sc }); } }
       list.push({ mv:null, score: endgame ? noop-1 : noop });
       list.sort(function(a,b){ return b.score-a.score; });
@@ -1560,7 +1575,7 @@
     function plan(req){
       GR=req.growRate; EG=req.enemyGrow; DIAG=req.rlDiag||1; ORB=req.orbSpeed||70;
       HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
-      CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5;
+      CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0;
       var tbudget=(req.mcts&&req.mcts.tbudget)||250, owner=req.ownerId;
       var base={ n:req.n, cx:req.cx, cy:req.cy, owner:req.owner.slice(), troops:req.troops.slice(),
         armies:(req.armies||[]).map(function(a){ return { owner:a.owner, count:a.count, ti:a.ti, t:0, ttotal:a.ttotal }; }) };
