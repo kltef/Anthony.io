@@ -978,6 +978,12 @@
     let bestScore = noopEff;
     let bestSrc=null, bestTgt=null;
     const cands = collect ? [] : null;
+    // threat-awareness globals (must match the 12-feature builder in tools/train_rl.py)
+    let myTot=0, allTot=0, maxEnemy=0, bigState=null;
+    for (const s of states){ if (s.owner!==NEUTRAL){ allTot+=s.troops;
+      if (s.owner===owner) myTot+=s.troops;
+      else if (s.troops>maxEnemy){ maxEnemy=s.troops; bigState=s; } } }
+    const myShare = allTot>0 ? myTot/allTot : 0, myAvg = myTot/Math.max(1, ownCount);
     for (const src of srcs) {
       for (const tg of states) {
         if (tg===src) continue;
@@ -992,6 +998,10 @@
           (tg.owner!==NEUTRAL && tg.owner!==owner) ? 1 : 0,
           st>tt ? 1 : 0,
           ownFrac,
+          maxEnemy/FN,                 // biggest enemy stack (a massing turtle)
+          myShare,                     // my share of all troops on the board
+          myAvg/FN,                    // my avg troops/state (low = spread thin)
+          tg===bigState ? 1 : 0,       // is this target the biggest threat?
         ];
         const raw = rlScore(feats);
         let score = raw, bias = 0;
@@ -1182,13 +1192,18 @@
       if (o===PLAYER) playerIdx.push(i); }
     const endgame = !neutralsLeft && !rivalsLeft;
     const noopEff = endgame ? noop-1 : noop;
+    let myTot=0, allTot=0, maxEnemy=0, bigIdx=-1;
+    for (let i=0;i<snap.n;i++){ const oo=snap.owner[i], tr=snap.troops[i];
+      if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
+    const myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
     const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(snap.cx[ti]-snap.cx[p], snap.cy[ti]-snap.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
     let best=noopEff, bs=null, bt=null;
     for (const si of srcs){ const st=snap.troops[si];
       for (let ti=0; ti<snap.n; ti++){ if (ti===si || snap.owner[ti]===owner) continue;
         const tt=snap.troops[ti];
         const feats=[ st/FN, tt/FN, (st-tt)/FN, Math.hypot(snap.cx[ti]-snap.cx[si], snap.cy[ti]-snap.cy[si])/rlDiag,
-                      snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ];
+                      snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+                      maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ];
         let score=rlScore(feats);
         if (snap.owner[ti]===NEUTRAL){ if (playerIdx.length) score += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
         else if (snap.owner[ti]>=2 && snap.owner[ti]!==owner) score += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
@@ -1315,12 +1330,17 @@
     for (let i=0;i<s.n;i++){ const o=s.owner[i]; if (o===NEUTRAL) neutralsLeft=true; else if (o>=2&&o!==owner) rivalsLeft=true; if (o===PLAYER) playerIdx.push(i); }
     const endgame=!neutralsLeft && !rivalsLeft, noop=rlPolicy.noop_bias||0;
     if (srcs.length>3) srcs = srcs.sort((a,b)=>s.troops[b]-s.troops[a]).slice(0,3);
+    let myTot=0, allTot=0, maxEnemy=0, bigIdx=-1;
+    for (let i=0;i<s.n;i++){ const oo=s.owner[i], tr=s.troops[i];
+      if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
+    const myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
     const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(s.cx[ti]-s.cx[p], s.cy[ti]-s.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
     const list=[];
     for (const si of srcs){ const st=s.troops[si];
       for (let ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; const tt=s.troops[ti];
         let sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/rlDiag,
-                         s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ]);
+                         s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+                         maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
         if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
         else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
         else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
@@ -1529,12 +1549,17 @@
       for (i=0;i<s.n;i++){ var o=s.owner[i]; if (o===NEUTRAL) neutralsLeft=true; else if (o>=2&&o!==owner) rivalsLeft=true; if (o===PLAYER) playerIdx.push(i); }
       var endgame=!neutralsLeft && !rivalsLeft, noop=POL.noop_bias||0;
       if (srcs.length>3) srcs=srcs.sort(function(a,b){ return s.troops[b]-s.troops[a]; }).slice(0,3);
+      var myTot=0, allTot=0, maxEnemy=0, bigIdx=-1;
+      for (i=0;i<s.n;i++){ var oo=s.owner[i], tr=s.troops[i];
+        if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
+      var myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
       function dToPlayer(ti){ var m=Infinity; for (var p=0;p<playerIdx.length;p++){ var d=Math.hypot(s.cx[ti]-s.cx[playerIdx[p]], s.cy[ti]-s.cy[playerIdx[p]]); if (d<m) m=d; } return m===Infinity?9999:m; }
       var list=[];
       for (var q=0;q<srcs.length;q++){ var si=srcs[q], st=s.troops[si];
         for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; var tt=s.troops[ti];
           var sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/DIAG,
-            s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ]);
+            s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+            maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
           if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/DIAG); }
           else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;
           else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
@@ -1931,7 +1956,7 @@
     nnCanvas.style.width = NN_W+'px'; nnCanvas.style.height = NN_H+'px';
     nnctx.scale(d, d);
   })();
-  const FEAT_LABELS = ['src','tgt','src−tgt','dist','neutral?','enemy?','stronger?','own%'];
+  const FEAT_LABELS = ['src','tgt','src−tgt','dist','neutral?','enemy?','stronger?','own%','maxFoe','army%','myAvg','threat?'];
   const LAYER_NAMES = ['hidden 1','hidden 2','output'];
   let nnWeightStats = null;
   function actColor(v, scale, minA){
