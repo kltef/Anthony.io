@@ -1814,6 +1814,8 @@
       nnctx.fillText('▮ WAIT — no move beats no-op', pad, Y); Y+=20; }
     else if (!salvoActive){ nnctx.font='bold 12px Segoe UI, sans-serif'; nnctx.fillStyle='#5fd07a'; nnctx.textAlign='left';
       nnctx.fillText('▶ '+tr(rlViz.src.name)+' → '+tr(rlViz.tgt.name), pad, Y); Y+=20; }
+    // plain-language explanation of the net's pick (kept above the raw numbers below)
+    if (!salvoActive){ const bstory = brainStory(rlViz); if (bstory.length) Y = drawExplain(bstory, Y); }
     const c0 = rlViz.candidates[0];
     if (c0){
       kv('chosen move', tr(c0.from)+' → '+tr(c0.to));
@@ -1938,6 +1940,73 @@
 
   // ===== Rollout-planner view: the candidate moves the planner simulated, each with its
   // projected board after the lookahead, the chosen one highlighted. =====
+  // Word-wrap `text` to `maxW` px using whatever font is currently set on nnctx.
+  function nnWrap(text, maxW){
+    const words = String(text).split(' '), out = []; let cur = '';
+    for (const w of words){ const t = cur ? cur+' '+w : w;
+      if (nnctx.measureText(t).width > maxW && cur){ out.push(cur); cur = w; } else cur = t; }
+    if (cur) out.push(cur); return out;
+  }
+  // Draw a "WHAT I'M THINKING" explanation box: `lines` is an array of sentences (paragraphs).
+  // Returns the new Y below the box. Used by both the planner and brain views so the player gets
+  // a plain-language read on the AI's reasoning, not just raw numbers.
+  function drawExplain(lines, Y, title){
+    const PW=NN_W, pad=12, innerW=PW-2*pad-16, lh=14, gap=5;
+    nnctx.font='11px Segoe UI, sans-serif';
+    const paras = lines.map(s => nnWrap(s, innerW));
+    const nLines = paras.reduce((a,p)=>a+p.length,0);
+    const boxH = 24 + nLines*lh + paras.length*gap + 2;
+    nnctx.fillStyle='rgba(70,166,239,.07)'; nnctx.fillRect(pad-5,Y,PW-2*pad+10,boxH);
+    nnctx.strokeStyle='rgba(70,166,239,.30)'; nnctx.lineWidth=1; nnctx.strokeRect(pad-5,Y,PW-2*pad+10,boxH);
+    nnctx.textAlign='left'; nnctx.textBaseline='top';
+    nnctx.font='bold 10px Segoe UI, sans-serif'; nnctx.fillStyle='#7fa9d6';
+    nnctx.fillText(title||"WHAT I'M THINKING", pad+3, Y+7);
+    let ty=Y+24; nnctx.font='11px Segoe UI, sans-serif'; nnctx.fillStyle='#cdd6df';
+    for (const p of paras){ for (const ln of p){ nnctx.fillText(ln, pad+3, ty); ty+=lh; } ty+=gap; }
+    return Y + boxH + 10;
+  }
+  // Turn the planner's chosen move into a few sentences of plain-language reasoning.
+  function plannerStory(){
+    const v = planViz; if (!v || !v.cands || !v.cands.length) return [];
+    const byVisits = v.cands.slice().sort((a,b)=>b.visits-a.visits);
+    const chosen = v.cands.find(c=>c.chosen) || byVisits[0];
+    if (!chosen || chosen.type==='noop' || !chosen.from || chosen.from==='—' || !chosen.to || chosen.to==='—')
+      return ["I'm holding back this turn — every attack I simulated left me worse off, so I'd rather let my troops build up and wait for a cleaner opening."];
+    const lines = [];
+    const byName = {}; for (const s of states) byName[s.name] = s;
+    const src = byName[chosen.from], tgt = byName[chosen.to];
+    lines.push('I’m attacking '+chosen.to+' from '+chosen.from+'.');
+    if (chosen.type==='neutral')      lines.push(chosen.to+' is unclaimed, so taking it grows my territory without starting a fight I don’t need yet.');
+    else if (chosen.type==='player')  lines.push(chosen.to+' is YOUR state — I’m pushing straight at you to slow you down before you snowball.');
+    else                              lines.push(chosen.to+' belongs to a rival AI — I’d rather spend troops weakening them than trading blows with you.');
+    if (src && tgt){
+      const sT=Math.round(src.troops), tT=Math.round(tgt.troops);
+      if (src.troops > tgt.troops) lines.push('I’ve got more troops staged there ('+sT+' vs '+tT+'), so I expect to take it and still hold the line.');
+      else                          lines.push('It’s defended ('+sT+' of mine vs '+tT+'), but the futures I rolled out say the follow-up still pays off.');
+    }
+    const share = v.iters ? Math.round(100*chosen.visits/Math.max(1,v.iters)) : 0;
+    const mood = chosen.value>=0.3 ? 'confident' : (chosen.value>=0 ? 'cautiously optimistic' : 'taking a calculated risk');
+    lines.push('I imagined about '+(v.iters||0).toLocaleString()+' ways the next '+Math.round(v.horizon)+'s could go and spent '+share+'% of that thinking on this move — I’m '+mood+' (projected score '+(chosen.value>=0?'+':'')+chosen.value.toFixed(2)+').');
+    const alt = byVisits.find(c=>c!==chosen && c.type!=='noop' && c.from && c.from!=='—');
+    if (alt) lines.push('My next-best idea was '+alt.to+', but this line projected a stronger board so I went with it.');
+    return lines;
+  }
+  // Same idea for the single-step policy net (the "AI Brain" tab).
+  function brainStory(v){
+    if (!v) return [];
+    const c = v.candidates && v.candidates[0];
+    if (v.waiting || !c) return ['Right now no attack scores better than simply sitting still and letting my troops grow, so the net votes to wait.'];
+    const lines = [];
+    if (c.type==='PLAYER')      lines.push('The net wants your state '+c.to+' — hitting you directly keeps you from running away with the game.');
+    else if (c.type==='rival')  lines.push('The net is going after a rival AI’s '+c.to+' instead of spending troops on you.');
+    else                        lines.push('The net wants to grab '+c.to+' — it’s unclaimed, so it’s cheap land that speeds up my growth.');
+    if (c.delta>=0) lines.push('I have the edge there ('+c.srcT+' vs '+c.tgtT+'), so it rates the attack as winnable.');
+    else            lines.push('It’s contested ('+c.srcT+' vs '+c.tgtT+') — a gamble, but the net still scores it above doing nothing.');
+    const sure = c.prob>=0.6 ? 'very sure' : (c.prob>=0.35 ? 'fairly sure' : 'a bit torn');
+    lines.push('It weighed '+v.numMoves+' possible move'+(v.numMoves===1?'':'s')+' and is '+sure+' about this one ('+Math.round(c.prob*100)+'% of its vote); '+v.beatNoop+' beat just waiting.');
+    return lines;
+  }
+
   function drawPlanner(){
     nnctx.clearRect(0,0,NN_W,NN_H);
     const PW=NN_W, pad=12; let Y=12;
@@ -1959,6 +2028,10 @@
     nnctx.fillStyle='#9aa6b4'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.textAlign='right';
     nnctx.fillText('enemy '+(planViz.owner-1), PW-30, 13); nnctx.textAlign='left';
     nnctx.fillStyle='#909cab'; nnctx.fillText(planViz.iters+' simulations · '+planViz.n+' root moves', pad, Y); Y+=18;
+
+    // ===== plain-language explanation of the chosen move (before the raw stats below) =====
+    const story = plannerStory();
+    if (story.length) Y = drawExplain(story, Y);
 
     // map bounds for the per-candidate mini-maps
     let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;

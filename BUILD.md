@@ -65,28 +65,41 @@ The implementation is entirely within `assets/web/index.html` (search for
 ## Rebuilding the APK
 
 The repo ships the rebuilt, signed artifact as
-`State.io_v1.3-scenarios.apk` (the original `State.io_v1.2.apk` is kept for
-reference). To rebuild after editing the web source:
+`State.io_v1.4-impossible.apk` (the Easy→Impossible difficulty rework, the
+off-thread Web-Worker planner, and the plain-language "what the AI is thinking"
+explanations in the AI-brain / planner overlay). The earlier
+`State.io_v1.3-scenarios.apk` and the original `State.io_v1.2.apk` are kept for
+reference.
+
+It is rebuilt **on top of the previous signed APK** (which already carries the
+landscape `AndroidManifest.xml` patch and all other assets) by swapping in the
+new `assets/web/index.html` and re-signing — no SDK build-tools required, just a
+JDK plus the dependency-free `apksig` library:
 
 ```sh
-# 1. Unpack the base APK
-unzip State.io_v1.2.apk -d apk_extract
+# 1. Repackage: copy every entry from the previous APK into a new zip, replacing
+#    assets/web/index.html with src/web/index.html and dropping the old
+#    META-INF/*.SF/.RSA/.MF. resources.arsc MUST stay STORED (uncompressed) —
+#    preserve each entry's original compress_type. (Python zipfile; apksig does
+#    the 4-byte alignment when it writes the output, so no separate zipalign.)
 
-# 2. Apply your changes to apk_extract/assets/web/index.html
-#    (or copy in src/web/index.html)
+# 2. Make a key (PKCS12) if you don't have one
+keytool -genkeypair -keystore release.keystore -storetype PKCS12 -keyalg RSA \
+  -keysize 2048 -validity 10000 -alias stateio -dname "CN=State.io" \
+  -storepass android -keypass android
 
-# 3. Repackage — resources.arsc MUST stay STORED (uncompressed)
-#    (see the python snippet in this repo's history) then:
-zipalign -f -p 4 unsigned.apk aligned.apk
-
-# 4. Sign with APK Signature Scheme v2+v3 (required for targetSdk 34)
-apksigner sign --ks release.keystore --ks-key-alias <alias> \
-  --v2-signing-enabled true --v3-signing-enabled true \
-  --out State.io_v1.3-scenarios.apk aligned.apk
-
-# 5. Verify
-apksigner verify --verbose State.io_v1.3-scenarios.apk
+# 3. Sign v2+v3 (required for targetSdk 34) with apksig, then verify. A ~30-line
+#    Java driver around com.android.apksig.ApkSigner / ApkVerifier does both:
+#      ApkSigner.Builder(...).setV2SigningEnabled(true).setV3SigningEnabled(true)
+#                            .setMinSdkVersion(24).build().sign();
+#    Fetch apksig from Google's Maven:
+#      dl.google.com/android/maven2/com/android/tools/build/apksig/<ver>/apksig-<ver>.jar
+#    Verifies as: verified=true v2=true v3=true (v1 is covered by v2 on API 24+).
 ```
+
+If you do have the Android SDK build-tools, the classic `zipalign -p 4` +
+`apksigner sign --v2-signing-enabled true --v3-signing-enabled true` flow
+produces an equivalent artifact.
 
 `minSdkVersion` is 24 and `targetSdkVersion` is 34, so a v2/v3 signature is
 required — a v1 (JAR) signature alone would be rejected on install by modern
