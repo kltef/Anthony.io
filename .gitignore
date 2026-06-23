@@ -1,0 +1,7 @@
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Training artifact — a candidate model written by tools/train_rl.py. Only promoted
+# to src/web/rl_policy.json (and rebuilt into the APK) if it beats the baseline.
+tools/rl_policy_new.json
