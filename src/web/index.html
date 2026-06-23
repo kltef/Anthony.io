@@ -332,13 +332,13 @@
     // board. Master plays fair: enemies start with the SAME unit count as the player (30) and the
     // same growth rate (1.0×). No economic handicap — the difficulty comes purely from the planner.
     { name:'Master', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true },
-    // Impossible: the SAME trained net + planner, but "trained really long" — searched far harder
-    // on every move. It runs an order of magnitude more simulations, looks much further ahead
-    // (longer horizon at a finer time step), widens its move fan-out, and is given a much larger
-    // thinking budget. It also fields an extra enemy that grows a touch faster. The result reads
-    // the board many seconds ahead and punishes almost any mistake. This is the top tier.
+    // Impossible: the SAME trained net + planner, but searched as hard as the device allows. There
+    // is NO cap on simulations or depth — it thinks for a longer per-move window (700ms off-thread),
+    // refines time at a finer step, widens its move fan-out, and reads each line all the way to a
+    // decided board. A fast device explores vastly more than a slow one. It also fields an extra
+    // enemy that grows a touch faster. This is the top tier.
     { name:'Impossible', enemies:4, aiSpeed:0.7, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:28, enemyStart:34, enemyGrow:1.1, rl:true, plan:true,
-      sims:60000, horizon:24.0, planDt:0.3, mctsK:9, tbudget:4000, workerSims:16000, workerMs:500 },
+      planDt:0.3, mctsK:9, tbudget:4000, workerMs:700 },
   ];
   let levelIdx = 0;
 
@@ -476,7 +476,8 @@
   let planViz = null;       // last planner decision (Master/Impossible), for the overlay
   let planVizDirty = false;
   let planPending = {};     // owner -> true while a server /api/plan request is in flight
-  const SERVER_SIMS = 2500; // planner simulations per decision for Master (run on the server); Impossible runs far more
+  // (planner simulation counts are no longer capped — the search is bounded by a thinking window;
+  //  see planParams / NO_ITER_CAP.)
   let matchTrack = null;    // accumulates the local player's move stats this game (for their profile)
   let rlViz = null;         // { acts:[...], src, tgt, owner, score } from the last RL decision
   let rlVizDirty = false;   // redraw only when activations change
@@ -1074,27 +1075,28 @@
   }
   // Planner decision (Master/Impossible): rank candidates with the net, roll each one out, commit the best future.
   // `prior` blends a little of the net's own score back in so a single noisy rollout can't pick a silly move.
-  const PLAN = { horizon:11.0, dt:0.4 };   // plan further ahead (11s) at finer time resolution (0.4s)
+  const PLAN = { dt:0.4 };   // simulation time-step (resolution, not a limit). Impossible refines it.
   const MCTS = { tbudget:10, maxIter:400, cPuct:1.3, K:5 };  // AlphaGo-style PUCT search; K=5 widens the move fan-out
-  // (tbudget/maxIter here are only the local in-browser FALLBACK; the real server search is sized below)
+  // (tbudget/maxIter here are ONLY the tiny synchronous in-page FALLBACK, which must stay bounded
+  // because it runs on the main thread. The real off-thread search below has no such caps.)
   const SERVER_TBUDGET = 450;   // ms the SERVER MCTS may think per move (Master); Impossible raises this
-  // Effective planner strength for the active difficulty. Master uses the defaults above; the
-  // Impossible tier overrides these (see LEVELS) so it searches an order of magnitude longer and
-  // deeper — more sims, a longer horizon at a finer step, a wider fan-out, and a bigger time budget.
+  // The planner has NO fixed limit on simulation count or search depth. Instead the search runs for
+  // a per-move *thinking window* (wall-clock ms) and does as many simulations, as deep, as the
+  // device manages in that window — so a fast phone explores far more than a slow one. These two
+  // sentinels mean "don't cap": depth is bounded only by terminal boards (someone wins) + a huge
+  // safety cap, and iterations are bounded only by the clock.
+  const NO_HORIZON = 1e9, NO_ITER_CAP = 1e9, DEPTH_CAP = 4000;
   function planParams(){
     const lv = LEVELS[levelIdx] || {};
     return {
-      horizon: lv.horizon ?? PLAN.horizon,
+      horizon: NO_HORIZON,            // unbounded — depth follows hardware (think time) + terminal states
       dt:      lv.planDt  ?? PLAN.dt,
       K:       lv.mctsK   ?? MCTS.K,
-      // server budget (heavy MCTS off-thread on a real backend)
-      sims:    lv.sims    ?? SERVER_SIMS,
-      tbudget: lv.tbudget ?? SERVER_TBUDGET,
-      // in-browser Web Worker budget — off the main thread, so the search can run far longer
-      // than the synchronous fallback's 10ms without ever freezing the game. Wall-clock bound
-      // (workerMs) is what actually limits a phone; workerSims caps a fast desktop.
-      workerSims: lv.workerSims ?? 4000,
-      workerMs:   lv.workerMs   ?? 200,
+      // off-thread Web Worker thinking window (ms). This is the ONLY governor: more device speed
+      // ⇒ more simulations and deeper trees in the same window.
+      workerMs:  lv.workerMs ?? 250,
+      // server thinking window (ms) if a /api/plan backend is used instead of the worker.
+      serverMs:  lv.tbudget  ?? SERVER_TBUDGET,
     };
   }
 
@@ -1159,18 +1161,26 @@
       if (q+u>bv){ bv=q+u; best=c; } }
     return best;
   }
+  // a board is terminal once only one owner survives (in states + in-flight armies): the game is
+  // decided, so there's nothing deeper to search down that line.
+  function isTerminal(s){ let o=-1;
+    for (let i=0;i<s.n;i++){ const w=s.owner[i]; if (w!==NEUTRAL){ if (o<0) o=w; else if (w!==o) return false; } }
+    for (const a of s.armies){ if (a.owner!==NEUTRAL){ if (o<0) o=a.owner; else if (a.owner!==o) return false; } }
+    return true;
+  }
   function mctsIter(root, owner){
     const horizon = planParams().horizon;
     let node=root; const path=[node];
-    while (node.untried && node.untried.length===0 && node.children.length>0 && node.time<horizon){
+    // descend; stop at a decided board or the safety depth cap (no fixed horizon)
+    while (node.untried && node.untried.length===0 && node.children.length>0 && !node.terminal && node.time<horizon && path.length<DEPTH_CAP){
       node = bestPUCT(node); path.push(node);
     }
-    if (node.time<horizon){
+    if (!node.terminal && node.time<horizon && path.length<DEPTH_CAP){
       if (node.untried===null) node.untried = computeUntried(node.snap, owner);
       if (node.untried.length>0){
         const pick = node.untried.shift();
         const adv = mctsAdvance(node.snap, owner, pick.mv, node.time);
-        const child = { snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events };
+        const child = { snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events, terminal:isTerminal(adv.snap) };
         node.children.push(child); path.push(child); node=child;
       }
     }
@@ -1197,7 +1207,7 @@
     return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
       horizon:pp.horizon, dt:pp.dt, ownerId:owner, wantViz: showNN && vizMode==='planner',
-      humans, mcts:{ tbudget: worker?pp.workerMs:pp.tbudget, maxIter: worker?pp.workerSims:pp.sims, cPuct:MCTS.cPuct, K:pp.K } };
+      humans, mcts:{ tbudget: worker?pp.workerMs:pp.serverMs, maxIter: NO_ITER_CAP, cPuct:MCTS.cPuct, K:pp.K } };
   }
   // The planner runs the heavy MCTS OFF the main thread. Preference order:
   //   1. a Web Worker (default — no server needed; lets Impossible search ~50× longer than the
@@ -1249,12 +1259,13 @@
   // Self-contained MCTS worker. Stringified via .toString() and run in a Blob Worker, so it must
   // not reference anything from the outer closure — every dependency arrives in the message. It is
   // a faithful port of the in-page planner (rlScore / snapStep / computeUntried / mctsIter …),
-  // sized by req.mcts (maxIter + tbudget). Posts back { move, viz }.
+  // run for req.mcts.tbudget ms with no iteration/depth cap. Posts back { move, viz }.
   function planWorkerMain(){
     'use strict';
     var NEUTRAL=0, PLAYER=1, MAX_TROOPS=150;
     var POL=null;                                   // trained policy (set on init)
-    var GR=1, EG=1, DIAG=1, ORB=70, HOR=11, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, names=[];
+    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, names=[];
+    var DEPTH_CAP=4000;   // safety only — real depth is bounded by think time + terminal boards
     var now = (self.performance && self.performance.now) ? function(){ return self.performance.now(); } : function(){ return Date.now(); };
     function rand(a,b){ return a + Math.random()*(b-a); }
     function nm(i){ return names[i] || ('#'+i); }
@@ -1353,13 +1364,18 @@
         if (qv+u>bv){ bv=qv+u; best=c; } }
       return best;
     }
+    function isTerminal(s){ var o=-1, i;
+      for (i=0;i<s.n;i++){ var w=s.owner[i]; if (w!==NEUTRAL){ if (o<0) o=w; else if (w!==o) return false; } }
+      for (i=0;i<s.armies.length;i++){ var aw=s.armies[i].owner; if (aw!==NEUTRAL){ if (o<0) o=aw; else if (aw!==o) return false; } }
+      return true;
+    }
     function mctsIter(root, owner){
       var node=root, path=[node];
-      while (node.untried && node.untried.length===0 && node.children.length>0 && node.time<HOR){ node=bestPUCT(node); path.push(node); }
-      if (node.time<HOR){
+      while (node.untried && node.untried.length===0 && node.children.length>0 && !node.terminal && node.time<HOR && path.length<DEPTH_CAP){ node=bestPUCT(node); path.push(node); }
+      if (!node.terminal && node.time<HOR && path.length<DEPTH_CAP){
         if (node.untried===null) node.untried=computeUntried(node.snap, owner);
         if (node.untried.length>0){ var pick=node.untried.shift(), adv=mctsAdvance(node.snap, owner, pick.mv, node.time);
-          var child={ snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events };
+          var child={ snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events, terminal:isTerminal(adv.snap) };
           node.children.push(child); path.push(child); node=child; } }
       var v=nodeVal(node.snap, owner);
       for (var i=0;i<path.length;i++){ path[i].N++; path[i].W+=v; }
@@ -1380,12 +1396,15 @@
       GR=req.growRate; EG=req.enemyGrow; DIAG=req.rlDiag||1; ORB=req.orbSpeed||70;
       HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
       CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5;
-      var maxIter=(req.mcts&&req.mcts.maxIter)||400, tbudget=(req.mcts&&req.mcts.tbudget)||10, owner=req.ownerId;
+      var tbudget=(req.mcts&&req.mcts.tbudget)||250, owner=req.ownerId;
       var base={ n:req.n, cx:req.cx, cy:req.cy, owner:req.owner.slice(), troops:req.troops.slice(),
         armies:(req.armies||[]).map(function(a){ return { owner:a.owner, count:a.count, ti:a.ti, t:0, ttotal:a.ttotal }; }) };
-      var root={ snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[] };
+      var root={ snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[], terminal:isTerminal(base) };
+      if (root.terminal) return { move:null, viz: req.wantViz ? buildViz(root, null, 0, owner) : null };
+      // NO simulation/depth cap — run as many iterations as the device manages within the
+      // thinking window. Faster hardware ⇒ more simulations and a deeper tree.
       var t0=now(), iter=0;
-      while (iter<maxIter && now()-t0 < tbudget){ mctsIter(root, owner); iter++; }
+      while (now()-t0 < tbudget){ mctsIter(root, owner); iter++; }
       var bestChild=null;
       for (var i=0;i<root.children.length;i++) if (!bestChild || root.children[i].N>bestChild.N) bestChild=root.children[i];
       var move=(bestChild && bestChild.move) ? bestChild.move : null;
@@ -1422,7 +1441,9 @@
     const ev = rlEvaluate(owner, true);
     if (showNN && vizMode==='brain') rlSetViz(owner, ev);   // keep the AI-brain panel live
     const base = takeSnapshot();
-    const root = { snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[] };
+    const root = { snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[], terminal:isTerminal(base) };
+    // NOTE: this synchronous fallback runs on the main thread, so it MUST stay tightly bounded
+    // (MCTS.maxIter / MCTS.tbudget). The unbounded, hardware-driven search lives in the worker.
     const t0 = performance.now(); let iter=0;
     while (iter<MCTS.maxIter && performance.now()-t0 < MCTS.tbudget){ mctsIter(root, owner); iter++; }
     let bestChild=null; for (const c of root.children) if (!bestChild || c.N>bestChild.N) bestChild=c;   // most-visited
@@ -1441,11 +1462,11 @@
     const line=[]; let node=root;
     while (node.children.length){ let nx=null; for (const c of node.children) if (!nx||c.N>nx.N) nx=c;
       for (const e of nx.events) if (line.length<16) line.push(e); node=nx; }
-    // extend the PV to the full horizon with a greedy tail so the imagined line reaches the horizon
+    // extend the PV with a short greedy tail (fixed ~10s) so the imagined line reads a little ahead
     const pp = planParams();
-    if (node.time < pp.horizon){ const cap={}; planRollout(node.snap, owner, null, pp.horizon-node.time, pp.dt, cap);
+    if (!node.terminal){ const cap={}; planRollout(node.snap, owner, null, 10, pp.dt, cap);
       for (const e of (cap.events||[])) if (line.length<22) line.push({ t:node.time+e.t, o:e.o, from:e.from, to:e.to }); }
-    planViz = { owner, horizon:pp.horizon, n:root.children.length, iters, cands, line };
+    planViz = { owner, n:root.children.length, iters, cands, line };
     planVizDirty = true;
   }
 
@@ -1965,45 +1986,149 @@
     for (const p of paras){ for (const ln of p){ nnctx.fillText(ln, pad+3, ty); ty+=lh; } ty+=gap; }
     return Y + boxH + 10;
   }
-  // Turn the planner's chosen move into a few sentences of plain-language reasoning.
+  // Deterministic phrasing variety: a tiny string hash seeds a stable picker, so a given decision
+  // always reads the same (no per-frame flicker) but DIFFERENT decisions get different wording —
+  // that's what stops every summary sounding identical.
+  function nnHash(s){ let h=2166136261; s=String(s); for (let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+  function nnVary(seed){ return (arr, slot) => arr[(seed + (slot||0)*0x9E3779B1>>>0) % arr.length]; }
+  function phaseWord(neu,total){ const f=neu/Math.max(1,total); return f>0.45?'land-grab':(f>0.12?'mid-game':'endgame'); }
+
+  // Turn the planner's chosen move into several sentences of plain-language reasoning, with detail
+  // (territory, troops, projected swing, search effort, alternatives) and decision-keyed variety.
   function plannerStory(){
     const v = planViz; if (!v || !v.cands || !v.cands.length) return [];
     const byVisits = v.cands.slice().sort((a,b)=>b.visits-a.visits);
     const chosen = v.cands.find(c=>c.chosen) || byVisits[0];
-    if (!chosen || chosen.type==='noop' || !chosen.from || chosen.from==='—' || !chosen.to || chosen.to==='—')
-      return ["I'm holding back this turn — every attack I simulated left me worse off, so I'd rather let my troops build up and wait for a cleaner opening."];
+    const owner = v.owner;
+    // live board context
+    const byName = {}; let ownNow=0, youNow=0, neuNow=0, rivNow=0, myTroops=0;
+    for (const s of states){ byName[s.name]=s;
+      if (s.owner===owner){ ownNow++; myTroops+=s.troops; }
+      else if (s.owner===PLAYER) youNow++; else if (s.owner===NEUTRAL) neuNow++; else rivNow++; }
+    const phase = phaseWord(neuNow, states.length);
     const lines = [];
-    const byName = {}; for (const s of states) byName[s.name] = s;
+
+    if (!chosen || chosen.type==='noop' || !chosen.from || chosen.from==='—' || !chosen.to || chosen.to==='—'){
+      const pk = nnVary(nnHash('wait'+ownNow+youNow+neuNow+v.iters));
+      lines.push(pk([
+        'I’m holding this turn on purpose. Every attack I rolled out left me weaker, so I’d rather bank troops and strike once you over-extend.',
+        'No move pays off right now — across '+(v.iters||0).toLocaleString()+' simulated futures, sitting still beat all of them — so I’m stockpiling.',
+        'I’m waiting. In a tight '+phase+' board like this, whoever attacks first into a stalemate usually loses, so I’ll let my troops build.'
+      ],0));
+      lines.push(pk([
+        'Right now I hold '+ownNow+(ownNow===1?' state':' states')+' with about '+Math.round(myTroops)+' troops massed; the moment you commit, I’ll punish the gap you leave.',
+        'It’s '+ownNow+' mine to your '+youNow+(neuNow?', with '+neuNow+' still neutral':'')+' — I don’t want to trade my army into a wall for nothing.'
+      ],1));
+      return lines;
+    }
+
     const src = byName[chosen.from], tgt = byName[chosen.to];
-    lines.push('I’m attacking '+chosen.to+' from '+chosen.from+'.');
-    if (chosen.type==='neutral')      lines.push(chosen.to+' is unclaimed, so taking it grows my territory without starting a fight I don’t need yet.');
-    else if (chosen.type==='player')  lines.push(chosen.to+' is YOUR state — I’m pushing straight at you to slow you down before you snowball.');
-    else                              lines.push(chosen.to+' belongs to a rival AI — I’d rather spend troops weakening them than trading blows with you.');
+    let ownProj=0; if (chosen.board){ for (const o of chosen.board) if (o===owner) ownProj++; }
+    const pk = nnVary(nnHash(chosen.from+'>'+chosen.to+'#'+owner));
+
+    lines.push(pk([
+      'I’m sending troops from '+chosen.from+' into '+chosen.to+'.',
+      'My move this turn: attack '+chosen.to+', launched from '+chosen.from+'.',
+      chosen.from+' has the troops to spare, so I’m driving it into '+chosen.to+'.'
+    ],0));
+
+    if (chosen.type==='neutral') lines.push(pk([
+      chosen.to+' is unclaimed — cheap territory, and every state I own grows my troops faster, so I want it before anyone else reaches it.',
+      'Grabbing neutral '+chosen.to+' expands me without firing the first shot at a real rival — exactly the kind of free ground a '+phase+' board rewards.',
+      chosen.to+' is sitting empty right on my path; taking it now is the efficient play before the map fills up.'
+    ],1));
+    else if (chosen.type==='player') lines.push(pk([
+      chosen.to+' is YOURS, and you’re the one I’m most worried about — hitting you directly slows you down before you snowball out of reach.',
+      'You own '+chosen.to+'. With '+youNow+' states to my '+ownNow+', I can’t let you keep growing, so that’s where my punch lands.',
+      'I’m going straight at your '+chosen.to+'; trading territory with the leader is worth it to keep you in check.'
+    ],1));
+    else lines.push(pk([
+      chosen.to+' belongs to a rival AI — better they bleed troops there than me, and it stops them pulling ahead.',
+      'I’d rather grind down a rival at '+chosen.to+' than spend my army on you while the board is still '+phase+'.',
+      'Taking '+chosen.to+' off another AI keeps any one opponent from running away with it.'
+    ],1));
+
     if (src && tgt){
       const sT=Math.round(src.troops), tT=Math.round(tgt.troops);
-      if (src.troops > tgt.troops) lines.push('I’ve got more troops staged there ('+sT+' vs '+tT+'), so I expect to take it and still hold the line.');
-      else                          lines.push('It’s defended ('+sT+' of mine vs '+tT+'), but the futures I rolled out say the follow-up still pays off.');
+      if (src.troops > tgt.troops) lines.push(pk([
+        'I’ve got the numbers there ('+sT+' vs '+tT+'), so I expect a clean capture that still leaves a garrison behind.',
+        'With '+sT+' against '+tT+', this should land without overspending — a safe take, not a coin-flip.',
+        'It’s a '+sT+'-to-'+tT+' edge in my favour, so the math is on my side here.'
+      ],2));
+      else lines.push(pk([
+        'It’s defended ('+sT+' of mine vs '+tT+'), but the futures I rolled out say the follow-up wins the exchange, so I’ll spend the troops.',
+        'I’m behind head-on, '+sT+' to '+tT+' — risky on paper, yet every strong line I found runs through this move.',
+        'Even though '+tT+' defend it against my '+sT+', the lookahead rates the position after it higher than playing safe.'
+      ],2));
     }
+
+    if (chosen.board && ownProj>ownNow) lines.push(pk([
+      'Played out, this line takes me from '+ownNow+' to '+ownProj+' states — that’s the momentum I’m chasing.',
+      'By the end of the future I imagined, I’m holding '+ownProj+' states (up from '+ownNow+').'
+    ],3));
+    else if (chosen.board) lines.push(pk([
+      'It doesn’t net new ground this instant — it’s a positioning move that sets up the captures a few turns later.',
+      'The territory swing comes on the follow-ups; this move buys the board position I need first.'
+    ],3));
+
     const share = v.iters ? Math.round(100*chosen.visits/Math.max(1,v.iters)) : 0;
-    const mood = chosen.value>=0.3 ? 'confident' : (chosen.value>=0 ? 'cautiously optimistic' : 'taking a calculated risk');
-    lines.push('I imagined about '+(v.iters||0).toLocaleString()+' ways the next '+Math.round(v.horizon)+'s could go and spent '+share+'% of that thinking on this move — I’m '+mood+' (projected score '+(chosen.value>=0?'+':'')+chosen.value.toFixed(2)+').');
+    const mood = chosen.value>=0.4 ? 'strongly' : (chosen.value>=0.1 ? 'fairly' : (chosen.value>=-0.1 ? 'cautiously' : 'reluctantly'));
+    lines.push(pk([
+      'I ran '+(v.iters||0).toLocaleString()+' rollouts as deep as my device could manage, each played to a decided board; '+share+'% backed this move and I '+mood+' favour it (projected score '+(chosen.value>=0?'+':'')+chosen.value.toFixed(2)+').',
+      'Across '+(v.iters||0).toLocaleString()+' simulated games I spent '+share+'% of my search here — there’s no fixed limit, just however much my hardware fits in the think window — and I '+mood+' back it (value '+(chosen.value>=0?'+':'')+chosen.value.toFixed(2)+').'
+    ],4));
+
     const alt = byVisits.find(c=>c!==chosen && c.type!=='noop' && c.from && c.from!=='—');
-    if (alt) lines.push('My next-best idea was '+alt.to+', but this line projected a stronger board so I went with it.');
+    if (alt) lines.push(pk([
+      'My next-best idea was '+alt.to+' ('+alt.visits.toLocaleString()+' visits vs '+chosen.visits.toLocaleString()+'), but this line projected a stronger board.',
+      'I nearly went for '+alt.to+' instead; it just fell short in the rollouts.'
+    ],5));
+    else lines.push(pk([
+      'Nothing else came close — even doing nothing scored clearly worse than acting now.',
+      'The alternatives all trailed waiting, so this move stood out on its own.'
+    ],5));
     return lines;
   }
-  // Same idea for the single-step policy net (the "AI Brain" tab).
+
+  // Same idea for the single-step policy net (the "AI Brain" tab) — varied + a little more detail.
   function brainStory(v){
     if (!v) return [];
     const c = v.candidates && v.candidates[0];
-    if (v.waiting || !c) return ['Right now no attack scores better than simply sitting still and letting my troops grow, so the net votes to wait.'];
+    const ctx = v.ctx || {};
+    if (v.waiting || !c){
+      const pk = nnVary(nnHash('bwait'+(ctx.ownC||0)+(ctx.plyC||0)));
+      return [pk([
+        'Right now no attack scores better than sitting still and letting my troops grow, so the net votes to wait.',
+        'The net can’t find a move that beats holding position — every option scored below just banking troops — so it waits.'
+      ],0)];
+    }
+    const pk = nnVary(nnHash(c.from+'>'+c.to+'#'+v.owner));
     const lines = [];
-    if (c.type==='PLAYER')      lines.push('The net wants your state '+c.to+' — hitting you directly keeps you from running away with the game.');
-    else if (c.type==='rival')  lines.push('The net is going after a rival AI’s '+c.to+' instead of spending troops on you.');
-    else                        lines.push('The net wants to grab '+c.to+' — it’s unclaimed, so it’s cheap land that speeds up my growth.');
-    if (c.delta>=0) lines.push('I have the edge there ('+c.srcT+' vs '+c.tgtT+'), so it rates the attack as winnable.');
-    else            lines.push('It’s contested ('+c.srcT+' vs '+c.tgtT+') — a gamble, but the net still scores it above doing nothing.');
+    if (c.type==='PLAYER') lines.push(pk([
+      'The net wants your state '+c.to+' — hitting the leader directly keeps you from running away with the game.',
+      'It’s pointing me at your '+c.to+'; you’re the threat, so that’s where the score says to push.'
+    ],0));
+    else if (c.type==='rival') lines.push(pk([
+      'The net is going after a rival AI’s '+c.to+' instead of spending troops on you.',
+      'It prefers to chip at a rival’s '+c.to+' — weakening another AI is worth more than poking at you right now.'
+    ],0));
+    else lines.push(pk([
+      'The net wants to grab '+c.to+' — it’s unclaimed, so it’s cheap land that speeds up my growth.',
+      'Neutral '+c.to+' is the pick: free territory now is worth more than a risky fight.'
+    ],0));
+    lines.push(pk(
+      c.delta>=0 ? [
+        'I hold the edge there ('+c.srcT+' vs '+c.tgtT+'), and it’s '+Math.round(c.dist)+'px away, so the net rates the attack as winnable.',
+        'With '+c.srcT+' against '+c.tgtT+' just '+Math.round(c.dist)+'px off, the numbers favour the strike.'
+      ] : [
+        'It’s contested ('+c.srcT+' vs '+c.tgtT+') — a gamble, but the net still scores it above doing nothing.',
+        'I’m outnumbered there ('+c.srcT+' vs '+c.tgtT+'), yet the net values the position enough to take the risk.'
+      ], 1));
     const sure = c.prob>=0.6 ? 'very sure' : (c.prob>=0.35 ? 'fairly sure' : 'a bit torn');
-    lines.push('It weighed '+v.numMoves+' possible move'+(v.numMoves===1?'':'s')+' and is '+sure+' about this one ('+Math.round(c.prob*100)+'% of its vote); '+v.beatNoop+' beat just waiting.');
+    lines.push(pk([
+      'It weighed '+v.numMoves+' possible move'+(v.numMoves===1?'':'s')+' and is '+sure+' about this one ('+Math.round(c.prob*100)+'% of its vote); '+v.beatNoop+' beat just waiting.',
+      'Out of '+v.numMoves+' option'+(v.numMoves===1?'':'s')+' it’s '+sure+', giving this '+Math.round(c.prob*100)+'% of the vote, with '+v.beatNoop+' scoring above a pass.'
+    ],2));
     return lines;
   }
 
@@ -2020,14 +2145,14 @@
       nnctx.fillText('to watch the AI plan ahead.', pad, Y); return;
     }
     nnctx.fillStyle='#7c8794'; nnctx.font='10px Segoe UI, sans-serif';
-    nnctx.fillText('MCTS · explores move sequences up to '+planParams().horizon+'s ahead', pad, Y); Y+=18;
+    nnctx.fillText('MCTS · no sim/depth cap — runs as hard as your device can', pad, Y); Y+=18;
     if (!planViz){ nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
       nnctx.fillText('Waiting for the AI to plan…', pad, Y); return; }
     // controlling-enemy swatch
     nnctx.fillStyle=(COLORS[planViz.owner]||'#ef5b52'); nnctx.beginPath(); nnctx.arc(PW-20,18,6,0,Math.PI*2); nnctx.fill();
     nnctx.fillStyle='#9aa6b4'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.textAlign='right';
     nnctx.fillText('enemy '+(planViz.owner-1), PW-30, 13); nnctx.textAlign='left';
-    nnctx.fillStyle='#909cab'; nnctx.fillText(planViz.iters+' simulations · '+planViz.n+' root moves', pad, Y); Y+=18;
+    nnctx.fillStyle='#909cab'; nnctx.fillText((planViz.iters||0).toLocaleString()+' simulations on your device · '+planViz.n+' root moves', pad, Y); Y+=18;
 
     // ===== plain-language explanation of the chosen move (before the raw stats below) =====
     const story = plannerStory();
@@ -2070,7 +2195,7 @@
       Y+=rowH;
     }
     nnctx.fillStyle='#6b7682'; nnctx.font='9px Segoe UI, sans-serif'; nnctx.textAlign='left';
-    nnctx.fillText('each mini-map = projected board after the '+planViz.horizon+'s lookahead', pad, Y+4);
+    nnctx.fillText('each mini-map = projected board at the end of that imagined line', pad, Y+4);
     Y+=16;
 
     // ===== imagined line: the multi-step future the AI simulated for its chosen move =====
