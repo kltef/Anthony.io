@@ -375,7 +375,10 @@
     fortress: { grow:1.0,  capBonus:40, glyph:'🛡', defense:0.75 },  // absorbs 25% of incoming attacks
   };
   function capOf(s){
-    const base = (s.owner===PLAYER) ? PLAYER_CAP[s.level||0] : MAX_TROOPS;
+    // player states cap by their upgrade tier; AI states use the level's aiCap (hard tiers stack
+    // higher so shop upgrades can't out-muscle them); neutrals never grow so their cap is moot.
+    const base = (s.owner===PLAYER) ? PLAYER_CAP[s.level||0]
+               : (s.owner>=2 ? (cfg.aiCap || MAX_TROOPS) : MAX_TROOPS);
     const bonus = s.type ? (TILE[s.type].capBonus||0) : 0;
     return base + bonus;
   }
@@ -433,13 +436,13 @@
     // `hunt` (0..1) = how willing the AI is to attack YOU before the neutral land is gone. Classic
     // tiers stay timid (0) and ignore the player early; the hard tiers HUNT a leading/turtling human.
     { name:'Master', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true, hunt:0.6 },
-    // Impossible: the SAME trained net + planner, but searched as hard as the device allows. There
-    // is NO cap on simulations or depth — it thinks for a longer per-move window (700ms off-thread),
-    // refines time at a finer step, widens its move fan-out, and reads each line all the way to a
-    // decided board. A fast device explores vastly more than a slow one. It also fields an extra
-    // enemy that grows a touch faster. This is the top tier.
-    { name:'Impossible', enemies:4, aiSpeed:0.7, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:28, enemyStart:34, enemyGrow:1.1, rl:true, plan:true,
-      planDt:0.3, mctsK:9, tbudget:4000, workerMs:250, hunt:1.0 },
+    // Impossible: built to be brutal. The trained net + planner (no sim/depth cap, every enemy on
+    // its own CPU core so they all plan hard at once), it HUNTS you (hunt:1), AND it cheats: you
+    // start weak (22) while four enemies start strong (55), grow 70% faster (enemyGrow 1.7), react
+    // fast (aiSpeed .55) and stack to 250 (aiCap) so shop upgrades can't out-muscle them. Fair? No.
+    // Beatable? Barely. This is the top tier.
+    { name:'Impossible', enemies:4, aiSpeed:0.55, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:55, enemyGrow:1.7, rl:true, plan:true,
+      planDt:0.3, mctsK:9, tbudget:4000, workerMs:250, hunt:1.0, aiCap:250 },
   ];
   let levelIdx = 0;
 
@@ -1393,34 +1396,41 @@
   //   2. a /api/plan server (if a worker can't be built but a backend exists), and
   //   3. the tiny synchronous in-page MCTS as a last resort.
   function planMove(owner){
-    if (ensurePlanWorker()) { planWorkerMove(owner); return; }
+    if (ensurePlanWorkers()) { planWorkerMove(owner); return; }
     plannerMoveServer(owner);
   }
 
-  // ---- off-thread planner: a Web Worker running the same MCTS over a board snapshot ----
-  // null = not built yet · false = unavailable/disabled · Worker = ready.
-  let planWorker = null, planWorkerOK = false, planReqSeq = 0;
+  // ---- off-thread planner: a POOL of Web Workers running the MCTS over a board snapshot ----
+  // One worker per CPU core (up to 4): each enemy gets its own worker, so on the hard tiers
+  // every AI plans HARD and CONCURRENTLY (instead of taking turns on one worker and reacting
+  // slowly). null = not built yet · false = unavailable/disabled · [Worker,…] = ready.
+  let planWorkers = null, planReqSeq = 0;
   const planJobs = {};   // request id -> owner awaiting a move
-  function ensurePlanWorker(){
-    if (planWorkerOK) return true;
-    if (planWorker !== null) return false;            // already tried and failed
-    if (!rlPolicy || typeof Worker === 'undefined'){ planWorker = false; return false; }
+  function ensurePlanWorkers(){
+    if (Array.isArray(planWorkers)) return true;
+    if (planWorkers === false) return false;          // already tried and failed
+    if (!rlPolicy || typeof Worker === 'undefined'){ planWorkers = false; return false; }
     try {
       const src = '(' + planWorkerMain.toString() + ')()';
       const url = URL.createObjectURL(new Blob([src], { type:'application/javascript' }));
-      planWorker = new Worker(url);
-      planWorker.onmessage = onPlanWorkerMsg;
-      planWorker.onerror = () => { planWorkerOK = false; planWorker = false; planPending = {}; };
-      planWorker.postMessage({ type:'init', policy: rlPolicy });
-      planWorkerOK = true;
-    } catch(e){ planWorker = false; planWorkerOK = false; }
-    return planWorkerOK;
+      const n = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4));
+      planWorkers = [];
+      for (let i=0;i<n;i++){
+        const w = new Worker(url);
+        w.onmessage = onPlanWorkerMsg;
+        w.onerror = () => { planWorkers = false; planPending = {}; };
+        w.postMessage({ type:'init', policy: rlPolicy });
+        planWorkers.push(w);
+      }
+    } catch(e){ planWorkers = false; }
+    return Array.isArray(planWorkers);
   }
   function planWorkerMove(owner){
     if (planPending[owner]) return;                   // already thinking about this enemy
     planPending[owner] = true;
     const id = ++planReqSeq; planJobs[id] = owner;
-    planWorker.postMessage({ type:'plan', id, req: buildPlanRequest(owner, 'worker') });
+    const w = planWorkers[(owner-2 + planWorkers.length) % planWorkers.length];  // dedicated worker per enemy
+    w.postMessage({ type:'plan', id, req: buildPlanRequest(owner, 'worker') });
   }
   function onPlanWorkerMsg(e){
     const m = e.data; if (!m || m.type !== 'plan') return;
