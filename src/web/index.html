@@ -165,6 +165,32 @@
   .scn-preset:hover { border-color: #46a6ef; }
   #scnBar { width: min(330px, 88vw); height: 14px; border-radius: 8px; overflow: hidden;
     display: flex; background: #b4bbc2; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  /* ---- coins & shop ---- */
+  #upgradeBtn { font-size: 14px !important; }
+  #upgradeBtn:not(:disabled) { background: #f5c84a; color: #3a2c00; }
+  #airdropBtn { font-size: 14px !important; background: #8fd6a6; color: #143421; }
+  .coinline { color: #ffd479; font-weight: 800; font-size: 16px; opacity: .95; margin-top: -6px; }
+  #shopPanel { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20;
+    width: min(460px, 94vw); max-height: 86vh; overflow-y: auto; pointer-events: auto;
+    background: rgba(16,23,37,.98); border: 1px solid #2a3850; border-radius: 14px; padding: 20px 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.6); }
+  #shopPanel.gone { display: none; }
+  #shopCoins { color: #ffd479; font-size: 16px; font-weight: 800; }
+  .shop-item { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid rgba(255,255,255,.08); }
+  .shop-item:first-child { border-top: none; }
+  .shop-ic { font-size: 22px; width: 26px; text-align: center; flex: none; }
+  .shop-meta { flex: 1; min-width: 0; text-align: left; }
+  .shop-name { color: #eaf1fb; font-weight: 800; font-size: 14px; }
+  .shop-desc { color: #9aa6b4; font-size: 12px; line-height: 1.35; }
+  .shop-buy { pointer-events: auto; cursor: pointer; border: none; border-radius: 9px; padding: 8px 12px;
+    font-weight: 800; font-size: 13px; white-space: nowrap; background: #46a6ef; color: #fff; flex: none; }
+  .shop-buy:disabled { background: #3a4757; color: #8a97a8; cursor: default; }
+  .shop-buy.owned { background: rgba(56,196,111,.2); color: #8fe3ab; }
+  .shop-colors { display: flex; gap: 6px; margin-top: 6px; }
+  .shop-sw { width: 22px; height: 22px; border-radius: 6px; cursor: pointer; pointer-events: auto; border: 2px solid transparent; }
+  .shop-sw.on { border-color: #fff; }
+  .scn-preset.on { background: #46a6ef; border-color: #46a6ef; color: #fff; }
+  #speed button:disabled { opacity: .5; cursor: default; }
   #scnBar > div { height: 100%; }
 </style>
 </head>
@@ -173,7 +199,7 @@
 <div id="back">&#10094;</div>
 <div id="topbar"><div id="bar"></div></div>
 <div id="zoom"><button id="zoomIn" title="Zoom in">+</button><button id="zoomOut" title="Zoom out">&minus;</button></div>
-<div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="nnBtn" title="Show the Master AI's neural network">AI brain</button></div>
+<div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="upgradeBtn" title="Upgrade the selected state's troop cap" style="display:none">⬆ Upgrade</button><button id="airdropBtn" title="Drop reinforcements onto the selected state" style="display:none">🪂 Airdrop</button><button id="nnBtn" title="Show the Master AI's neural network">AI brain</button></div>
 <div id="nnpanel">
   <div id="nntabs">
     <button class="nntab on" data-viz="brain">AI Brain</button>
@@ -200,7 +226,9 @@
       <option>Melissa</option>
     </select>
     <button class="mini2" id="lbBtn">🏆 Leaderboard</button>
+    <button class="mini2" id="shopBtn">🪙 Shop</button>
   </div>
+  <p class="coinline" id="coinLine" style="display:none"></p>
 
   <!-- solo (vs AI) -->
   <div class="panel" id="soloPanel">
@@ -262,6 +290,11 @@
     <div id="scnBar"></div>
     <p class="hint" id="scnSummary"></p>
     <div class="scn-presets" id="scnPresets"></div>
+    <div class="seltitle">Rules</div>
+    <div class="scn-presets">
+      <button class="scn-preset on" id="scnUpgrades">Cap upgrades: On</button>
+      <button class="scn-preset on" id="scnTiles">Special tiles: On</button>
+    </div>
     <button class="btn" id="scnStartBtn" disabled>Loading map…</button>
     <p class="hint">Set every team to <b>AI</b> to sit back and watch the AIs fight it out.</p>
   </div>
@@ -273,6 +306,13 @@
   <h2 class="lbh">🏆 Leaderboard</h2>
   <div id="lbBody" class="lbbody">Loading…</div>
   <button class="btn" id="lbClose" style="margin-top:14px">Close</button>
+</div>
+
+<div id="shopPanel" class="gone">
+  <h2 class="lbh">🪙 Shop <span id="shopCoins"></span></h2>
+  <p class="hint" style="margin:-8px 0 12px">Earn coins by finishing solo games. Perks apply in <b>vs Computer</b> only — not Scenario or online.</p>
+  <div id="shopBody"></div>
+  <button class="btn" id="shopClose" style="margin-top:14px">Close</button>
 </div>
 
 <script src="d3.min.js"></script>
@@ -318,10 +358,69 @@
     const r = REGIONS[regionIdx], set = r.list ? new Set(r.list) : null;
     states = allFeatures
       .filter(f => set ? set.has(f.properties.name) : !EXCLUDE.has(f.properties.name))
-      .map((f,i) => ({ id:i, name:f.properties.name, feature:f, owner:NEUTRAL, troops:0, growAcc:0, pulse:0 }));
+      .map((f,i) => ({ id:i, name:f.properties.name, feature:f, owner:NEUTRAL, troops:0, growAcc:0, pulse:0, level:0, type:null }));
   }
 
   const MAX_TROOPS = 150;
+
+  // ---- cap upgrades & special tiles ----
+  // The player can raise a state's cap ABOVE the classic 150 (it starts at 150 and goes up).
+  // AIs and neutrals always use the flat 150. Special tiles give passive bonuses and persist
+  // through capture. Both systems run only in single-player (solo + scenario), never in netplay.
+  const PLAYER_CAP = [150, 175, 200, 225, 250];   // player upgrade tiers (level 0..4)
+  const upgradeCost = lvl => 40 + lvl*30;          // troop cost to reach the next tier: 40,70,100,130
+  const TILE = {
+    capital:  { grow:1.35, capBonus:40, glyph:'★' },   // strong economy + a prize to capture
+    factory:  { grow:1.6,  capBonus:0,  glyph:'⚙' },   // pure production
+    fortress: { grow:1.0,  capBonus:40, glyph:'🛡', defense:0.75 },  // absorbs 25% of incoming attacks
+  };
+  function capOf(s){
+    const base = (s.owner===PLAYER) ? PLAYER_CAP[s.level||0] : MAX_TROOPS;
+    const bonus = s.type ? (TILE[s.type].capBonus||0) : 0;
+    return base + bonus;
+  }
+  function tileGrowMult(s){
+    let m = s.type ? TILE[s.type].grow : 1;
+    if (s.owner===PLAYER && gameElapsed < boomUntil) m *= 1.5;   // Boom-Start shop perk
+    return m;
+  }
+  let upgradesOn = false, tilesOn = false;   // per-match switches (solo defaults on; off in netplay)
+  let boomUntil = 0;                          // gameElapsed seconds the Boom-Start perk stays active
+  let lastCoinAward = 0;                      // coins earned in the just-finished game (for the end screen)
+
+  // ---- coins & shop (single-player meta-economy, persisted in localStorage) ----
+  const PK = 'stateio_';
+  const lsGet = k => { try { return localStorage.getItem(PK+k); } catch(e){ return null; } };
+  const lsSet = (k,v) => { try { localStorage.setItem(PK+k, v); } catch(e){} };
+  const PERK = {
+    coins:        +lsGet('coins') || 0,
+    extraStates:  +lsGet('extraStates') || 0,        // count, max 3
+    startTroops:  lsGet('startTroops') === '1',
+    preUpgraded:  lsGet('preUpgraded') === '1',
+    startCapital: lsGet('startCapital') === '1',
+    boomStart:    lsGet('boomStart') === '1',
+    investor:     lsGet('investor') === '1',
+    airdrops:     +lsGet('airdrops') || 0,           // consumable charges
+    colorUnlocked:lsGet('colorUnlocked') === '1',    // bought the right to recolour
+    color:        lsGet('color') || '',              // hex override for the player's colour
+  };
+  const savePerk = k => lsSet(k, PERK[k]);
+
+  // cosmetic player-colour palette (light, dark). The classic blue is the default/first entry.
+  const SHOP_COLORS = [
+    { hex:'#46a6ef', dark:'#2c7fc4', name:'Blue' },
+    { hex:'#ef5b52', dark:'#c43d36', name:'Red' },
+    { hex:'#38c46f', dark:'#27975a', name:'Green' },
+    { hex:'#9b6cf0', dark:'#7549c4', name:'Purple' },
+    { hex:'#f1a13a', dark:'#c47d24', name:'Amber' },
+    { hex:'#e36ec9', dark:'#b94fa1', name:'Pink' },
+  ];
+  function applyPlayerColor(){
+    const c = PERK.color ? SHOP_COLORS.find(x=>x.hex===PERK.color) : null;
+    COLORS[PLAYER] = c ? c.hex : '#46a6ef';
+    DARK[PLAYER]   = c ? c.dark : '#2c7fc4';
+  }
+
   const LEVELS = [
     // Easy: weak neutrals, fast player growth, slow & passive AI that grows slower than you
     { name:'Easy',   enemies:1, aiSpeed:2.6, aiAggro:0.30, neutralMin:5,  neutralMax:18, growRate:1.7, playerStart:45, enemyStart:22, enemyGrow:0.65 },
@@ -640,6 +739,39 @@
     return 0;
   }
 
+  // the N still-neutral states closest to `origin` (for the "extra starting state" perk)
+  function nearestNeutrals(origin, n){
+    if (n<=0) return [];
+    return states.filter(s => s.owner===NEUTRAL && s!==origin)
+      .sort((a,b)=> ((a.cx-origin.cx)**2+(a.cy-origin.cy)**2) - ((b.cx-origin.cx)**2+(b.cy-origin.cy)**2))
+      .slice(0, n);
+  }
+  // sprinkle special tiles onto ~12% of the neutral states so they're contested objectives.
+  function assignTiles(starters){
+    const pool = states.filter(s => s.owner===NEUTRAL && !(starters && starters.includes(s)));
+    const want = Math.max(2, Math.round(states.length*0.12));
+    for (let i=pool.length-1; i>0; i--){ const j=(Math.random()*(i+1))|0; [pool[i],pool[j]]=[pool[j],pool[i]]; }
+    for (let i=0; i<Math.min(want, pool.length); i++){
+      const r = Math.random();
+      pool[i].type = r<0.40 ? 'factory' : (r<0.75 ? 'fortress' : 'capital');   // 40/35/25
+    }
+  }
+  // upgrade a player state's cap one tier, paying troops (player-only; AIs never call this).
+  function tryUpgrade(s){
+    if (!upgradesOn || !s || s.owner!==myOwner || (s.level||0) >= PLAYER_CAP.length-1) return false;
+    const cost = upgradeCost(s.level||0);
+    if (s.troops < cost) return false;
+    s.troops -= cost; s.level = (s.level||0)+1; s.pulse = 1.2;
+    return true;
+  }
+  // coins earned for finishing a solo game (called from recordResult, which only runs in solo).
+  function awardCoins(won){
+    const mult = {Easy:1, Medium:1.4, Hard:1.8, Master:2.4, Impossible:3.2}[LEVELS[levelIdx].name] || 1;
+    let c = Math.round(50*mult) + (won ? 40 : 0);
+    if (PERK.investor) c = Math.round(c*1.25);
+    PERK.coins += c; savePerk('coins'); lastCoinAward = c;
+  }
+
   function newGame() {
     if (!ready) return;
     scenarioMode = false; scenarioObserver = false;
@@ -651,10 +783,15 @@
     if (!netMode && regionIdx!==0){ regionIdx=0; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default map
     buildGeo();
 
+    // Cap upgrades, special tiles & shop perks are single-player only (off in netplay → no desync).
+    upgradesOn = tilesOn = !netMode;
+    boomUntil = 0;
+    if (!netMode) applyPlayerColor(); else { COLORS[PLAYER]='#46a6ef'; DARK[PLAYER]='#2c7fc4'; }
+
     for (const s of states) {
       s.owner = NEUTRAL;
       s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax));
-      s.growAcc = 0; s.pulse = 0;
+      s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null;
     }
     const enemyCount = Math.max(1, Math.min((mpEnemies!=null) ? mpEnemies : lv.enemies, states.length-1));
     const starters = [];
@@ -666,6 +803,17 @@
     }
     // solo / guest-less: every enemy is AI. (Host sets slotControl before calling.)
     if (netMode!=='host') { slotControl = {}; for (let e=0; e<enemyCount; e++) slotControl[2+e] = 'ai'; }
+
+    if (!netMode) {                                  // apply purchased shop perks (solo only)
+      if (PERK.startTroops)  first.troops += 10;
+      if (PERK.preUpgraded)  first.level = 1;
+      if (PERK.startCapital) first.type = 'capital';
+      if (PERK.boomStart)    boomUntil = 25;
+      for (const s of nearestNeutrals(first, Math.min(3, PERK.extraStates))) {
+        s.owner = PLAYER; s.troops = Math.floor(lv.playerStart*0.6); starters.push(s);
+      }
+    }
+    if (tilesOn) assignTiles(starters);              // sprinkle Capital/Factory/Fortress on neutrals
 
     running = true;
     gameTick = 0; gameElapsed = 0; nnHist.length = 0;
@@ -688,18 +836,30 @@
     resultText.textContent = won ? 'VICTORY!' : 'DEFEAT';
     resultText.style.color = won ? '#38c46f' : '#ef5b52';
     startBtn.textContent = 'Play Again';
+    lastCoinAward = 0;
     recordResult(won);
+    showCoinLine();
+    if (shopBtn) shopBtn.textContent = '🪙 Shop ('+PERK.coins+')';
+  }
+  // end-screen "+N 🪙 · total" line (only meaningful after a solo game)
+  function showCoinLine(){
+    const el = document.getElementById('coinLine'); if (!el) return;
+    if (lastCoinAward > 0){ el.textContent = '+'+lastCoinAward+' 🪙   ·   '+PERK.coins+' total'; el.style.display=''; }
+    else el.style.display = 'none';
   }
 
   function toMenu() {
     running = false;
     scenarioMode = false; scenarioObserver = false;
+    upgradesOn = tilesOn = false; boomUntil = 0;
     if (NET.es) { NET.es.close(); NET.es = null; }
     netMode = null; myOwner = PLAYER; mpEnemies = null;
     nnBtn.classList.remove('gone');
     overlay.classList.remove('hidden');
     introText.style.display = '';
     resultText.textContent = '';
+    const cl = document.getElementById('coinLine'); if (cl) cl.style.display = 'none';
+    refreshHud();
     startBtn.textContent = ready ? 'Play' : 'Loading map…';
   }
   backEl.addEventListener('click', toMenu);
@@ -772,7 +932,10 @@
     if (to.owner===t.owner) {
       to.troops += t.count;
     } else {
-      to.troops -= t.count;
+      // a Fortress absorbs 25% of an incoming attack (defender's advantage). The tile itself
+      // persists through capture, so a captured Capital/Fortress now works for the new owner.
+      const dmg = (to.type==='fortress' && to.troops>0) ? Math.round(t.count*TILE.fortress.defense) : t.count;
+      to.troops -= dmg;
       if (to.troops < 0) { to.owner=t.owner; to.troops=-to.troops; to.pulse=1.2; }
     }
   }
@@ -835,6 +998,8 @@
           if (!endgame) bias = -6;                                     // wait until land & rivals are gone
           else bias = (st>tt ? 3 : -4);                               // endgame: strike whenever a state can win; keep growing otherwise
         }
+        if (tg.type==='capital' || tg.type==='factory') bias += 1.2;   // value high-growth tiles
+        else if (tg.type==='fortress') bias += 0.5;
         score += bias;
         if (cands) cands.push({ src, tg, score, raw, bias, feats });
         if (score>bestScore){ bestScore=score; bestSrc=src; bestTgt=tg; }
@@ -1560,6 +1725,7 @@
         }
         else if (tg.owner>=2) score += 14;                       // fight rival AIs
         else if (tg.owner===PLAYER) score += neutralsLeft ? -50 : 8*lv.aiAggro; // wait until land is claimed
+        if (tg.type) score += (tg.type==='fortress' ? 6 : 12);   // prize special tiles
         if (canTake) score += 25;
         score += rand(-3,3);
         if (score>bestScore){ bestScore=score; best=tg; }
@@ -1572,9 +1738,10 @@
     gameTick++; gameElapsed += dt;
     updateThreats();
     for (const s of states) {
-      if (s.owner!==NEUTRAL && s.troops<MAX_TROOPS) {
-        s.growAcc += growRateFor(s.owner)*dt;
-        while (s.growAcc>=1){ s.growAcc-=1; if (s.troops<MAX_TROOPS) s.troops++; }
+      const cap = capOf(s);
+      if (s.owner!==NEUTRAL && s.troops<cap) {
+        s.growAcc += growRateFor(s.owner)*tileGrowMult(s)*dt;
+        while (s.growAcc>=1){ s.growAcc-=1; if (s.troops<cap) s.troops++; }
       }
       if (s.pulse>0) s.pulse = Math.max(0, s.pulse-dt*3);
     }
@@ -1625,7 +1792,7 @@
   // don't get too small, while still shrinking relative to the enlarged states.
   function zk(){ return 1/Math.pow(cam.scale, 0.6); }
 
-  function node(x,y,count,owner,sel,pulse) {
+  function node(x,y,count,owner,sel,pulse,type,level) {
     const k = zk();
     const r = (markR + (pulse||0)*2) * k;
     if (sel){ ctx.strokeStyle='#2b3440'; ctx.lineWidth=3*k; ctx.beginPath(); ctx.arc(x,y,r+6*k,0,Math.PI*2); ctx.stroke(); }
@@ -1635,6 +1802,18 @@
     ctx.fillStyle='#2b3440'; ctx.font='bold '+(markR*0.85*k)+'px Segoe UI, sans-serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(count, x, y+1*k);
+    // special-tile glyph above the marker
+    if (type && TILE[type]){
+      ctx.fillStyle='#2b3440'; ctx.textBaseline='alphabetic';
+      ctx.font=(markR*0.95*k)+'px "Segoe UI Emoji","Apple Color Emoji",Segoe UI,sans-serif';
+      ctx.fillText(TILE[type].glyph, x, y - r - 2*k);
+    }
+    // cap-upgrade pips below the marker (only the player ever has level>0)
+    if (level>0){
+      const pr=2.0*k, gap=5.5*k, span=(level-1)*gap;
+      ctx.fillStyle = DARK[owner] || '#2b3440';
+      for (let i=0;i<level;i++){ ctx.beginPath(); ctx.arc(x - span/2 + i*gap, y + r + 5*k, pr, 0, Math.PI*2); ctx.fill(); }
+    }
   }
 
   function render() {
@@ -1667,7 +1846,7 @@
     }
 
     // nodes
-    for (const s of states) node(s.cx, s.cy, s.troops, s.owner, selected===s, s.pulse);
+    for (const s of states) node(s.cx, s.cy, s.troops, s.owner, selected===s, s.pulse, s.type, s.level);
 
     updateBar();
     // Recompute the NN viz at ~12/sec instead of every frame — a full net eval over all
@@ -2263,6 +2442,7 @@
       netLastSend = now; api('/api/state?room='+NET.room, buildSnapshot());
     }
     render();
+    refreshHud();
     if (running) requestAnimationFrame(loop);
   }
 
@@ -2692,7 +2872,8 @@
   if (playerSel){ playerSel.value = playerName;
     playerSel.onchange = () => { playerName = playerSel.value; try { localStorage.setItem('statio_player', playerName); } catch(e){} }; }
   function recordResult(won){
-    if (scenarioMode) { matchTrack = null; return; }   // hand-authored scenarios aren't ranked
+    if (scenarioMode) { matchTrack = null; lastCoinAward = 0; return; }   // scenarios aren't ranked or paid
+    awardCoins(won);                                   // solo only — coins for finishing the game
     let profile = null;
     const a = matchTrack;
     // Easy games count on the leaderboard but don't shape the profile (stomping a weak AI
@@ -2929,18 +3110,26 @@
     const hasYou = scnTeams.some(t => t.ctrl==='you');
     myOwner = PLAYER;
     scenarioMode = true; scenarioObserver = !hasYou;
+    // scenario rule toggles (shop perks never apply here; the cosmetic colour is harmless)
+    upgradesOn = scnUpgradesOn; tilesOn = scnTilesOn; boomUntil = 0;
+    applyPlayerColor();
 
     allocateTerritory(targets);
 
     // troops: a team's seed is its "capital" (full start strength); its other states hold a
     // modest garrison; unclaimed land keeps the usual neutral spread.
     for (const s of states){
-      s.growAcc = 0; s.pulse = 0;
+      s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null;
       if (s.owner===NEUTRAL){ s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
       else {
         const base = s.owner===PLAYER ? lv.playerStart : lv.enemyStart;
         s.troops = s._seed ? base : Math.max(6, Math.floor(rand(lv.neutralMin, Math.min(lv.neutralMax, base))));
       }
+    }
+    if (tilesOn){
+      const seeds = states.filter(s => s._seed);
+      for (const s of seeds) s.type = 'capital';   // each team's capital is a Capital tile
+      assignTiles(seeds);                          // plus contested tiles on the neutral land
     }
     // every AI colour is driven by the AI; the human (if any) holds PLAYER.
     slotControl = {};
@@ -2965,6 +3154,116 @@
 
   buildScnRegionButtons(); buildScnLevelButtons(); buildScnPresets(); renderScn();
   if (scnStartBtn) scnStartBtn.addEventListener('click', startScenario);
+
+  // ---- scenario rule toggles ----
+  let scnUpgradesOn = true, scnTilesOn = true;
+  const scnUpgBtn = document.getElementById('scnUpgrades');
+  const scnTileBtn = document.getElementById('scnTiles');
+  if (scnUpgBtn) scnUpgBtn.onclick = ()=>{ scnUpgradesOn=!scnUpgradesOn;
+    scnUpgBtn.classList.toggle('on', scnUpgradesOn); scnUpgBtn.textContent='Cap upgrades: '+(scnUpgradesOn?'On':'Off'); };
+  if (scnTileBtn) scnTileBtn.onclick = ()=>{ scnTilesOn=!scnTilesOn;
+    scnTileBtn.classList.toggle('on', scnTilesOn); scnTileBtn.textContent='Special tiles: '+(scnTilesOn?'On':'Off'); };
+
+  // ============================ IN-MATCH HUD: UPGRADE & AIRDROP ============================
+  const upgradeBtn = document.getElementById('upgradeBtn');
+  const airdropBtn = document.getElementById('airdropBtn');
+  let hudUpg = null, hudAir = null;   // last-rendered keys (only touch the DOM on change)
+  function refreshHud(){
+    if (!upgradeBtn || !airdropBtn) return;
+    // ⬆ Upgrade — visible when a player state is selected and can still be upgraded
+    let uShow=false, uLabel='', uDis=false;
+    if (upgradesOn && running && selected && selected.owner===myOwner && (selected.level||0) < PLAYER_CAP.length-1){
+      const cost = upgradeCost(selected.level||0);
+      uShow=true; uLabel='⬆ Upgrade ('+cost+')'; uDis = selected.troops < cost;
+    }
+    const uKey = uShow ? uLabel+(uDis?'·d':'') : '';
+    if (uKey!==hudUpg){ hudUpg=uKey; upgradeBtn.style.display = uShow?'':'none';
+      if (uShow){ upgradeBtn.textContent=uLabel; upgradeBtn.disabled=uDis; } }
+    // 🪂 Airdrop — visible in solo when you own charges
+    const aShow = (!netMode && running && PERK.airdrops>0);
+    const aReady = !!(selected && selected.owner===myOwner);
+    const aKey = aShow ? PERK.airdrops+'/'+(aReady?1:0) : '';
+    if (aKey!==hudAir){ hudAir=aKey; airdropBtn.style.display = aShow?'':'none';
+      if (aShow){ airdropBtn.textContent='🪂 Airdrop ('+PERK.airdrops+')'; airdropBtn.disabled=!aReady; } }
+  }
+  if (upgradeBtn) upgradeBtn.addEventListener('click', ()=>{ if (tryUpgrade(selected)) refreshHud(); });
+  if (airdropBtn) airdropBtn.addEventListener('click', ()=>{
+    if (!running || netMode || PERK.airdrops<=0 || !selected || selected.owner!==myOwner) return;
+    selected.troops += 25; selected.pulse = 1.2; PERK.airdrops--; savePerk('airdrops'); refreshHud();
+  });
+
+  // ============================ SHOP ============================
+  const shopBtn = document.getElementById('shopBtn');
+  const shopPanel = document.getElementById('shopPanel');
+  const shopBody = document.getElementById('shopBody');
+  const shopClose = document.getElementById('shopClose');
+  const shopCoinsEl = document.getElementById('shopCoins');
+  const SHOP_ITEMS = [
+    { id:'extraStates', ic:'🗺️', name:'Extra starting state',
+      desc:'Spawn already owning one more nearby state. Stacks up to 3.',
+      cost:()=> 1000 + PERK.extraStates*1500, owned:()=> PERK.extraStates>=3,
+      label:()=> PERK.extraStates>0 ? 'Buy #'+(PERK.extraStates+1) : 'Buy',
+      buy:()=>{ PERK.extraStates++; savePerk('extraStates'); } },
+    { id:'startTroops', ic:'➕', name:'+10 starting troops', desc:'Your first state begins with 10 extra troops.',
+      cost:()=>600, owned:()=>PERK.startTroops, buy:()=>{ PERK.startTroops=true; savePerk('startTroops'); } },
+    { id:'preUpgraded', ic:'⏫', name:'Pre-upgraded capital', desc:'Your first state starts one cap tier ahead (cap 175).',
+      cost:()=>800, owned:()=>PERK.preUpgraded, buy:()=>{ PERK.preUpgraded=true; savePerk('preUpgraded'); } },
+    { id:'startCapital', ic:'★', name:'Starting Capital tile', desc:'Your first state is a ★ Capital — faster growth, bigger cap.',
+      cost:()=>700, owned:()=>PERK.startCapital, buy:()=>{ PERK.startCapital=true; savePerk('startCapital'); } },
+    { id:'boomStart', ic:'🚀', name:'Boom Start', desc:'1.5× troop growth for your first 25 seconds.',
+      cost:()=>650, owned:()=>PERK.boomStart, buy:()=>{ PERK.boomStart=true; savePerk('boomStart'); } },
+    { id:'investor', ic:'📈', name:'Investor', desc:'Permanently earn +25% coins from every game.',
+      cost:()=>2000, owned:()=>PERK.investor, buy:()=>{ PERK.investor=true; savePerk('investor'); } },
+    { id:'airdrops', ic:'🪂', name:'Reinforcement Airdrop',
+      desc:'A one-tap +25 troop drop during a match. Buy charges; one is spent per drop.',
+      cost:()=>120, owned:()=>false, label:()=> PERK.airdrops>0 ? 'Buy (have '+PERK.airdrops+')' : 'Buy',
+      buy:()=>{ PERK.airdrops++; savePerk('airdrops'); } },
+  ];
+  function refreshShopBtn(){ if (shopBtn) shopBtn.textContent='🪙 Shop ('+PERK.coins+')'; }
+  function buyItem(item){
+    if (item.owned && item.owned()) return;
+    const cost = item.cost();
+    if (PERK.coins < cost) return;
+    PERK.coins -= cost; savePerk('coins'); item.buy();
+    buildShop(); refreshShopBtn();
+  }
+  function buildShop(){
+    if (!shopBody) return;
+    if (shopCoinsEl) shopCoinsEl.textContent = '· '+PERK.coins+' 🪙';
+    shopBody.innerHTML='';
+    for (const item of SHOP_ITEMS){
+      const row=document.createElement('div'); row.className='shop-item';
+      const ic=document.createElement('div'); ic.className='shop-ic'; ic.textContent=item.ic; row.appendChild(ic);
+      const meta=document.createElement('div'); meta.className='shop-meta';
+      meta.innerHTML='<div class="shop-name">'+esc(item.name)+'</div><div class="shop-desc">'+esc(item.desc)+'</div>';
+      row.appendChild(meta);
+      const btn=document.createElement('button'); btn.className='shop-buy';
+      if (item.owned && item.owned()){ btn.textContent='Owned'; btn.classList.add('owned'); btn.disabled=true; }
+      else { const cost=item.cost(); btn.textContent=(item.label?item.label():'Buy')+' · '+cost+' 🪙';
+        btn.disabled = PERK.coins < cost; btn.onclick=()=> buyItem(item); }
+      row.appendChild(btn); shopBody.appendChild(row);
+    }
+    // cosmetic colour
+    const crow=document.createElement('div'); crow.className='shop-item';
+    const cic=document.createElement('div'); cic.className='shop-ic'; cic.textContent='🎨'; crow.appendChild(cic);
+    const cmeta=document.createElement('div'); cmeta.className='shop-meta';
+    cmeta.innerHTML='<div class="shop-name">Player colour</div><div class="shop-desc">'+
+      (PERK.colorUnlocked?'Tap a swatch to set your colour.':'Unlock the right to recolour your team.')+'</div>';
+    const sw=document.createElement('div'); sw.className='shop-colors';
+    SHOP_COLORS.forEach(c=>{ const d=document.createElement('div');
+      d.className='shop-sw'+(((PERK.color||'#46a6ef')===c.hex)?' on':''); d.style.background=c.hex; d.title=c.name;
+      d.onclick=()=>{ if(!PERK.colorUnlocked) return; PERK.color = (c.hex==='#46a6ef'?'':c.hex); savePerk('color'); applyPlayerColor(); buildShop(); };
+      sw.appendChild(d); });
+    cmeta.appendChild(sw); crow.appendChild(cmeta);
+    const cbtn=document.createElement('button'); cbtn.className='shop-buy';
+    if (PERK.colorUnlocked){ cbtn.textContent='Unlocked'; cbtn.classList.add('owned'); cbtn.disabled=true; }
+    else { cbtn.textContent='Unlock · 400 🪙'; cbtn.disabled = PERK.coins<400;
+      cbtn.onclick=()=>{ if(PERK.coins<400) return; PERK.coins-=400; savePerk('coins'); PERK.colorUnlocked=true; savePerk('colorUnlocked'); buildShop(); refreshShopBtn(); }; }
+    crow.appendChild(cbtn); shopBody.appendChild(crow);
+  }
+  refreshShopBtn();
+  if (shopBtn) shopBtn.onclick = ()=>{ buildShop(); shopPanel.classList.remove('gone'); };
+  if (shopClose) shopClose.onclick = ()=> shopPanel.classList.add('gone');
 
   setMode('solo');
 })();

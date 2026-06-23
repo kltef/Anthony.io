@@ -7,6 +7,27 @@ troop simulation, and the trained reinforcement-learning AI — lives in that on
 self-contained HTML file. The editable source is mirrored at
 [`src/web/index.html`](src/web/index.html).
 
+## Cap upgrades, special tiles & a coin shop
+
+Three linked single-player systems (all gated to `netMode === null`, so multiplayer and
+its snapshot sync are untouched):
+
+- **Per-state cap upgrades.** Tap one of your states to select it, then the on-screen
+  **⬆ Upgrade (cost)** button spends troops to raise that state's troop cap *above* the
+  classic 150 (tiers 150 → 175 → 200 → 225 → 250). AIs never upgrade — it's a player-only
+  power lever. See `PLAYER_CAP`, `capOf()`, `tryUpgrade()`.
+- **Special tiles.** Every solo game sprinkles ~12% of neutral states with **Capital ★**
+  (more growth + cap), **Factory ⚙** (most growth), or **Fortress 🛡** (absorbs 25% of
+  attacks + cap). Tiles persist through capture, and the heuristic + RL AI both get a
+  scoring nudge so they actively fight for them. See `TILE`, `assignTiles()`, `tileGrowMult()`,
+  and the bias terms in `updateAI()`/`rlEvaluate()`.
+- **Coins & shop.** Finish a solo game to earn ~50 coins (scaled by difficulty, +40 on a win,
+  +25% with Investor). The **🪙 Shop** (modelled on the leaderboard modal) sells: extra
+  starting state (×3, escalating), +10 start troops, pre-upgraded capital, starting Capital
+  tile, Boom Start, Investor, Reinforcement Airdrop charges, and a cosmetic colour. Persisted
+  in `localStorage`; perks apply in **vs Computer only** (never Scenario or online). The
+  Scenario builder gets **Cap upgrades** / **Special tiles** on-off toggles.
+
 ## New feature: Scenario Builder
 
 A new **Scenario** tab on the main menu lets you author a starting board and drop
@@ -65,9 +86,10 @@ The implementation is entirely within `assets/web/index.html` (search for
 ## Rebuilding the APK
 
 The repo ships the rebuilt, signed artifact as
-`State.io_v1.4-impossible.apk` (the Easy→Impossible difficulty rework, the
-off-thread Web-Worker planner, and the plain-language "what the AI is thinking"
-explanations in the AI-brain / planner overlay). The earlier
+`State.io_v1.5-shop.apk` — it bundles everything: the cap upgrades / special
+tiles / coin shop above, the Scenario Builder, the Easy→Impossible difficulty
+rework, the off-thread Web-Worker planner, and the plain-language "what the AI
+is thinking" explanations in the AI-brain / planner overlay. The earlier
 `State.io_v1.3-scenarios.apk` and the original `State.io_v1.2.apk` are kept for
 reference.
 
