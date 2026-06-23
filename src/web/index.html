@@ -327,13 +327,18 @@
     { name:'Easy',   enemies:1, aiSpeed:2.6, aiAggro:0.30, neutralMin:5,  neutralMax:18, growRate:1.7, playerStart:45, enemyStart:22, enemyGrow:0.65 },
     { name:'Medium', enemies:2, aiSpeed:1.4, aiAggro:0.70, neutralMin:10, neutralMax:34, growRate:1.2, playerStart:35, enemyStart:30, enemyGrow:0.9  },
     { name:'Hard',   enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:36, enemyGrow:1.0  },
-    // Master: identical settings to Hard, but enemies are driven by a trained reinforcement-learning policy
-    { name:'Master', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:36, enemyGrow:1.0, rl:true },
-    // Grandmaster: same RL policy, but wrapped in a shallow-rollout PLANNER that simulates each
-    // candidate move ~5s into the future and picks the one with the best projected board.
-    // Grandmaster plays fair: enemies start with the SAME unit count as the player (30) and the
+    // Master: the trained reinforcement-learning policy wrapped in a shallow-rollout PLANNER that
+    // simulates each candidate move several seconds into the future and picks the best projected
+    // board. Master plays fair: enemies start with the SAME unit count as the player (30) and the
     // same growth rate (1.0×). No economic handicap — the difficulty comes purely from the planner.
-    { name:'Grandmaster', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true },
+    { name:'Master', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true },
+    // Impossible: the SAME trained net + planner, but "trained really long" — searched far harder
+    // on every move. It runs an order of magnitude more simulations, looks much further ahead
+    // (longer horizon at a finer time step), widens its move fan-out, and is given a much larger
+    // thinking budget. It also fields an extra enemy that grows a touch faster. The result reads
+    // the board many seconds ahead and punishes almost any mistake. This is the top tier.
+    { name:'Impossible', enemies:4, aiSpeed:0.7, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:28, enemyStart:34, enemyGrow:1.1, rl:true, plan:true,
+      sims:60000, horizon:24.0, planDt:0.3, mctsK:9, tbudget:4000, workerSims:16000, workerMs:500 },
   ];
   let levelIdx = 0;
 
@@ -374,10 +379,10 @@
   // by a tiny floor) instead of ~once per second, so it reacts and stacks coordinated waves
   // far more aggressively. Set FAST_AI=false to restore the classic per-difficulty cadence.
   const FAST_AI = true;
-  // NOTE: the Grandmaster (lv.plan) tier is already naturally rate-limited — each decision is a
-  // server round-trip whose MCTS runs for ~250ms (see mcts.tbudget), and planPending allows only
-  // one request in flight per enemy. So we keep the small cooldown for ALL tiers; adding an extra
-  // throttle here previously starved the planner and left it unable to expand.
+  // NOTE: the planner tiers (lv.plan — Master & Impossible) are already naturally rate-limited — each
+  // decision is an off-thread MCTS (Web Worker, or a server round-trip) that runs for up to
+  // mcts.tbudget ms, and planPending allows only one request in flight per enemy. So we keep the
+  // small cooldown for ALL tiers; adding an extra throttle here previously starved the planner.
   function aiCooldown(lv){ return FAST_AI ? rand(0.06, 0.14) : rand(lv.aiSpeed*0.6, lv.aiSpeed*1.4); }
   let lastSalvo = null;   // {owner, tgt, count, troops, t} — most recent coordinated salvo (for the AI-brain banner)
 
@@ -468,10 +473,10 @@
   // ---- neural-network visualizer state ----
   let showNN = false;       // toggle
   let vizMode = 'brain';    // which overlay view: 'brain' (neural net) | 'planner' (rollout tree)
-  let planViz = null;       // last Grandmaster planner decision, for the overlay
+  let planViz = null;       // last planner decision (Master/Impossible), for the overlay
   let planVizDirty = false;
   let planPending = {};     // owner -> true while a server /api/plan request is in flight
-  const SERVER_SIMS = 2500; // Grandmaster simulations per decision (run on the server)
+  const SERVER_SIMS = 2500; // planner simulations per decision for Master (run on the server); Impossible runs far more
   let matchTrack = null;    // accumulates the local player's move stats this game (for their profile)
   let rlViz = null;         // { acts:[...], src, tgt, owner, score } from the last RL decision
   let rlVizDirty = false;   // redraw only when activations change
@@ -945,7 +950,7 @@
     return false;
   }
 
-  // ---- Grandmaster: shallow-rollout PLANNER (built on the same trained net) ----
+  // ---- Master/Impossible: shallow-rollout PLANNER (built on the same trained net) ----
   // Self-contained forward simulation over a lightweight snapshot; never mutates live state.
   // Planner travel-time estimates use the same per-map ORB_SPEED as live orbs.
   function takeSnapshot() {
@@ -1067,13 +1072,33 @@
     if (cap) cap.board = snap.owner.slice();
     return snapPhi(snap, owner);
   }
-  // Grandmaster decision: rank candidates with the net, roll each one out, commit the best future.
+  // Planner decision (Master/Impossible): rank candidates with the net, roll each one out, commit the best future.
   // `prior` blends a little of the net's own score back in so a single noisy rollout can't pick a silly move.
   const PLAN = { horizon:11.0, dt:0.4 };   // plan further ahead (11s) at finer time resolution (0.4s)
   const MCTS = { tbudget:10, maxIter:400, cPuct:1.3, K:5 };  // AlphaGo-style PUCT search; K=5 widens the move fan-out
   // (tbudget/maxIter here are only the local in-browser FALLBACK; the real server search is sized below)
+  const SERVER_TBUDGET = 450;   // ms the SERVER MCTS may think per move (Master); Impossible raises this
+  // Effective planner strength for the active difficulty. Master uses the defaults above; the
+  // Impossible tier overrides these (see LEVELS) so it searches an order of magnitude longer and
+  // deeper — more sims, a longer horizon at a finer step, a wider fan-out, and a bigger time budget.
+  function planParams(){
+    const lv = LEVELS[levelIdx] || {};
+    return {
+      horizon: lv.horizon ?? PLAN.horizon,
+      dt:      lv.planDt  ?? PLAN.dt,
+      K:       lv.mctsK   ?? MCTS.K,
+      // server budget (heavy MCTS off-thread on a real backend)
+      sims:    lv.sims    ?? SERVER_SIMS,
+      tbudget: lv.tbudget ?? SERVER_TBUDGET,
+      // in-browser Web Worker budget — off the main thread, so the search can run far longer
+      // than the synchronous fallback's 10ms without ever freezing the game. Wall-clock bound
+      // (workerMs) is what actually limits a phone; workerSims caps a fast desktop.
+      workerSims: lv.workerSims ?? 4000,
+      workerMs:   lv.workerMs   ?? 200,
+    };
+  }
 
-  function snapAdvance(s, T){ const n=Math.max(1,Math.round(T/PLAN.dt)), d=T/n; for (let k=0;k<n;k++) snapStep(s,d); }
+  function snapAdvance(s, T){ const n=Math.max(1,Math.round(T/planParams().dt)), d=T/n; for (let k=0;k<n;k++) snapStep(s,d); }
   function snapOwners(s){ const set=new Set(); for (let i=0;i<s.n;i++) if (s.owner[i]!==NEUTRAL) set.add(s.owner[i]); for (const a of s.armies) set.add(a.owner); return set; }
   // tree edge: apply the AI's move, then advance ~one decision-cadence while every opponent plays greedily.
   function mctsAdvance(parentSnap, owner, mv, parentTime){
@@ -1124,7 +1149,7 @@
     }
     list.push({ mv:null, score: endgame ? noop-1 : noop });   // no-op option
     list.sort((a,b)=>b.score-a.score);
-    const top = list.slice(0, MCTS.K+1);
+    const top = list.slice(0, planParams().K+1);
     const mx = Math.max(...top.map(c=>c.score)); let sum=0; for (const c of top) sum+=Math.exp(c.score-mx);
     return top.map(c=>({ mv:c.mv, prior:Math.exp(c.score-mx)/sum }));
   }
@@ -1135,11 +1160,12 @@
     return best;
   }
   function mctsIter(root, owner){
+    const horizon = planParams().horizon;
     let node=root; const path=[node];
-    while (node.untried && node.untried.length===0 && node.children.length>0 && node.time<PLAN.horizon){
+    while (node.untried && node.untried.length===0 && node.children.length>0 && node.time<horizon){
       node = bestPUCT(node); path.push(node);
     }
-    if (node.time<PLAN.horizon){
+    if (node.time<horizon){
       if (node.untried===null) node.untried = computeUntried(node.snap, owner);
       if (node.untried.length>0){
         const pick = node.untried.shift();
@@ -1153,8 +1179,9 @@
   }
   function pvLeaf(node){ let n=node; while (n.children.length){ let nx=null; for (const c of n.children) if (!nx||c.N>nx.N) nx=c; n=nx; } return n; }
 
-  // Build the serializable board the server needs to plan a move for `owner`.
-  function buildPlanRequest(owner){
+  // Build the serializable board the planner needs to plan a move for `owner`. `mode` selects the
+  // search budget: 'worker' (in-browser, lighter) or anything else (server, heavy).
+  function buildPlanRequest(owner, mode){
     const idToIdx = {}; states.forEach((s,i)=>idToIdx[s.id]=i);
     const cx=[], cy=[], ow=[], tr=[], names=[];
     states.forEach(s=>{ cx.push(s.cx); cy.push(s.cy); ow.push(s.owner); tr.push(s.troops); names.push(s.name); });
@@ -1166,12 +1193,214 @@
     // tell the server which slots are humans (so it models them with their learned profiles)
     const humans = {}; humans[myOwner] = playerName;
     for (const k in slotControl){ const sc=slotControl[k]; if (sc && sc!=='ai' && sc.name) humans[k]=sc.name; }
+    const pp = planParams(), worker = mode==='worker';
     return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies,
-      aiSpeed:lv.aiSpeed, rlDiag, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
-      horizon:PLAN.horizon, dt:PLAN.dt, ownerId:owner, wantViz: showNN && vizMode==='planner',
-      humans, mcts:{ tbudget:450, maxIter:SERVER_SIMS, cPuct:MCTS.cPuct, K:MCTS.K } };
+      aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
+      horizon:pp.horizon, dt:pp.dt, ownerId:owner, wantViz: showNN && vizMode==='planner',
+      humans, mcts:{ tbudget: worker?pp.workerMs:pp.tbudget, maxIter: worker?pp.workerSims:pp.sims, cPuct:MCTS.cPuct, K:pp.K } };
   }
-  // Ask the server to run the heavy 1000-sim MCTS off-thread; apply the move when it returns.
+  // The planner runs the heavy MCTS OFF the main thread. Preference order:
+  //   1. a Web Worker (default — no server needed; lets Impossible search ~50× longer than the
+  //      synchronous fallback without ever freezing the game),
+  //   2. a /api/plan server (if a worker can't be built but a backend exists), and
+  //   3. the tiny synchronous in-page MCTS as a last resort.
+  function planMove(owner){
+    if (ensurePlanWorker()) { planWorkerMove(owner); return; }
+    plannerMoveServer(owner);
+  }
+
+  // ---- off-thread planner: a Web Worker running the same MCTS over a board snapshot ----
+  // null = not built yet · false = unavailable/disabled · Worker = ready.
+  let planWorker = null, planWorkerOK = false, planReqSeq = 0;
+  const planJobs = {};   // request id -> owner awaiting a move
+  function ensurePlanWorker(){
+    if (planWorkerOK) return true;
+    if (planWorker !== null) return false;            // already tried and failed
+    if (!rlPolicy || typeof Worker === 'undefined'){ planWorker = false; return false; }
+    try {
+      const src = '(' + planWorkerMain.toString() + ')()';
+      const url = URL.createObjectURL(new Blob([src], { type:'application/javascript' }));
+      planWorker = new Worker(url);
+      planWorker.onmessage = onPlanWorkerMsg;
+      planWorker.onerror = () => { planWorkerOK = false; planWorker = false; planPending = {}; };
+      planWorker.postMessage({ type:'init', policy: rlPolicy });
+      planWorkerOK = true;
+    } catch(e){ planWorker = false; planWorkerOK = false; }
+    return planWorkerOK;
+  }
+  function planWorkerMove(owner){
+    if (planPending[owner]) return;                   // already thinking about this enemy
+    planPending[owner] = true;
+    const id = ++planReqSeq; planJobs[id] = owner;
+    planWorker.postMessage({ type:'plan', id, req: buildPlanRequest(owner, 'worker') });
+  }
+  function onPlanWorkerMsg(e){
+    const m = e.data; if (!m || m.type !== 'plan') return;
+    const owner = planJobs[m.id]; delete planJobs[m.id];
+    if (owner != null) planPending[owner] = false;
+    if (!running) return;
+    if (m.viz && showNN && vizMode==='planner'){ planViz = m.viz; planVizDirty = true; }
+    if (m.move){ const s=states[m.move[0]], t=states[m.move[1]];
+      // same guards as the server path: ignore a stale/relocated source, and don't let it
+      // instantly flee a freshly-threatened state (wait out REACT_DELAY).
+      if (s && t && s!==t && s.owner===owner && !freshThreat(s)) sendTroops(s, t); }
+  }
+
+  // Self-contained MCTS worker. Stringified via .toString() and run in a Blob Worker, so it must
+  // not reference anything from the outer closure — every dependency arrives in the message. It is
+  // a faithful port of the in-page planner (rlScore / snapStep / computeUntried / mctsIter …),
+  // sized by req.mcts (maxIter + tbudget). Posts back { move, viz }.
+  function planWorkerMain(){
+    'use strict';
+    var NEUTRAL=0, PLAYER=1, MAX_TROOPS=150;
+    var POL=null;                                   // trained policy (set on init)
+    var GR=1, EG=1, DIAG=1, ORB=70, HOR=11, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, names=[];
+    var now = (self.performance && self.performance.now) ? function(){ return self.performance.now(); } : function(){ return Date.now(); };
+    function rand(a,b){ return a + Math.random()*(b-a); }
+    function nm(i){ return names[i] || ('#'+i); }
+    function growRateFor(o){ if (o===PLAYER) return GR; if (o>=2) return GR*EG; return 0; }
+    function rlScore(feats){
+      var x=feats;
+      for (var l=0; l<POL.layers.length; l++){ var layer=POL.layers[l], out=new Array(layer.b.length);
+        for (var o=0;o<layer.b.length;o++){ var acc=layer.b[o], row=layer.W[o];
+          for (var i=0;i<row.length;i++) acc+=row[i]*x[i];
+          out[o]= layer.act==='tanh' ? Math.tanh(acc) : acc; }
+        x=out; }
+      return x[0];
+    }
+    function cloneSnap(s){ return { n:s.n, cx:s.cx, cy:s.cy, owner:s.owner.slice(), troops:s.troops.slice(),
+      armies:s.armies.map(function(a){ return { owner:a.owner, count:a.count, ti:a.ti, t:a.t, ttotal:a.ttotal }; }) }; }
+    function snapStep(snap, dt){
+      for (var i=0;i<snap.n;i++) if (snap.owner[i]!==NEUTRAL && snap.troops[i]<MAX_TROOPS)
+        snap.troops[i]=Math.min(MAX_TROOPS, snap.troops[i]+growRateFor(snap.owner[i])*dt);
+      var still=[];
+      for (var a=0;a<snap.armies.length;a++){ var ar=snap.armies[a]; ar.t+=dt;
+        if (ar.t>=ar.ttotal){ if (snap.owner[ar.ti]===ar.owner) snap.troops[ar.ti]+=ar.count;
+          else { snap.troops[ar.ti]-=ar.count; if (snap.troops[ar.ti]<0){ snap.owner[ar.ti]=ar.owner; snap.troops[ar.ti]=-snap.troops[ar.ti]; } } }
+        else still.push(ar); }
+      snap.armies=still;
+    }
+    function snapSend(snap, si, ti){ var amt=snap.troops[si]; if (amt<1 || snap.owner[si]===NEUTRAL) return;
+      snap.troops[si]=0; var d=Math.hypot(snap.cx[ti]-snap.cx[si], snap.cy[ti]-snap.cy[si]);
+      snap.armies.push({ owner:snap.owner[si], count:amt, ti:ti, t:0, ttotal:Math.max(0.05, d/ORB) }); }
+    function snapAdvance(s, T){ var n=Math.max(1,Math.round(T/DT)), d=T/n; for (var k=0;k<n;k++) snapStep(s,d); }
+    function snapOwners(s){ var set={}; for (var i=0;i<s.n;i++) if (s.owner[i]!==NEUTRAL) set[s.owner[i]]=1;
+      for (var a=0;a<s.armies.length;a++) set[s.armies[a].owner]=1; var out=[]; for (var o in set) out.push(+o); return out; }
+    function snapHeuristic(s, owner){
+      var si=-1, bestT=-1;
+      for (var i=0;i<s.n;i++) if (s.owner[i]===owner && s.troops[i]>bestT){ bestT=s.troops[i]; si=i; }
+      if (si<0 || s.troops[si]<12) return null;
+      var neutralsLeft=false; for (var j=0;j<s.n;j++) if (s.owner[j]===NEUTRAL){ neutralsLeft=true; break; }
+      var st=s.troops[si], bt=-1, best=-1e9;
+      for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue;
+        var tt=s.troops[ti], d=Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si]);
+        var sc = -d*0.02 - tt*1.1;
+        if (s.owner[ti]===NEUTRAL) sc+=8; else if (s.owner[ti]>=2) sc+=10; else sc += neutralsLeft ? -50 : 8;
+        if (st>tt) sc+=25;
+        if (sc>best){ best=sc; bt=ti; } }
+      return bt<0 ? null : [si,bt];
+    }
+    function mctsAdvance(parentSnap, owner, mv, parentTime){
+      var s=cloneSnap(parentSnap), events=[];
+      if (mv){ snapSend(s, mv[0], mv[1]); events.push({ t:parentTime, o:owner, from:nm(mv[0]), to:nm(mv[1]) }); }
+      var cad=AISP, half=cad/2;
+      snapAdvance(s, half);
+      var os=snapOwners(s);
+      for (var k=0;k<os.length;k++){ var o=os[k]; if (o===owner) continue; var m=snapHeuristic(s,o);
+        if (m){ snapSend(s, m[0], m[1]); events.push({ t:parentTime+half, o:o, from:nm(m[0]), to:nm(m[1]) }); } }
+      snapAdvance(s, half);
+      return { snap:s, time:parentTime+cad, events:events };
+    }
+    function nodeVal(s, owner){
+      var cnt={}, mass={};
+      for (var i=0;i<s.n;i++){ var o=s.owner[i]; if (o!==NEUTRAL){ cnt[o]=(cnt[o]||0)+1; mass[o]=(mass[o]||0)+s.troops[i]; } }
+      var myStates=cnt[owner]||0; if (myStates===0) return -1;
+      if (Object.keys(cnt).length===1) return 1;
+      function strength(o){ return (cnt[o]||0)+(mass[o]||0)/30; }
+      var mine=strength(owner), best=0;
+      for (var o2 in cnt){ var k=+o2; if (k!==owner) best=Math.max(best,strength(k)); }
+      return Math.tanh(0.22*(mine-best));
+    }
+    function computeUntried(s, owner){
+      var FN=POL.feat_norm||50, ownCount=0;
+      for (var i=0;i<s.n;i++) if (s.owner[i]===owner) ownCount++;
+      var ownFrac=ownCount/s.n, srcs=[];
+      for (i=0;i<s.n;i++) if (s.owner[i]===owner && s.troops[i]>=5) srcs.push(i);
+      var neutralsLeft=false, rivalsLeft=false, playerIdx=[];
+      for (i=0;i<s.n;i++){ var o=s.owner[i]; if (o===NEUTRAL) neutralsLeft=true; else if (o>=2&&o!==owner) rivalsLeft=true; if (o===PLAYER) playerIdx.push(i); }
+      var endgame=!neutralsLeft && !rivalsLeft, noop=POL.noop_bias||0;
+      if (srcs.length>3) srcs=srcs.sort(function(a,b){ return s.troops[b]-s.troops[a]; }).slice(0,3);
+      function dToPlayer(ti){ var m=Infinity; for (var p=0;p<playerIdx.length;p++){ var d=Math.hypot(s.cx[ti]-s.cx[playerIdx[p]], s.cy[ti]-s.cy[playerIdx[p]]); if (d<m) m=d; } return m===Infinity?9999:m; }
+      var list=[];
+      for (var q=0;q<srcs.length;q++){ var si=srcs[q], st=s.troops[si];
+        for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; var tt=s.troops[ti];
+          var sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/DIAG,
+            s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ]);
+          if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/DIAG); }
+          else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;
+          else if (s.owner[ti]===PLAYER) sc += endgame ? (st>tt?3:-4) : -6;
+          list.push({ mv:[si,ti], score:sc }); } }
+      list.push({ mv:null, score: endgame ? noop-1 : noop });
+      list.sort(function(a,b){ return b.score-a.score; });
+      var top=list.slice(0, K+1), mx=-Infinity;
+      for (i=0;i<top.length;i++) if (top[i].score>mx) mx=top[i].score;
+      var sum=0; for (i=0;i<top.length;i++) sum+=Math.exp(top[i].score-mx);
+      return top.map(function(c){ return { mv:c.mv, prior:Math.exp(c.score-mx)/sum }; });
+    }
+    function bestPUCT(node){
+      var best=null, bv=-1e18, sq=Math.sqrt(node.N);
+      for (var i=0;i<node.children.length;i++){ var c=node.children[i], qv=c.N?c.W/c.N:0, u=CPUCT*c.prior*sq/(1+c.N);
+        if (qv+u>bv){ bv=qv+u; best=c; } }
+      return best;
+    }
+    function mctsIter(root, owner){
+      var node=root, path=[node];
+      while (node.untried && node.untried.length===0 && node.children.length>0 && node.time<HOR){ node=bestPUCT(node); path.push(node); }
+      if (node.time<HOR){
+        if (node.untried===null) node.untried=computeUntried(node.snap, owner);
+        if (node.untried.length>0){ var pick=node.untried.shift(), adv=mctsAdvance(node.snap, owner, pick.mv, node.time);
+          var child={ snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events };
+          node.children.push(child); path.push(child); node=child; } }
+      var v=nodeVal(node.snap, owner);
+      for (var i=0;i<path.length;i++){ path[i].N++; path[i].W+=v; }
+    }
+    function buildViz(root, bestChild, iters, owner){
+      var ro=root.snap.owner;
+      function typeOfMv(mv){ return !mv ? 'noop' : (ro[mv[1]]===NEUTRAL ? 'neutral' : (ro[mv[1]]===PLAYER ? 'player' : 'rival')); }
+      var children=root.children.slice().sort(function(a,b){ return b.N-a.N; });
+      var cands=children.map(function(c){ var leaf=c; while (leaf.children.length){ var nx=null; for (var i=0;i<leaf.children.length;i++) if (!nx||leaf.children[i].N>nx.N) nx=leaf.children[i]; leaf=nx; }
+        return { from: c.move?nm(c.move[0]):'—', to: c.move?nm(c.move[1]):'—', type:typeOfMv(c.move),
+          visits:c.N, value:c.N?c.W/c.N:0, chosen:c===bestChild, board:leaf.snap.owner.slice() }; });
+      var line=[], node=root;
+      while (node.children.length){ var nx=null; for (var i=0;i<node.children.length;i++) if (!nx||node.children[i].N>nx.N) nx=node.children[i];
+        for (var e=0;e<nx.events.length;e++) if (line.length<16) line.push(nx.events[e]); node=nx; }
+      return { owner:owner, horizon:HOR, n:root.children.length, iters:iters, cands:cands, line:line };
+    }
+    function plan(req){
+      GR=req.growRate; EG=req.enemyGrow; DIAG=req.rlDiag||1; ORB=req.orbSpeed||70;
+      HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
+      CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5;
+      var maxIter=(req.mcts&&req.mcts.maxIter)||400, tbudget=(req.mcts&&req.mcts.tbudget)||10, owner=req.ownerId;
+      var base={ n:req.n, cx:req.cx, cy:req.cy, owner:req.owner.slice(), troops:req.troops.slice(),
+        armies:(req.armies||[]).map(function(a){ return { owner:a.owner, count:a.count, ti:a.ti, t:0, ttotal:a.ttotal }; }) };
+      var root={ snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[] };
+      var t0=now(), iter=0;
+      while (iter<maxIter && now()-t0 < tbudget){ mctsIter(root, owner); iter++; }
+      var bestChild=null;
+      for (var i=0;i<root.children.length;i++) if (!bestChild || root.children[i].N>bestChild.N) bestChild=root.children[i];
+      var move=(bestChild && bestChild.move) ? bestChild.move : null;
+      var viz=req.wantViz ? buildViz(root, bestChild, iter, owner) : null;
+      return { move:move, viz:viz };
+    }
+    self.onmessage = function(e){
+      var m=e.data; if (!m) return;
+      if (m.type==='init'){ POL=m.policy; return; }
+      if (m.type==='plan'){ if (!POL){ self.postMessage({ type:'plan', id:m.id, move:null, viz:null }); return; }
+        var out=plan(m.req); self.postMessage({ type:'plan', id:m.id, move:out.move, viz:out.viz }); }
+    };
+  }
+
+  // Ask a /api/plan server to run the MCTS off-thread; apply the move when it returns.
   function plannerMoveServer(owner){
     if (planPending[owner]) return;                  // already thinking about this enemy
     planPending[owner] = true;
@@ -1212,10 +1441,11 @@
     const line=[]; let node=root;
     while (node.children.length){ let nx=null; for (const c of node.children) if (!nx||c.N>nx.N) nx=c;
       for (const e of nx.events) if (line.length<16) line.push(e); node=nx; }
-    // extend the PV to the full horizon with a greedy tail so the imagined line reaches 8s
-    if (node.time < PLAN.horizon){ const cap={}; planRollout(node.snap, owner, null, PLAN.horizon-node.time, PLAN.dt, cap);
+    // extend the PV to the full horizon with a greedy tail so the imagined line reaches the horizon
+    const pp = planParams();
+    if (node.time < pp.horizon){ const cap={}; planRollout(node.snap, owner, null, pp.horizon-node.time, pp.dt, cap);
       for (const e of (cap.events||[])) if (line.length<22) line.push({ t:node.time+e.t, o:e.o, from:e.from, to:e.to }); }
-    planViz = { owner, horizon:PLAN.horizon, n:root.children.length, iters, cands, line };
+    planViz = { owner, horizon:pp.horizon, n:root.children.length, iters, cands, line };
     planVizDirty = true;
   }
 
@@ -1234,7 +1464,7 @@
     rlSetViz(owner, rlEvaluate(owner, true));
   }
 
-  // Reaction delay (Grandmaster): track when each state first came under an incoming
+  // Reaction delay (planner tiers): track when each state first came under an incoming
   // hostile army. The planner is then forbidden from evacuating ("dodging out of") a
   // freshly threatened state until REACT_DELAY has elapsed, so it can't instantly flee
   // the moment you commit troops toward it.
@@ -1276,7 +1506,7 @@
       // no single state can crack. Pre-empts the single-move logic when it fires.
       if ((lv.rl || lv.plan) && coordinatedAssault(owner)) return;
 
-      if (lv.plan && rlPolicy) { plannerMoveServer(owner); return; }   // server runs the 1000-sim MCTS
+      if (lv.plan && rlPolicy) { planMove(owner); return; }   // off-thread MCTS (Web Worker, else server, else sync)
       if (useRL) { rlMove(owner); return; }
 
       const mine = states.filter(s=>s.owner===owner);
@@ -1584,6 +1814,8 @@
       nnctx.fillText('▮ WAIT — no move beats no-op', pad, Y); Y+=20; }
     else if (!salvoActive){ nnctx.font='bold 12px Segoe UI, sans-serif'; nnctx.fillStyle='#5fd07a'; nnctx.textAlign='left';
       nnctx.fillText('▶ '+tr(rlViz.src.name)+' → '+tr(rlViz.tgt.name), pad, Y); Y+=20; }
+    // plain-language explanation of the net's pick (kept above the raw numbers below)
+    if (!salvoActive){ const bstory = brainStory(rlViz); if (bstory.length) Y = drawExplain(bstory, Y); }
     const c0 = rlViz.candidates[0];
     if (c0){
       kv('chosen move', tr(c0.from)+' → '+tr(c0.to));
@@ -1706,8 +1938,75 @@
     nnctx.fillText('node/edge color: blue + · red −   ·   conf = softmax prob', pad, Y);
   }
 
-  // ===== Rollout-planner view: the candidate moves the Grandmaster simulated, each with its
+  // ===== Rollout-planner view: the candidate moves the planner simulated, each with its
   // projected board after the lookahead, the chosen one highlighted. =====
+  // Word-wrap `text` to `maxW` px using whatever font is currently set on nnctx.
+  function nnWrap(text, maxW){
+    const words = String(text).split(' '), out = []; let cur = '';
+    for (const w of words){ const t = cur ? cur+' '+w : w;
+      if (nnctx.measureText(t).width > maxW && cur){ out.push(cur); cur = w; } else cur = t; }
+    if (cur) out.push(cur); return out;
+  }
+  // Draw a "WHAT I'M THINKING" explanation box: `lines` is an array of sentences (paragraphs).
+  // Returns the new Y below the box. Used by both the planner and brain views so the player gets
+  // a plain-language read on the AI's reasoning, not just raw numbers.
+  function drawExplain(lines, Y, title){
+    const PW=NN_W, pad=12, innerW=PW-2*pad-16, lh=14, gap=5;
+    nnctx.font='11px Segoe UI, sans-serif';
+    const paras = lines.map(s => nnWrap(s, innerW));
+    const nLines = paras.reduce((a,p)=>a+p.length,0);
+    const boxH = 24 + nLines*lh + paras.length*gap + 2;
+    nnctx.fillStyle='rgba(70,166,239,.07)'; nnctx.fillRect(pad-5,Y,PW-2*pad+10,boxH);
+    nnctx.strokeStyle='rgba(70,166,239,.30)'; nnctx.lineWidth=1; nnctx.strokeRect(pad-5,Y,PW-2*pad+10,boxH);
+    nnctx.textAlign='left'; nnctx.textBaseline='top';
+    nnctx.font='bold 10px Segoe UI, sans-serif'; nnctx.fillStyle='#7fa9d6';
+    nnctx.fillText(title||"WHAT I'M THINKING", pad+3, Y+7);
+    let ty=Y+24; nnctx.font='11px Segoe UI, sans-serif'; nnctx.fillStyle='#cdd6df';
+    for (const p of paras){ for (const ln of p){ nnctx.fillText(ln, pad+3, ty); ty+=lh; } ty+=gap; }
+    return Y + boxH + 10;
+  }
+  // Turn the planner's chosen move into a few sentences of plain-language reasoning.
+  function plannerStory(){
+    const v = planViz; if (!v || !v.cands || !v.cands.length) return [];
+    const byVisits = v.cands.slice().sort((a,b)=>b.visits-a.visits);
+    const chosen = v.cands.find(c=>c.chosen) || byVisits[0];
+    if (!chosen || chosen.type==='noop' || !chosen.from || chosen.from==='—' || !chosen.to || chosen.to==='—')
+      return ["I'm holding back this turn — every attack I simulated left me worse off, so I'd rather let my troops build up and wait for a cleaner opening."];
+    const lines = [];
+    const byName = {}; for (const s of states) byName[s.name] = s;
+    const src = byName[chosen.from], tgt = byName[chosen.to];
+    lines.push('I’m attacking '+chosen.to+' from '+chosen.from+'.');
+    if (chosen.type==='neutral')      lines.push(chosen.to+' is unclaimed, so taking it grows my territory without starting a fight I don’t need yet.');
+    else if (chosen.type==='player')  lines.push(chosen.to+' is YOUR state — I’m pushing straight at you to slow you down before you snowball.');
+    else                              lines.push(chosen.to+' belongs to a rival AI — I’d rather spend troops weakening them than trading blows with you.');
+    if (src && tgt){
+      const sT=Math.round(src.troops), tT=Math.round(tgt.troops);
+      if (src.troops > tgt.troops) lines.push('I’ve got more troops staged there ('+sT+' vs '+tT+'), so I expect to take it and still hold the line.');
+      else                          lines.push('It’s defended ('+sT+' of mine vs '+tT+'), but the futures I rolled out say the follow-up still pays off.');
+    }
+    const share = v.iters ? Math.round(100*chosen.visits/Math.max(1,v.iters)) : 0;
+    const mood = chosen.value>=0.3 ? 'confident' : (chosen.value>=0 ? 'cautiously optimistic' : 'taking a calculated risk');
+    lines.push('I imagined about '+(v.iters||0).toLocaleString()+' ways the next '+Math.round(v.horizon)+'s could go and spent '+share+'% of that thinking on this move — I’m '+mood+' (projected score '+(chosen.value>=0?'+':'')+chosen.value.toFixed(2)+').');
+    const alt = byVisits.find(c=>c!==chosen && c.type!=='noop' && c.from && c.from!=='—');
+    if (alt) lines.push('My next-best idea was '+alt.to+', but this line projected a stronger board so I went with it.');
+    return lines;
+  }
+  // Same idea for the single-step policy net (the "AI Brain" tab).
+  function brainStory(v){
+    if (!v) return [];
+    const c = v.candidates && v.candidates[0];
+    if (v.waiting || !c) return ['Right now no attack scores better than simply sitting still and letting my troops grow, so the net votes to wait.'];
+    const lines = [];
+    if (c.type==='PLAYER')      lines.push('The net wants your state '+c.to+' — hitting you directly keeps you from running away with the game.');
+    else if (c.type==='rival')  lines.push('The net is going after a rival AI’s '+c.to+' instead of spending troops on you.');
+    else                        lines.push('The net wants to grab '+c.to+' — it’s unclaimed, so it’s cheap land that speeds up my growth.');
+    if (c.delta>=0) lines.push('I have the edge there ('+c.srcT+' vs '+c.tgtT+'), so it rates the attack as winnable.');
+    else            lines.push('It’s contested ('+c.srcT+' vs '+c.tgtT+') — a gamble, but the net still scores it above doing nothing.');
+    const sure = c.prob>=0.6 ? 'very sure' : (c.prob>=0.35 ? 'fairly sure' : 'a bit torn');
+    lines.push('It weighed '+v.numMoves+' possible move'+(v.numMoves===1?'':'s')+' and is '+sure+' about this one ('+Math.round(c.prob*100)+'% of its vote); '+v.beatNoop+' beat just waiting.');
+    return lines;
+  }
+
   function drawPlanner(){
     nnctx.clearRect(0,0,NN_W,NN_H);
     const PW=NN_W, pad=12; let Y=12;
@@ -1717,11 +2016,11 @@
     nnctx.fillText('Rollout Planner', pad, Y); Y+=20;
     if (!LEVELS[levelIdx]?.plan){
       nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
-      nnctx.fillText('Play the Grandmaster difficulty', pad, Y); Y+=16;
+      nnctx.fillText('Play Master or Impossible', pad, Y); Y+=16;
       nnctx.fillText('to watch the AI plan ahead.', pad, Y); return;
     }
     nnctx.fillStyle='#7c8794'; nnctx.font='10px Segoe UI, sans-serif';
-    nnctx.fillText('MCTS · explores move sequences up to '+PLAN.horizon+'s ahead', pad, Y); Y+=18;
+    nnctx.fillText('MCTS · explores move sequences up to '+planParams().horizon+'s ahead', pad, Y); Y+=18;
     if (!planViz){ nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
       nnctx.fillText('Waiting for the AI to plan…', pad, Y); return; }
     // controlling-enemy swatch
@@ -1729,6 +2028,10 @@
     nnctx.fillStyle='#9aa6b4'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.textAlign='right';
     nnctx.fillText('enemy '+(planViz.owner-1), PW-30, 13); nnctx.textAlign='left';
     nnctx.fillStyle='#909cab'; nnctx.fillText(planViz.iters+' simulations · '+planViz.n+' root moves', pad, Y); Y+=18;
+
+    // ===== plain-language explanation of the chosen move (before the raw stats below) =====
+    const story = plannerStory();
+    if (story.length) Y = drawExplain(story, Y);
 
     // map bounds for the per-candidate mini-maps
     let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
@@ -2344,7 +2647,7 @@
     } else {
       h += `<div class="lbarch">${d.arch}</div><div class="lbdh">How the AI reads ${lbEsc(r.name)}</div>`+
         '<ul class="lblist">' + d.lines.map(l => `<li>${l}</li>`).join('') + '</ul>'+
-        `<p class="hint">Built from ${r.samples} game${r.samples===1?'':'s'} of play. Grandmaster uses this to predict and counter them.</p>`;
+        `<p class="hint">Built from ${r.samples} game${r.samples===1?'':'s'} of play. The Master &amp; Impossible planners use this to predict and counter them.</p>`;
     }
     const bd = r.byDiff || {}, diffs = Object.keys(bd);
     if (diffs.length){ h += '<div class="lbdh">By difficulty</div><table>';
@@ -2363,7 +2666,7 @@
   // the requested shares (e.g. 50 / 25 / 25) hold up visually as well as numerically.
   const COLOR_NAMES = { 1:'Blue', 2:'Red', 3:'Orange', 4:'Purple', 5:'Green', 6:'Pink', 7:'Cyan', 8:'Gold' };
   let scnRegionIdx = 0;          // which map
-  let scnLevelIdx = 3;           // which AI brain drives the AI teams (default: Master / RL)
+  let scnLevelIdx = 3;           // which AI brain drives the AI teams (default: Master / planner)
   let scnTeams = [ {ctrl:'you',share:50}, {ctrl:'ai',share:25}, {ctrl:'ai',share:25} ];  // the user's example
   const scnTeamsEl   = document.getElementById('scnTeams');
   const scnBarEl     = document.getElementById('scnBar');
