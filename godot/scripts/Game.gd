@@ -1,21 +1,33 @@
 extends Node2D
-# Native (Godot 4) port of the State.io-style conquest game — vertical slice.
-# Single-player vs the trained RL AI on the East Coast map. This proves out the two hard
-# ports: the map projection (pre-baked to flat polygons, see tools/bake_map.mjs) and the
-# RL policy (the same 8->32->32->1 MLP forward pass as the web game).
+# Native (Godot 4) port — milestone 2: menu flow + difficulty/region select + HUD.
 #
+# Phases: MENU (pick difficulty + map, Play) -> PLAYING (vs the trained RL AI) -> OVER.
 # Tap/click one of your states to select it, then tap a target to send all its troops.
-# Tap anywhere when the match is over to play again.
+# The map is pre-baked Albers-USA polygons (tools/bake_map.mjs -> data/us_map.json); the AI is
+# the same trained policy as the web game (data/rl_policy.json).
+
+enum Phase { MENU, PLAYING, OVER }
 
 const NEUTRAL := 0
 const PLAYER := 1
 const MAX_TROOPS := 150.0
-const REGION := "East Coast"   # matches the web game's solo default
 
 const COLORS := {0:"#b4bbc2", 1:"#46a6ef", 2:"#ef5b52", 3:"#f1a13a", 4:"#9b6cf0", 5:"#38c46f", 6:"#e36ec9", 7:"#46c7d6", 8:"#d9b53a"}
 const DARK   := {0:"#8b939c", 1:"#2c7fc4", 2:"#c43d36", 3:"#c47d24", 4:"#7549c4", 5:"#27975a", 6:"#b94fa1", 7:"#2f9aa8", 8:"#b08f22"}
 
-# difficulty knobs (Master tier: trained RL enemies, no economic handicap beyond the web defaults)
+const LEVELS := [
+	{"name":"Easy",        "enemies":1, "ai_speed":2.6,  "n_min":5,  "n_max":18, "grow":1.7, "p_start":45, "e_start":22, "e_grow":0.65, "rl":false},
+	{"name":"Medium",      "enemies":2, "ai_speed":1.4,  "n_min":10, "n_max":34, "grow":1.2, "p_start":35, "e_start":30, "e_grow":0.9,  "rl":false},
+	{"name":"Hard",        "enemies":3, "ai_speed":0.85, "n_min":15, "n_max":50, "grow":1.0, "p_start":30, "e_start":36, "e_grow":1.0,  "rl":false},
+	{"name":"Master",      "enemies":3, "ai_speed":0.85, "n_min":15, "n_max":50, "grow":1.0, "p_start":30, "e_start":36, "e_grow":1.0,  "rl":true},
+	{"name":"Grandmaster", "enemies":3, "ai_speed":0.85, "n_min":15, "n_max":50, "grow":1.0, "p_start":30, "e_start":30, "e_grow":1.0,  "rl":true},
+]
+
+var phase: int = Phase.MENU
+var level_idx := 3                 # default Master
+var region_name := "East Coast"
+
+# active level params (copied from LEVELS on start)
 var enemies := 3
 var ai_speed := 0.85
 var neutral_min := 15
@@ -26,26 +38,38 @@ var player_start := 30
 var enemy_start := 36
 var use_rl := true
 
-var states: Array = []          # each: Dictionary (see _load_map)
-var orbs: Array = []            # each: { owner, pos:Vector2, tidx:int, count:float, speed:float }
+var map_data: Dictionary = {}
+var states: Array = []
+var orbs: Array = []
 var policy: Dictionary = {}
 var rl_diag := 1.0
 var running := false
 var selected := -1
 var ai_timers: Dictionary = {}
-var game_elapsed := 0.0
+var game_speed := 1
 var mark_r := 16.0
 var orb_speed := 200.0
 var last_size := Vector2.ZERO
-var result_text := ""
 var font: Font
+
+# UI
+var ui_layer: CanvasLayer
+var menu_root: Control
+var hud_root: Control
+var over_root: Control
+var result_label: Label
+var speed_btn: Button
+var diff_buttons: Array = []
+var region_buttons: Array = []
 
 func _ready() -> void:
 	randomize()
 	font = ThemeDB.fallback_font
 	_load_policy()
-	_load_map()
-	_new_game()
+	_load_map_data()
+	_build_ui()
+	_build_states_for_region(region_name)
+	_go_menu()
 
 # ---------- math helper (GDScript has no tanh) ----------
 func _tanh(v: float) -> float:
@@ -62,18 +86,22 @@ func _load_policy() -> void:
 		if typeof(v) == TYPE_DICTIONARY:
 			policy = v
 
-func _load_map() -> void:
+func _load_map_data() -> void:
 	var f := FileAccess.open("res://data/us_map.json", FileAccess.READ)
 	if f == null:
 		push_error("us_map.json missing — run tools/bake_map.mjs")
 		return
-	var data = JSON.parse_string(f.get_as_text())
+	var v = JSON.parse_string(f.get_as_text())
+	if typeof(v) == TYPE_DICTIONARY:
+		map_data = v
+
+func _build_states_for_region(name: String) -> void:
 	var region_list = null
-	for r in data["regions"]:
-		if r["name"] == REGION:
+	for r in map_data["regions"]:
+		if r["name"] == name:
 			region_list = r["list"]
 	states.clear()
-	for s in data["states"]:
+	for s in map_data["states"]:
 		if region_list != null and not (s["name"] in region_list):
 			continue
 		var raw_polys: Array = []
@@ -90,9 +118,12 @@ func _load_map() -> void:
 			"rcx": float(s["cx"]), "rcy": float(s["cy"]), "cx": 0.0, "cy": 0.0,
 			"owner": NEUTRAL, "troops": 0.0, "grow_acc": 0.0, "pulse": 0.0,
 		})
+	last_size = Vector2.ZERO   # force a re-fit
+	_fit()
 
-# ---------- layout: fit the baked Albers coords into the viewport (replicates d3 fitExtent) ----------
+# ---------- layout: fit baked Albers coords into the viewport (like d3 fitExtent) ----------
 func _fit() -> void:
+	if states.is_empty(): return
 	var vs := get_viewport_rect().size
 	last_size = vs
 	var minx := 1e9; var miny := 1e9; var maxx := -1e9; var maxy := -1e9
@@ -104,7 +135,7 @@ func _fit() -> void:
 					maxx = max(maxx, v.x); maxy = max(maxy, v.y)
 	var bw: float = max(1.0, maxx - minx)
 	var bh: float = max(1.0, maxy - miny)
-	var ml := 14.0; var mr := 14.0; var mt := 70.0; var mb := 18.0
+	var ml := 14.0; var mr := 14.0; var mt := 80.0; var mb := 64.0
 	var sc: float = min((vs.x - ml - mr) / bw, (vs.y - mt - mb) / bh)
 	var ox := ml + ((vs.x - ml - mr) - bw * sc) * 0.5 - minx * sc
 	var oy := mt + ((vs.y - mt - mb) - bh * sc) * 0.5 - miny * sc
@@ -121,7 +152,6 @@ func _fit() -> void:
 		s["scr"] = scr
 		s["cx"] = s["rcx"] * sc + ox
 		s["cy"] = s["rcy"] * sc + oy
-	# marker radius from the median nearest-neighbour gap
 	var gaps: Array = []
 	for a in states:
 		var m := 1e9
@@ -133,7 +163,6 @@ func _fit() -> void:
 	gaps.sort()
 	var med: float = gaps[gaps.size() / 2] if gaps.size() > 0 else 40.0
 	mark_r = clamp(med * 0.46, 8.0, 22.0)
-	# distance normaliser for the RL features + a resolution-independent orb pace
 	var dminx := 1e9; var dminy := 1e9; var dmaxx := -1e9; var dmaxy := -1e9
 	for s in states:
 		dminx = min(dminx, s["cx"]); dminy = min(dminy, s["cy"])
@@ -141,16 +170,28 @@ func _fit() -> void:
 	rl_diag = max(1.0, Vector2(dmaxx - dminx, dmaxy - dminy).length())
 	orb_speed = clamp(rl_diag / 4.0, 120.0, 420.0)
 
-# ---------- match setup ----------
-func _new_game() -> void:
-	result_text = ""
+# ---------- phase transitions ----------
+func _go_menu() -> void:
+	phase = Phase.MENU
+	running = false
+	selected = -1
+	_build_states_for_region(region_name)   # fresh neutral board as a backdrop
+	menu_root.visible = true
+	hud_root.visible = false
+	over_root.visible = false
+	queue_redraw()
+
+func _start_game() -> void:
+	var lv = LEVELS[level_idx]
+	enemies = lv["enemies"]; ai_speed = lv["ai_speed"]
+	neutral_min = lv["n_min"]; neutral_max = lv["n_max"]
+	grow_rate = lv["grow"]; enemy_grow = lv["e_grow"]
+	player_start = lv["p_start"]; enemy_start = lv["e_start"]; use_rl = lv["rl"]
+	_build_states_for_region(region_name)
 	for s in states:
 		s["owner"] = NEUTRAL
 		s["troops"] = float(randi_range(neutral_min, neutral_max))
-		s["grow_acc"] = 0.0
-		s["pulse"] = 0.0
-	if last_size != get_viewport_rect().size:
-		_fit()
+		s["grow_acc"] = 0.0; s["pulse"] = 0.0
 	var first := randi() % states.size()
 	states[first]["owner"] = PLAYER
 	states[first]["troops"] = float(player_start)
@@ -161,11 +202,20 @@ func _new_game() -> void:
 		states[b]["owner"] = 2 + e
 		states[b]["troops"] = float(enemy_start)
 		starters.append(b)
-	orbs.clear()
-	ai_timers.clear()
-	selected = -1
-	game_elapsed = 0.0
+	orbs.clear(); ai_timers.clear(); selected = -1
+	phase = Phase.PLAYING
 	running = true
+	menu_root.visible = false
+	hud_root.visible = true
+	over_root.visible = false
+	queue_redraw()
+
+func _end_game(won: bool) -> void:
+	phase = Phase.OVER
+	running = false
+	result_label.text = "VICTORY!" if won else "DEFEAT"
+	result_label.add_theme_color_override("font_color", Color("#38c46f") if won else Color("#ef5b52"))
+	over_root.visible = true
 	queue_redraw()
 
 func _farthest_pick(starters: Array) -> int:
@@ -185,10 +235,11 @@ func _farthest_pick(starters: Array) -> int:
 func _process(delta: float) -> void:
 	if get_viewport_rect().size != last_size:
 		_fit()
+		_layout_hud()
 		queue_redraw()
 	if running:
-		game_elapsed += delta
-		_step(delta)
+		for _i in range(game_speed):
+			_step(delta)
 		queue_redraw()
 
 func _step(dt: float) -> void:
@@ -258,7 +309,6 @@ func _update_ai(dt: float) -> void:
 		else:
 			_heuristic_move(owner)
 
-# exact mirror of rlScore() in the web game: feats[8] -> scalar logit
 func _rl_score(feats: Array) -> float:
 	var x: Array = feats
 	for layer in policy["layers"]:
@@ -275,7 +325,6 @@ func _rl_score(feats: Array) -> float:
 		x = out
 	return x[0]
 
-# mirror of rlEvaluate(): pick the best (src,tgt) move under the policy + the same biases
 func _rl_move(owner: int) -> void:
 	var fn: float = float(policy.get("feat_norm", 50.0))
 	var n := states.size()
@@ -337,7 +386,6 @@ func _rl_move(owner: int) -> void:
 	if best_src >= 0 and best_tgt >= 0:
 		_send(best_src, best_tgt)
 
-# simple fallback used only if the policy fails to load
 func _heuristic_move(owner: int) -> void:
 	var mine: Array = []
 	for i in range(states.size()):
@@ -359,7 +407,6 @@ func _heuristic_move(owner: int) -> void:
 		if score > best_score: best_score = score; best = ti
 	if best >= 0: _send(src, best)
 
-# ---------- win / lose ----------
 func _check_win() -> void:
 	if not running: return
 	var alive: Dictionary = {}
@@ -368,27 +415,23 @@ func _check_win() -> void:
 	for o in orbs:
 		if o["owner"] != NEUTRAL: alive[o["owner"]] = true
 	if not alive.has(PLAYER):
-		running = false
-		result_text = "DEFEAT"
+		_end_game(false)
 	elif alive.size() == 1 and alive.has(PLAYER):
 		var all_owned := true
 		for s in states:
 			if s["owner"] != PLAYER: all_owned = false
 		if all_owned:
-			running = false
-			result_text = "VICTORY!"
+			_end_game(true)
 
-# ---------- input ----------
-func _input(event: InputEvent) -> void:
+# ---------- input (map). Unhandled = GUI buttons get first dibs. ----------
+func _unhandled_input(event: InputEvent) -> void:
+	if phase != Phase.PLAYING: return
 	var pt := Vector2.INF
 	if event is InputEventScreenTouch and event.pressed:
 		pt = event.position
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		pt = event.position
 	if pt == Vector2.INF: return
-	if not running:
-		_new_game()
-		return
 	var hit := _state_at(pt)
 	if hit >= 0 and states[hit]["owner"] == PLAYER:
 		selected = hit
@@ -404,7 +447,7 @@ func _state_at(pt: Vector2) -> int:
 				return i
 	return -1
 
-# ---------- rendering ----------
+# ---------- rendering (board + per-team bar) ----------
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, get_viewport_rect().size), Color("#e3e9ee"))
 	for s in states:
@@ -427,10 +470,8 @@ func _draw() -> void:
 			_text(str(int(o["count"])), o["pos"], int(r), Color("#ffffff"))
 	if selected >= 0:
 		draw_arc(Vector2(states[selected]["cx"], states[selected]["cy"]), mark_r + 6.0, 0.0, TAU, 40, Color("#2b3440"), 3.0)
-	if not running and result_text != "":
-		var col := Color("#38c46f") if result_text == "VICTORY!" else Color("#ef5b52")
-		_text(result_text, get_viewport_rect().size * 0.5, 46, col)
-		_text("tap to play again", get_viewport_rect().size * 0.5 + Vector2(0, 46), 18, Color("#3a4654"))
+	if phase != Phase.MENU:
+		_draw_bar()
 
 func _draw_node(s: Dictionary) -> void:
 	var c := Vector2(s["cx"], s["cy"])
@@ -440,7 +481,182 @@ func _draw_node(s: Dictionary) -> void:
 	draw_arc(c, r, 0.0, TAU, 40, ring, 3.0)
 	_text(str(int(round(s["troops"]))), c, int(mark_r * 0.85), Color("#2b3440"))
 
+# one segment per team, in that team's colour, + a neutral remainder (mirrors the web per-team bar)
+func _draw_bar() -> void:
+	var vs := get_viewport_rect().size
+	var tot: Dictionary = {}
+	var neutral := 0.0
+	var total := 0.0
+	for s in states:
+		var v: float = s["troops"] + 1.0
+		total += v
+		if s["owner"] == NEUTRAL: neutral += v
+		else: tot[s["owner"]] = float(tot.get(s["owner"], 0.0)) + v
+	for o in orbs:
+		if o["owner"] != NEUTRAL:
+			tot[o["owner"]] = float(tot.get(o["owner"], 0.0)) + o["count"]
+			total += o["count"]
+	if total <= 0.0: total = 1.0
+	var bw: float = min(360.0, vs.x * 0.6)
+	var bh := 16.0
+	var bx := (vs.x - bw) * 0.5
+	var by := 16.0
+	draw_rect(Rect2(bx, by, bw, bh), Color("#b7bdc4"))
+	var owners: Array = tot.keys()
+	owners.sort()
+	var x := bx
+	for o in owners:
+		var w: float = float(tot[o]) / total * bw
+		draw_rect(Rect2(x, by, w, bh), Color(COLORS[o]))
+		x += w
+
 func _text(t: String, center: Vector2, size: int, col: Color) -> void:
 	if font == null: return
 	var ts := font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, size)
 	draw_string(font, Vector2(center.x - ts.x * 0.5, center.y + size * 0.35), t, HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+
+# ---------- UI (Control nodes on a CanvasLayer) ----------
+func _mk_label(text: String, size: int, col: Color) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", col)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return l
+
+func _mk_button(text: String, size: int = 18) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.add_theme_font_size_override("font_size", size)
+	b.custom_minimum_size = Vector2(0, 40)
+	return b
+
+func _accent(b: Button, bg: String) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(bg)
+	sb.set_corner_radius_all(12)
+	sb.content_margin_left = 22; sb.content_margin_right = 22
+	sb.content_margin_top = 12; sb.content_margin_bottom = 12
+	b.add_theme_stylebox_override("normal", sb)
+	var sh := sb.duplicate()
+	sh.bg_color = Color(bg).lightened(0.12)
+	b.add_theme_stylebox_override("hover", sh)
+	b.add_theme_color_override("font_color", Color("#ffffff"))
+
+func _build_ui() -> void:
+	ui_layer = CanvasLayer.new()
+	add_child(ui_layer)
+
+	# ---- menu ----
+	menu_root = Control.new()
+	menu_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui_layer.add_child(menu_root)
+	var mbg := ColorRect.new()
+	mbg.color = Color(0.078, 0.125, 0.188, 0.92)
+	mbg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	menu_root.add_child(mbg)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	menu_root.add_child(center)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 12)
+	vb.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.add_child(vb)
+	vb.add_child(_mk_label("CONQUEST", 52, Color("#ffffff")))
+	vb.add_child(_mk_label("Drag-free: tap your state, then tap a target to send troops.", 15, Color("#cdd9ea")))
+	vb.add_child(_mk_label("DIFFICULTY", 13, Color("#9aa6b4")))
+	var diff_row := HBoxContainer.new()
+	diff_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	diff_row.add_theme_constant_override("separation", 8)
+	vb.add_child(diff_row)
+	var dgroup := ButtonGroup.new()
+	diff_buttons.clear()
+	for i in range(LEVELS.size()):
+		var db := _mk_button(LEVELS[i]["name"])
+		db.toggle_mode = true
+		db.button_group = dgroup
+		if i == level_idx: db.button_pressed = true
+		db.pressed.connect(_on_difficulty.bind(i))
+		diff_row.add_child(db)
+		diff_buttons.append(db)
+	vb.add_child(_mk_label("MAP", 13, Color("#9aa6b4")))
+	var region_row := HBoxContainer.new()
+	region_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	region_row.add_theme_constant_override("separation", 8)
+	vb.add_child(region_row)
+	var rgroup := ButtonGroup.new()
+	region_buttons.clear()
+	for r in map_data["regions"]:
+		var rb := _mk_button(r["name"])
+		rb.toggle_mode = true
+		rb.button_group = rgroup
+		if r["name"] == region_name: rb.button_pressed = true
+		rb.pressed.connect(_on_region.bind(String(r["name"])))
+		region_row.add_child(rb)
+		region_buttons.append(rb)
+	var spacer := Control.new(); spacer.custom_minimum_size = Vector2(0, 10)
+	vb.add_child(spacer)
+	var play := _mk_button("Play", 22)
+	_accent(play, "#46a6ef")
+	play.pressed.connect(_start_game)
+	vb.add_child(play)
+
+	# ---- in-game HUD (transparent overlay; only its buttons capture clicks) ----
+	hud_root = Control.new()
+	hud_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hud_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_layer.add_child(hud_root)
+	var back_btn := _mk_button("‹ Menu", 16)
+	back_btn.position = Vector2(12, 12)
+	back_btn.pressed.connect(_go_menu)
+	hud_root.add_child(back_btn)
+	speed_btn = _mk_button("1×", 16)
+	speed_btn.custom_minimum_size = Vector2(56, 40)
+	speed_btn.pressed.connect(_on_speed)
+	hud_root.add_child(speed_btn)
+	_layout_hud()
+
+func _layout_hud() -> void:
+	if speed_btn != null:
+		var vs := get_viewport_rect().size
+		speed_btn.position = Vector2(12, vs.y - 52)
+
+	# ---- game-over panel ----
+	over_root = Control.new()
+	over_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ui_layer.add_child(over_root)
+	var obg := ColorRect.new()
+	obg.color = Color(0.078, 0.125, 0.188, 0.78)
+	obg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	over_root.add_child(obg)
+	var ocenter := CenterContainer.new()
+	ocenter.set_anchors_preset(Control.PRESET_FULL_RECT)
+	over_root.add_child(ocenter)
+	var ovb := VBoxContainer.new()
+	ovb.alignment = BoxContainer.ALIGNMENT_CENTER
+	ovb.add_theme_constant_override("separation", 14)
+	ocenter.add_child(ovb)
+	result_label = _mk_label("", 46, Color("#ffffff"))
+	ovb.add_child(result_label)
+	var again := _mk_button("Play Again", 20)
+	_accent(again, "#46a6ef")
+	again.pressed.connect(_start_game)
+	ovb.add_child(again)
+	var tomenu := _mk_button("Menu", 18)
+	tomenu.pressed.connect(_go_menu)
+	ovb.add_child(tomenu)
+
+func _on_difficulty(i: int) -> void:
+	level_idx = i
+
+func _on_region(name: String) -> void:
+	region_name = name
+	if phase == Phase.MENU:
+		_build_states_for_region(region_name)
+		queue_redraw()
+
+func _on_speed() -> void:
+	var speeds := [1, 2, 3]
+	var idx := speeds.find(game_speed)
+	game_speed = speeds[(idx + 1) % speeds.size()]
+	speed_btn.text = str(game_speed) + "×"
