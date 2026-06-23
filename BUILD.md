@@ -16,7 +16,11 @@ the AI into it to see how it performs.
 - **Choose the AI brain** that drives every AI team (Easy → Impossible, including
   the rollout-planner "Master" — the trained RL policy wrapped in a lookahead
   search — and "Impossible", the same planner searched an order of magnitude
-  longer and deeper).
+  longer and deeper). The planner runs its MCTS **off the main thread in a Web
+  Worker** (built inline from a Blob — no extra asset, no server needed), so the
+  hard tiers can think for hundreds of ms per move without ever freezing the
+  game; it falls back to an `/api/plan` server, then a tiny in-page search, if a
+  worker can't be created.
 - **Define 2–6 teams**, and for each one set:
   - its **starting share of the map** (e.g. one team 50%, another 25%, the AI 25%), and
   - whether it is controlled by **You** or by the **AI**.
