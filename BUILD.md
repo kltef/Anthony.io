@@ -13,8 +13,10 @@ A new **Scenario** tab on the main menu lets you author a starting board and dro
 the AI into it to see how it performs.
 
 - **Choose the map** (East Coast / Midwest / West Coast / Continental U.S.).
-- **Choose the AI brain** that drives every AI team (Easy → Grandmaster, including
-  the trained RL "Master" policy and the rollout-planner "Grandmaster").
+- **Choose the AI brain** that drives every AI team (Easy → Impossible, including
+  the rollout-planner "Master" — the trained RL policy wrapped in a lookahead
+  search — and "Impossible", the same planner searched an order of magnitude
+  longer and deeper).
 - **Define 2–6 teams**, and for each one set:
   - its **starting share of the map** (e.g. one team 50%, another 25%, the AI 25%), and
   - whether it is controlled by **You** or by the **AI**.
