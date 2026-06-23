@@ -7,6 +7,64 @@ troop simulation, and the trained reinforcement-learning AI — lives in that on
 self-contained HTML file. The editable source is mirrored at
 [`src/web/index.html`](src/web/index.html).
 
+## Per-team top bar
+
+The top strength bar used to lump every enemy into one red segment (blue = you, red = all AIs,
+grey = neutral). It now renders **one segment per team in that team's own colour** (you, then
+each AI colour, then neutral). `updateBar()` tallies troops per owner and rebuilds the segment
+DOM only when the set of live owners changes (e.g. a team is eliminated); otherwise it just
+nudges widths.
+
+## Mobile tap fix & Airdrop arm-then-tap
+
+- **Mobile tap selection bug (root cause).** `gameMove()` flagged the gesture as a *drag* on
+  **any** pointer movement, so a finger tap's few px of jitter made `gameUp()` clear the
+  selection. On a phone, tapping your own state therefore never selected it — leaving the
+  **Airdrop** and **Upgrade** buttons greyed out and tap-then-tap sending unreliable. Fixed with
+  a **12px tap dead-zone** (`TAP_SLOP`): the gesture only becomes a drag once the pointer leaves
+  that radius (`downCss` recorded in `gameDown`). Synthetic test clicks have zero jitter, which is
+  why this slipped past earlier automated runs.
+- **Airdrop is now arm-then-tap.** Instead of "select a state, then press a greyed-out button,"
+  tap **🪂 Airdrop** to *arm* it (it highlights and reads "🪂 Tap a state…"), then tap one of your
+  states to drop +25 troops there and spend a charge. No hidden select-first step. (`airdropArmed`,
+  handled in `gameUp`/`refreshHud`.)
+
+## Scenario back button & orb-shape perk
+
+- **Fixed "← Back" on menu screens.** The in-game `❮` arrow only helps once a match is
+  running; on the Scenario setup screen in landscape on mobile the page scrolls and the mode
+  tabs scroll out of view, leaving no way back. A `position:fixed` **← Back** button
+  (`#menuBack`, z-index above the overlay) now shows on any non-default menu screen and returns
+  to the vs-Computer menu — it stays put no matter how far the panel scrolls. Visibility is
+  driven by `updateMenuBack()` on every overlay show/hide and `setMode()` change.
+- **Orb-shape perk (replaces the old colour perk).** The cosmetic team-colour option is gone;
+  the shop now sells an **orb shape**: Circle (default), Triangle, Jet (F-22), Bomber, Diamond.
+  Your own orbs (`t.owner===myOwner`) render in the chosen silhouette, rotated to point at their
+  target; everyone else's stay circles. It's a purely local cosmetic, so it works in every mode
+  with no networking changes. See `ORB_SHAPES`, `drawOrbShape()` (also used for the shop's canvas
+  previews), and `PERK.orbShape`/`orbUnlocked`.
+
+## Cap upgrades, special tiles & a coin shop
+
+Three linked single-player systems (all gated to `netMode === null`, so multiplayer and
+its snapshot sync are untouched):
+
+- **Per-state cap upgrades.** Tap one of your states to select it, then the on-screen
+  **⬆ Upgrade (cost)** button spends troops to raise that state's troop cap *above* the
+  classic 150 (tiers 150 → 175 → 200 → 225 → 250). AIs never upgrade — it's a player-only
+  power lever. See `PLAYER_CAP`, `capOf()`, `tryUpgrade()`.
+- **Special tiles.** Every solo game sprinkles ~12% of neutral states with **Capital ★**
+  (more growth + cap), **Factory ⚙** (most growth), or **Fortress 🛡** (absorbs 25% of
+  attacks + cap). Tiles persist through capture, and the heuristic + RL AI both get a
+  scoring nudge so they actively fight for them. See `TILE`, `assignTiles()`, `tileGrowMult()`,
+  and the bias terms in `updateAI()`/`rlEvaluate()`.
+- **Coins & shop.** Finish a solo game to earn ~50 coins (scaled by difficulty, +40 on a win,
+  +25% with Investor). The **🪙 Shop** (modelled on the leaderboard modal) sells: extra
+  starting state (×3, escalating), +10 start troops, pre-upgraded capital, starting Capital
+  tile, Boom Start, Investor, Reinforcement Airdrop charges, and a cosmetic colour. Persisted
+  in `localStorage`; perks apply in **vs Computer only** (never Scenario or online). The
+  Scenario builder gets **Cap upgrades** / **Special tiles** on-off toggles.
+
 ## New feature: Scenario Builder
 
 A new **Scenario** tab on the main menu lets you author a starting board and drop
