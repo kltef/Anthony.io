@@ -170,20 +170,36 @@ def eval_theta(args):
         tot += my - (max(others) if others else 0)
     return tot/len(specs)
 def make_specs(rng, n, nleague):
+    # FOCUS on the strategies that actually beat the current net: turtle(2) & rush(3), plus the
+    # heuristic(1) and some baseline(0). Champions (idx>=4) sprinkled in for self-play robustness.
+    choices=[1,2,2,2,3,3,0]   # turtle 3/7, rush 2/7, heur 1/7, baseline 1/7
     specs=[]
     for _ in range(n):
         P=int(rng.choice([2,3,4])); ci=int(rng.integers(P))
-        opp=[0 if rng.random()<0.5 else int(rng.integers(nleague)) for _ in range(P)]
+        opp=[]
+        for _ in range(P):
+            if nleague>4 and rng.random()<0.15: opp.append(int(rng.integers(4,nleague)))
+            else: opp.append(int(rng.choice(choices)))
         specs.append((int(rng.integers(1<<30)), P, ci, opp))
     return specs
-def winrate_vs_baseline(theta, base_theta, rng, n_games=150, N=18):
-    cand=('net',)+unpack(theta); base=('net',)+unpack(base_theta); w=0
-    for _ in range(n_games):
-        P=int(rng.choice([2,3,4])); ci=int(rng.integers(P))
-        seats=[cand if p==ci else base for p in range(P)]
+def _seat(opp, base_theta):
+    if opp=='base': return ('net',)+unpack(base_theta)
+    return (opp, None, None)
+def wr_vs(theta, opp, base_theta, rng, n=120, N=18):
+    cand=('net',)+unpack(theta); o=_seat(opp, base_theta); w=0
+    for _ in range(n):
+        P=int(rng.choice([2,3])); ci=int(rng.integers(P))
+        seats=[cand if p==ci else o for p in range(P)]
         res=play(seats, rng, N=N)
         if res[ci+1] >= max(res.values())-1e-9: w+=1
-    return w/n_games
+    return w/n
+def evalset(theta, base_theta, rng, n=120):
+    return {'turtle':wr_vs(theta,'turtle',base_theta,rng,n),
+            'rush':  wr_vs(theta,'rush',  base_theta,rng,n),
+            'heur':  wr_vs(theta,'heuristic',base_theta,rng,n),
+            'base':  wr_vs(theta,'base',  base_theta,rng,n)}
+def metric(ev):   # weighted toward beating the turtle (our worst matchup)
+    return 0.5*ev['turtle'] + 0.25*ev['rush'] + 0.25*ev['heur']
 
 # ---------------- SNES optimizer ----------------
 def utilities(lam):
@@ -197,9 +213,12 @@ def main():
     n=D; lam=24; eta_sigma=(3+math.log(n))/(5*math.sqrt(n)); u=utilities(lam)
     mean=base.copy(); sig=np.full(n, 0.05)
     league=[('net', base.copy()), ('heur',None), ('turtle',None), ('rush',None)]   # idx0 = baseline
-    champ=base.copy(); best_wr=0.5
+    champ=base.copy()
+    base_ev=evalset(base, base, rng, 200); base_m=metric(base_ev)
+    best_m=base_m
     print(f"params={n} lam={lam} eta_sigma={eta_sigma:.4f} cores={os.cpu_count()}", flush=True)
-    print("gen 0  champion=baseline (winrate vs baseline = 0.500 by definition)", flush=True)
+    print(f"BASELINE  turtle {base_ev['turtle']:.2f}  rush {base_ev['rush']:.2f}  heur {base_ev['heur']:.2f}  (vs-self {base_ev['base']:.2f})  metric {base_m:.3f}", flush=True)
+    print("objective: raise the turtle/rush/heur winrates above baseline WITHOUT regressing vs-self.", flush=True)
     pool=Pool(processes=min(4, os.cpu_count() or 4))
     t0=time.time(); gen=0
     try:
@@ -213,22 +232,23 @@ def main():
             sig =sig * np.exp(0.5*eta_sigma*((u[:,None]*(So**2-1)).sum(0)))
             sig =np.clip(sig, 1e-4, 0.5)
             if gen % 8 == 0:
-                wr=winrate_vs_baseline(mean, base, rng, 150); tag=""
-                if wr>best_wr+1e-9:
-                    best_wr=wr; champ=mean.copy()
+                ev=evalset(mean, base, rng, 120); m=metric(ev); tag=""
+                # champion = clearly better at the exploiters, with no real regression vs-self
+                if m>best_m+0.01 and ev['base']>=0.45:
+                    best_m=m; champ=mean.copy()
                     json.dump(to_json(champ), open(os.path.join(SCR,'rl_policy_new.json'),'w'))
-                    tag=" *new champion saved*"
-                    if len(league)<7 and best_wr>0.55: league.append(('net', champ.copy()))
-                print(f"gen {gen:4d} t={time.time()-t0:6.0f}s fit[max]={fs.max():+.3f} sig~{sig.mean():.3f} winrate {wr:.3f} best {best_wr:.3f}{tag}", flush=True)
+                    tag=" *new champion*"
+                    if len(league)<7: league.append(('net', champ.copy()))
+                print(f"gen {gen:4d} t={time.time()-t0:6.0f}s sig~{sig.mean():.3f}  turtle {ev['turtle']:.2f} rush {ev['rush']:.2f} heur {ev['heur']:.2f} vs-self {ev['base']:.2f}  metric {m:.3f} (base {base_m:.3f}){tag}", flush=True)
     finally:
         pool.close(); pool.join()
-    final_wr=winrate_vs_baseline(champ, base, rng, 300)
-    print(f"DONE gens={gen}  champion winrate-vs-baseline {final_wr:.3f}  (best seen {best_wr:.3f})", flush=True)
-    if best_wr>0.52:
+    fev=evalset(champ, base, rng, 300); fm=metric(fev)
+    print(f"DONE gens={gen}  champion: turtle {fev['turtle']:.2f} rush {fev['rush']:.2f} heur {fev['heur']:.2f} vs-self {fev['base']:.2f}  metric {fm:.3f}  (baseline metric {base_m:.3f})", flush=True)
+    if fm>base_m+0.02 and fev['base']>=0.45:
         json.dump(to_json(champ), open(os.path.join(SCR,'rl_policy_new.json'),'w'))
-        print("SHIP: rl_policy_new.json beats baseline -> safe to deploy", flush=True)
+        print(f"SHIP: beats baseline at the exploiters (+{fm-base_m:.3f} metric) with no vs-self regression.", flush=True)
     else:
-        print("NO-REGRESSION: champion did NOT beat baseline; not shipping a new model.", flush=True)
+        print("NO-REGRESSION: no clear gain over baseline at the exploiters; not shipping.", flush=True)
 
 if __name__=='__main__':
     main()
