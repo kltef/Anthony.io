@@ -169,6 +169,7 @@
   #upgradeBtn { font-size: 14px !important; }
   #upgradeBtn:not(:disabled) { background: #f5c84a; color: #3a2c00; }
   #airdropBtn { font-size: 14px !important; background: #8fd6a6; color: #143421; }
+  #airdropBtn.armed { background: #2fae5b; color: #fff; box-shadow: 0 0 0 3px rgba(47,174,91,.45), 0 1px 5px rgba(0,0,0,.28); }
   .coinline { color: #ffd479; font-weight: 800; font-size: 16px; opacity: .95; margin-top: -6px; }
   #shopPanel { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20;
     width: min(460px, 94vw); max-height: 86vh; overflow-y: auto; pointer-events: auto;
@@ -481,6 +482,7 @@
   let fps = 0, fpsFrames = 0, fpsT = 0;        // rendered frames-per-second
   let nnVizT = 0;                              // throttle clock for the per-frame NN viz recompute
   let lastTime = 0, selected = null, dragPos = null, pointerDown = false;
+  let airArmed = false;   // 🪂 Airdrop is "armed": the next tap on one of your states drops reinforcements there
   let selSet = [], moved = false;   // states chosen for a joint (combined) attack while dragging
   let aiTimers = {};
   // ---- scenario mode ----
@@ -844,7 +846,7 @@
     autoLevelChange = '';
     const lv = LEVELS[levelIdx];
     cfg = lv;
-    troops = []; selected=null; dragPos=null; aiTimers={}; planPending={}; resetCam();
+    troops = []; selected=null; dragPos=null; airArmed=false; aiTimers={}; planPending={}; resetCam();
     matchTrack = { attacks:0, early:0, earlyEnemy:0, sumWeak:0, sumSrc:0, sumDist:0 };
     if (netMode!=='host') myOwner = PLAYER;
     if (!netMode && regionIdx!==0){ regionIdx=0; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default map
@@ -2540,28 +2542,34 @@
     }
   }
 
-  // Build the 3 bar segments ONCE; afterwards we only nudge their widths. The old code
-  // wiped and re-created DOM nodes every frame, forcing a layout reflow per animation
-  // frame — the main cause of the orb stutter on mobile. Now the DOM is touched only when
-  // a width actually changes (rounded to 0.1%), so most frames do zero layout work.
-  let barSegs = null, barLast = ['', '', ''];
-  function buildBarSegs(){
-    barEl.innerHTML='';
-    const mk = c => { const d=document.createElement('div'); d.style.background=c; barEl.appendChild(d); return d; };
-    barSegs = [ mk(COLORS[1]), mk(COLORS[2]), mk('#b7bdc4') ];
-    barLast = ['', '', ''];
-  }
+  // Build the share bar with ONE segment per team (in that team's own colour) plus a grey
+  // neutral remainder — rather than lumping every enemy into a single red segment. The set of
+  // segments is rebuilt only when the line-up of owners changes (a team is wiped out / appears);
+  // on every other frame we just nudge widths (rounded to 0.1%), so most frames do no layout work.
+  let barSegs = null, barSig = null, barLast = [];
   function updateBar() {
-    let player=0, enemy=0, neutral=0;
+    // tally troops by owner (live states + in-flight orbs)
+    const tally = {}; let neutral = 0;
     for (const s of states) {
       const v = s.troops + 1;
-      if (s.owner===PLAYER) player+=v; else if (s.owner>=2) enemy+=v; else neutral+=v;
+      if (s.owner===NEUTRAL) neutral += v; else tally[s.owner] = (tally[s.owner]||0) + v;
     }
-    for (const t of troops){ if (t.owner===PLAYER) player+=t.count; else if (t.owner>=2) enemy+=t.count; }
-    const total = player+enemy+neutral || 1;
-    if (!barSegs || barSegs[0].parentNode!==barEl) buildBarSegs();
-    const w = [player, enemy, neutral].map(v => (v/total*100).toFixed(1)+'%');
-    for (let i=0;i<3;i++) if (w[i]!==barLast[i]){ barSegs[i].style.width=w[i]; barLast[i]=w[i]; }   // touch DOM only on change
+    for (const t of troops){ if (t.owner!==NEUTRAL) tally[t.owner] = (tally[t.owner]||0) + t.count; }
+    // segment order: YOU first, then enemies by colour id; the grey neutral remainder always last
+    const owners = Object.keys(tally).map(Number).sort((a,b)=> a===PLAYER?-1 : b===PLAYER?1 : a-b);
+    const segKeys = owners.concat([NEUTRAL]);     // NEUTRAL (0) marks the grey remainder
+    const sig = segKeys.join(',');
+    if (sig!==barSig || !barSegs || !barSegs.length || barSegs[0].parentNode!==barEl){
+      barEl.innerHTML='';
+      barSegs = segKeys.map(o => { const d=document.createElement('div');
+        d.style.background = o===NEUTRAL ? '#b7bdc4' : (COLORS[o]||'#888'); barEl.appendChild(d); return d; });
+      barSig = sig; barLast = segKeys.map(()=> '');
+    }
+    let total = neutral; for (const o of owners) total += tally[o];
+    total = total || 1;
+    const vals = owners.map(o=>tally[o]).concat([neutral]);
+    for (let i=0;i<barSegs.length;i++){ const w=(vals[i]/total*100).toFixed(1)+'%';
+      if (w!==barLast[i]){ barSegs[i].style.width=w; barLast[i]=w; } }   // touch DOM only on change
   }
 
   function loop(now) {
@@ -2625,8 +2633,16 @@
   // release on a target so the whole group attacks together (joint attack).
   function gameDown(cssPt){
     if (!running) return;
-    pointerDown=true; moved=false;
     const pos=screenToWorld(cssPt); const s=stateAt(pos);
+    // 🪂 Airdrop armed: this tap drops reinforcements on the tapped state (if it's yours), then disarms.
+    if (airArmed){
+      airArmed=false;
+      if (s && s.owner===myOwner && PERK.airdrops>0 && !netMode){
+        s.troops += 25; s.pulse = 1.2; PERK.airdrops--; savePerk('airdrops');
+      }
+      refreshHud(); return;
+    }
+    pointerDown=true; moved=false;
     if (s && s.owner===myOwner){ selSet=[s]; dragPos=pos; selected=null; }
     else { selSet=[]; if (selected){ if (s) issueMove(selected,s); selected=null; } }
   }
@@ -3241,7 +3257,7 @@
     levelIdx = scnLevelIdx; const lv = LEVELS[levelIdx]; cfg = lv;
     if (regionIdx !== scnRegionIdx){ regionIdx = scnRegionIdx; buildStatesForRegion(); buildRegionButtons(); }
     buildGeo();
-    troops = []; selected=null; dragPos=null; selSet=[]; aiTimers={}; planPending={}; resetCam();
+    troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; aiTimers={}; planPending={}; resetCam();
     matchTrack = null;
 
     const N = states.length;
@@ -3320,17 +3336,18 @@
     const uKey = uShow ? uLabel+(uDis?'·d':'') : '';
     if (uKey!==hudUpg){ hudUpg=uKey; upgradeBtn.style.display = uShow?'':'none';
       if (uShow){ upgradeBtn.textContent=uLabel; upgradeBtn.disabled=uDis; } }
-    // 🪂 Airdrop — visible in solo when you own charges
+    // 🪂 Airdrop — visible in solo when you own charges. Tap to ARM, then tap a state to drop.
     const aShow = (!netMode && running && PERK.airdrops>0);
-    const aReady = !!(selected && selected.owner===myOwner);
-    const aKey = aShow ? PERK.airdrops+'/'+(aReady?1:0) : '';
+    if (!aShow) airArmed = false;
+    const aKey = aShow ? PERK.airdrops+'/'+(airArmed?'A':'-') : '';
     if (aKey!==hudAir){ hudAir=aKey; airdropBtn.style.display = aShow?'':'none';
-      if (aShow){ airdropBtn.textContent='🪂 Airdrop ('+PERK.airdrops+')'; airdropBtn.disabled=!aReady; } }
+      if (aShow){ airdropBtn.textContent = airArmed ? '🪂 Tap a state ('+PERK.airdrops+')' : '🪂 Airdrop ('+PERK.airdrops+')';
+                  airdropBtn.disabled=false; airdropBtn.classList.toggle('armed', airArmed); } }
   }
   if (upgradeBtn) upgradeBtn.addEventListener('click', ()=>{ if (tryUpgrade(selected)) refreshHud(); });
   if (airdropBtn) airdropBtn.addEventListener('click', ()=>{
-    if (!running || netMode || PERK.airdrops<=0 || !selected || selected.owner!==myOwner) return;
-    selected.troops += 25; selected.pulse = 1.2; PERK.airdrops--; savePerk('airdrops'); refreshHud();
+    if (!running || netMode || PERK.airdrops<=0) return;
+    airArmed = !airArmed; refreshHud();   // arm/disarm; the actual drop happens on the next tap (gameDown)
   });
 
   // ============================ SHOP ============================
