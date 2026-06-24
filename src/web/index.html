@@ -199,7 +199,7 @@
 <div id="back">&#10094;</div>
 <div id="topbar"><div id="bar"></div></div>
 <div id="zoom"><button id="zoomIn" title="Zoom in">+</button><button id="zoomOut" title="Zoom out">&minus;</button></div>
-<div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="upgradeBtn" title="Upgrade the selected state's troop cap" style="display:none">⬆ Upgrade</button><button id="airdropBtn" title="Drop reinforcements onto the selected state" style="display:none">🪂 Airdrop</button><button id="nnBtn" title="Show the Master AI's neural network">AI brain</button></div>
+<div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="upgradeBtn" title="Upgrade the selected state's troop cap" style="display:none">⬆ Upgrade</button><button id="airdropBtn" title="Drop reinforcements onto the selected state" style="display:none">🪂 Airdrop</button><button id="nnBtn" title="Show the Grandmaster AI's neural network">AI brain</button></div>
 <div id="nnpanel">
   <div id="nntabs">
     <button class="nntab on" data-viz="brain">AI Brain</button>
@@ -436,20 +436,23 @@
     { name:'Easy',   enemies:1, aiSpeed:2.6, aiAggro:0.30, neutralMin:5,  neutralMax:18, growRate:1.7, playerStart:45, enemyStart:22, enemyGrow:0.65 },
     { name:'Medium', enemies:2, aiSpeed:1.4, aiAggro:0.70, neutralMin:10, neutralMax:34, growRate:1.2, playerStart:35, enemyStart:30, enemyGrow:0.9  },
     { name:'Hard',   enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:36, enemyGrow:1.0  },
-    // Master: the trained reinforcement-learning policy wrapped in a shallow-rollout PLANNER that
-    // simulates each candidate move several seconds into the future and picks the best projected
-    // board. Master plays fair: enemies start with the SAME unit count as the player (30) and the
-    // same growth rate (1.0×). No economic handicap — the difficulty comes purely from the planner.
+    // Grandmaster: the trained reinforcement-learning policy wrapped in a shallow-rollout PLANNER
+    // that simulates each candidate move several seconds into the future and picks the best
+    // projected board. Grandmaster plays fair: enemies start with the SAME unit count as the player
+    // (30) and the same growth rate (1.0×). No economic handicap — the difficulty is pure planner.
     // `hunt` (0..1) = how willing the AI is to attack YOU before the neutral land is gone. Classic
     // tiers stay timid (0) and ignore the player early; the hard tiers HUNT a leading/turtling human.
-    { name:'Master', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true, hunt:0.6 },
-    // Impossible: built to be brutal. The trained net + planner (no sim/depth cap, every enemy on
-    // its own CPU core so they all plan hard at once), it HUNTS you (hunt:1), AND it cheats: you
-    // start weak (22) while four enemies start strong (55), grow 70% faster (enemyGrow 1.7), react
-    // fast (aiSpeed .55) and stack to 250 (aiCap) so shop upgrades can't out-muscle them. Fair? No.
-    // Beatable? Barely. This is the top tier.
-    { name:'Impossible', enemies:4, aiSpeed:0.55, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:55, enemyGrow:1.7, rl:true, plan:true,
-      planDt:0.3, mctsK:9, tbudget:4000, workerMs:250, hunt:1.0, aiCap:250 },
+    { name:'Grandmaster', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true, hunt:0.6 },
+    // Impossible: built to be brutal — but it now plays FAIR at the opening and earns the win with
+    // its brain, not a head start. Everyone (you + all four enemies) starts on the SAME unit count
+    // (22). The twist is rope-a-dope: for the first ~35s it plays timid (rope:true, low hunt) so it
+    // grabs neutral land and leaves YOU alone — you feel like you're winning. Past the rope window
+    // its hunt ramps PAST normal into a CRUSH (crush:1.6) and, growing 70% faster (enemyGrow 1.7),
+    // it turns on you all at once. `desp` makes a CORNERED enemy fight HARDER instead of folding, so
+    // you can never just squeeze one down to nothing. Reacts fast (aiSpeed .55), stacks to 250
+    // (aiCap) so shop upgrades can't out-muscle it. Fair start, impossible finish. Top tier.
+    { name:'Impossible', enemies:4, aiSpeed:0.55, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.7, rl:true, plan:true,
+      planDt:0.3, mctsK:9, tbudget:4000, workerMs:250, hunt:1.0, aiCap:250, rope:true, ropeT:35, crush:1.6, desp:9 },
   ];
   let levelIdx = 0;
 
@@ -490,7 +493,7 @@
   // by a tiny floor) instead of ~once per second, so it reacts and stacks coordinated waves
   // far more aggressively. Set FAST_AI=false to restore the classic per-difficulty cadence.
   const FAST_AI = true;
-  // NOTE: the planner tiers (lv.plan — Master & Impossible) are already naturally rate-limited — each
+  // NOTE: the planner tiers (lv.plan — Grandmaster & Impossible) are already naturally rate-limited — each
   // decision is an off-thread MCTS (Web Worker, or a server round-trip) that runs for up to
   // mcts.tbudget ms, and planPending allows only one request in flight per enemy. So we keep the
   // small cooldown for ALL tiers; adding an extra throttle here previously starved the planner.
@@ -554,13 +557,13 @@
       console.error(err);
     });
 
-  // ---- load trained reinforcement-learning policy (for Master difficulty) ----
+  // ---- load trained reinforcement-learning policy (for Grandmaster difficulty) ----
   let rlPolicy = null;          // { feat_norm, num_features, noop_bias, layers:[{W,b,act}] }
   let rlDiag = Math.SQRT2;       // distance normalizer (set from map bounds in buildGeo)
   fetch('rl_policy.json')
     .then(r => r.ok ? r.json() : null)
     .then(p => { if (p) rlPolicy = p; })
-    .catch(() => { /* Master falls back to heuristic AI if policy missing */ });
+    .catch(() => { /* Grandmaster falls back to heuristic AI if policy missing */ });
 
   // forward pass through the exported MLP: feats[F] -> scalar logit.
   // If `capture` is passed, it is filled with [input, ...each layer's activations] for the NN viz.
@@ -584,7 +587,7 @@
   // ---- neural-network visualizer state ----
   let showNN = false;       // toggle
   let vizMode = 'brain';    // which overlay view: 'brain' (neural net) | 'planner' (rollout tree)
-  let planViz = null;       // last planner decision (Master/Impossible), for the overlay
+  let planViz = null;       // last planner decision (Grandmaster/Impossible), for the overlay
   let planVizDirty = false;
   let planPending = {};     // owner -> true while a server /api/plan request is in flight
   // (planner simulation counts are no longer capped — the search is bounded by a thinking window;
@@ -828,7 +831,7 @@
   }
   // coins earned for finishing a solo game (called from recordResult, which only runs in solo).
   function awardCoins(won){
-    const mult = {Easy:1, Medium:1.4, Hard:1.8, Master:2.4, Impossible:3.2}[LEVELS[levelIdx].name] || 1;
+    const mult = {Easy:1, Medium:1.4, Hard:1.8, Grandmaster:2.4, Impossible:3.2}[LEVELS[levelIdx].name] || 1;
     let c = Math.round(50*mult) + (won ? 40 : 0);
     if (PERK.investor) c = Math.round(c*1.25);
     PERK.coins += c; savePerk('coins'); lastCoinAward = c;
@@ -1010,6 +1013,28 @@
   // no-op, applying the gameplay biases. Returns { bestSrc, bestTgt, noop, cands } without
   // committing anything. `collect` => also gather the full candidate list (for the viz).
   // Feature order MUST match train_rl.py features(): see C:\Users\antho\stateio\train_rl.py.
+
+  // ---- Impossible's "rope-a-dope" + comeback aggression ----
+  // aiHunt(): the EFFECTIVE hunt for the current moment. Normally just lv.hunt. On a `rope` tier
+  // (Impossible) it's time-phased: for the first ropeT seconds it ramps up from a low floor (the
+  // AI plays timid — grabs neutral land, leaves you alone, so you feel ahead), then past the rope
+  // window it ramps PAST lv.hunt into `crush` (it turns on you and presses hard). This is what
+  // makes Impossible "let you think you're winning, then crush you".
+  function aiHunt(){
+    const lv = LEVELS[levelIdx], base = lv.hunt || 0;
+    if (!lv.rope) return base;
+    const R = lv.ropeT || 35, t = gameElapsed, lo = 0.12, peak = lv.crush || 1.6;
+    return t < R ? lo + (base - lo) * (t / R)
+                 : base + (peak - base) * Math.min(1, (t - R) / R);
+  }
+  // despBias(): extra aggression for a CORNERED enemy (small share of the board). Grows as the AI
+  // is squeezed toward elimination, so it fights back harder instead of turtling to death — you
+  // can't just grind one enemy down to nothing on Impossible.
+  function despBias(ownFrac){
+    const lv = LEVELS[levelIdx];
+    return lv.desp ? lv.desp * Math.max(0, 0.28 - ownFrac) : 0;
+  }
+
   function rlEvaluate(owner, collect) {
     const FN = rlPolicy.feat_norm || 50;
     const total = states.length;
@@ -1034,7 +1059,9 @@
     // In the endgame, stop turtling: lower the bar to act so the AI keeps striking the
     // player from any state strong enough to win, while its other states keep growing
     // (it does both at once instead of stacking one huge army first).
-    const noopEff = endgame ? noop - 1 : noop;
+    // a cornered enemy stops sitting idle (lower the no-op bar) so it keeps swinging back.
+    const cornered = (LEVELS[levelIdx].desp || 0) > 0 && ownFrac < 0.22;
+    const noopEff = (endgame ? noop - 1 : noop) - (cornered ? 1.5 : 0);
     let bestScore = noopEff;
     let bestSrc=null, bestTgt=null;
     const cands = collect ? [] : null;
@@ -1074,9 +1101,9 @@
           else {
             // pre-endgame: classic tiers wait (-6); hard tiers HUNT — press a winnable state and
             // pile on if the human is out-growing us (so turtling no longer goes unpunished).
-            const hunt = LEVELS[levelIdx].hunt || 0;
+            const hunt = aiHunt();
             const plyFrac = playerStates.length/total, lead = Math.max(0, Math.min(1, plyFrac-ownFrac));
-            bias = (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5) + lead*10);
+            bias = (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5) + lead*10) + despBias(ownFrac);
           }
         }
         if (tg.type==='capital' || tg.type==='factory') bias += 1.2;   // value high-growth tiles
@@ -1197,7 +1224,7 @@
     return false;
   }
 
-  // ---- Master/Impossible: shallow-rollout PLANNER (built on the same trained net) ----
+  // ---- Grandmaster/Impossible: shallow-rollout PLANNER (built on the same trained net) ----
   // Self-contained forward simulation over a lightweight snapshot; never mutates live state.
   // Planner travel-time estimates use the same per-map ORB_SPEED as live orbs.
   function takeSnapshot() {
@@ -1251,7 +1278,8 @@
       if (o===NEUTRAL) neutralsLeft=true; else if (o>=2 && o!==owner) rivalsLeft=true;
       if (o===PLAYER) playerIdx.push(i); }
     const endgame = !neutralsLeft && !rivalsLeft;
-    const noopEff = endgame ? noop-1 : noop;
+    const cornered = (LEVELS[levelIdx].desp || 0) > 0 && ownFrac < 0.22;
+    const noopEff = (endgame ? noop-1 : noop) - (cornered ? 1.5 : 0);
     let myTot=0, allTot=0, maxEnemy=0, bigIdx=-1;
     for (let i=0;i<snap.n;i++){ const oo=snap.owner[i], tr=snap.troops[i];
       if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
@@ -1268,8 +1296,8 @@
         if (snap.owner[ti]===NEUTRAL){ if (playerIdx.length) score += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
         else if (snap.owner[ti]>=2 && snap.owner[ti]!==owner) score += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
         else if (snap.owner[ti]===PLAYER){ if (endgame) score += (st>tt?3:-4);
-          else { const hunt=LEVELS[levelIdx].hunt||0, lead=Math.max(0,Math.min(1,playerIdx.length/snap.n-ownFrac));
-                 score += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10); } }
+          else { const hunt=aiHunt(), lead=Math.max(0,Math.min(1,playerIdx.length/snap.n-ownFrac));
+                 score += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10) + despBias(ownFrac); } }
         if (score>best){ best=score; bs=si; bt=ti; }
       }
     }
@@ -1326,13 +1354,13 @@
     if (cap) cap.board = snap.owner.slice();
     return snapPhi(snap, owner);
   }
-  // Planner decision (Master/Impossible): rank candidates with the net, roll each one out, commit the best future.
+  // Planner decision (Grandmaster/Impossible): rank candidates with the net, roll each one out, commit the best future.
   // `prior` blends a little of the net's own score back in so a single noisy rollout can't pick a silly move.
   const PLAN = { dt:0.4 };   // simulation time-step (resolution, not a limit). Impossible refines it.
   const MCTS = { tbudget:10, maxIter:400, cPuct:1.3, K:5 };  // AlphaGo-style PUCT search; K=5 widens the move fan-out
   // (tbudget/maxIter here are ONLY the tiny synchronous in-page FALLBACK, which must stay bounded
   // because it runs on the main thread. The real off-thread search below has no such caps.)
-  const SERVER_TBUDGET = 450;   // ms the SERVER MCTS may think per move (Master); Impossible raises this
+  const SERVER_TBUDGET = 450;   // ms the SERVER MCTS may think per move (Grandmaster); Impossible raises this
   // The planner has NO fixed limit on simulation count or search depth. Instead the search runs for
   // a per-move *thinking window* (wall-clock ms) and does as many simulations, as deep, as the
   // device manages in that window — so a fast phone explores far more than a slow one. These two
@@ -1404,12 +1432,13 @@
         if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
         else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
         else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
-          else { const hunt=LEVELS[levelIdx].hunt||0, lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
-                 sc += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10); } }
+          else { const hunt=aiHunt(), lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
+                 sc += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10) + despBias(ownFrac); } }
         list.push({ mv:[si,ti], score:sc });
       }
     }
-    list.push({ mv:null, score: endgame ? noop-1 : noop });   // no-op option
+    const cornered = (LEVELS[levelIdx].desp || 0) > 0 && ownFrac < 0.22;
+    list.push({ mv:null, score: (endgame ? noop-1 : noop) - (cornered ? 1.5 : 0) });   // no-op option
     list.sort((a,b)=>b.score-a.score);
     const top = list.slice(0, planParams().K+1);
     const mx = Math.max(...top.map(c=>c.score)); let sum=0; for (const c of top) sum+=Math.exp(c.score-mx);
@@ -1466,7 +1495,7 @@
     const pp = planParams(), worker = mode==='worker';
     return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
-      hunt:lv.hunt||0,
+      hunt:aiHunt(), desp:lv.desp||0,
       horizon:pp.horizon, dt:pp.dt, ownerId:owner, wantViz: showNN && vizMode==='planner',
       humans, mcts:{ tbudget: worker?pp.workerMs:pp.serverMs, maxIter: NO_ITER_CAP, cPuct:MCTS.cPuct, K:pp.K } };
   }
@@ -1532,7 +1561,7 @@
     'use strict';
     var NEUTRAL=0, PLAYER=1, MAX_TROOPS=150;
     var POL=null;                                   // trained policy (set on init)
-    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, names=[];
+    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, names=[];
     var DEPTH_CAP=4000;   // safety only — real depth is bounded by think time + terminal boards
     var now = (self.performance && self.performance.now) ? function(){ return self.performance.now(); } : function(){ return Date.now(); };
     function rand(a,b){ return a + Math.random()*(b-a); }
@@ -1624,9 +1653,10 @@
           else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;
           else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
             else { var lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
-                   sc += (1-HUNT)*(-6) + HUNT*((st>tt?1.0:-1.5)+lead*10); } }
+                   sc += (1-HUNT)*(-6) + HUNT*((st>tt?1.0:-1.5)+lead*10) + (DESP>0?DESP*Math.max(0,0.28-ownFrac):0); } }
           list.push({ mv:[si,ti], score:sc }); } }
-      list.push({ mv:null, score: endgame ? noop-1 : noop });
+      var cornered = DESP>0 && ownFrac<0.22;
+      list.push({ mv:null, score: (endgame ? noop-1 : noop) - (cornered?1.5:0) });
       list.sort(function(a,b){ return b.score-a.score; });
       var top=list.slice(0, K+1), mx=-Infinity;
       for (i=0;i<top.length;i++) if (top[i].score>mx) mx=top[i].score;
@@ -1670,7 +1700,7 @@
     function plan(req){
       GR=req.growRate; EG=req.enemyGrow; DIAG=req.rlDiag||1; ORB=req.orbSpeed||70;
       HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
-      CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0;
+      CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0; DESP=req.desp||0;
       var tbudget=(req.mcts&&req.mcts.tbudget)||250, owner=req.ownerId;
       var base={ n:req.n, cx:req.cx, cy:req.cy, owner:req.owner.slice(), troops:req.troops.slice(),
         armies:(req.armies||[]).map(function(a){ return { owner:a.owner, count:a.count, ti:a.ti, t:0, ttotal:a.ttotal }; }) };
@@ -2064,10 +2094,10 @@
 
     // ===== header =====
     nnctx.fillStyle='#e7edf3'; nnctx.font='bold 13px Segoe UI, sans-serif';
-    nnctx.fillText('Master AI · policy network', pad, Y);
+    nnctx.fillText('Grandmaster AI · policy network', pad, Y);
     if (!rlPolicy || !LEVELS[levelIdx]?.rl){
       Y+=22; nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
-      nnctx.fillText('Play the Master difficulty', pad, Y); Y+=16;
+      nnctx.fillText('Play the Grandmaster difficulty', pad, Y); Y+=16;
       nnctx.fillText('to watch the AI think.', pad, Y); return;
     }
     if (!nnWeightStats) nnWeightStats = computeWeightStats();
@@ -2430,7 +2460,7 @@
     nnctx.fillText('Rollout Planner', pad, Y); Y+=20;
     if (!LEVELS[levelIdx]?.plan){
       nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
-      nnctx.fillText('Play Master or Impossible', pad, Y); Y+=16;
+      nnctx.fillText('Play Grandmaster or Impossible', pad, Y); Y+=16;
       nnctx.fillText('to watch the AI plan ahead.', pad, Y); return;
     }
     nnctx.fillStyle='#7c8794'; nnctx.font='10px Segoe UI, sans-serif';
@@ -3064,7 +3094,7 @@
     } else {
       h += `<div class="lbarch">${d.arch}</div><div class="lbdh">How the AI reads ${lbEsc(r.name)}</div>`+
         '<ul class="lblist">' + d.lines.map(l => `<li>${l}</li>`).join('') + '</ul>'+
-        `<p class="hint">Built from ${r.samples} game${r.samples===1?'':'s'} of play. The Master &amp; Impossible planners use this to predict and counter them.</p>`;
+        `<p class="hint">Built from ${r.samples} game${r.samples===1?'':'s'} of play. The Grandmaster &amp; Impossible planners use this to predict and counter them.</p>`;
     }
     const bd = r.byDiff || {}, diffs = Object.keys(bd);
     if (diffs.length){ h += '<div class="lbdh">By difficulty</div><table>';
@@ -3083,7 +3113,7 @@
   // the requested shares (e.g. 50 / 25 / 25) hold up visually as well as numerically.
   const COLOR_NAMES = { 1:'Blue', 2:'Red', 3:'Orange', 4:'Purple', 5:'Green', 6:'Pink', 7:'Cyan', 8:'Gold' };
   let scnRegionIdx = 0;          // which map
-  let scnLevelIdx = 3;           // which AI brain drives the AI teams (default: Master / planner)
+  let scnLevelIdx = 3;           // which AI brain drives the AI teams (default: Grandmaster / planner)
   let scnTeams = [ {ctrl:'you',share:50}, {ctrl:'ai',share:25}, {ctrl:'ai',share:25} ];  // the user's example
   const scnTeamsEl   = document.getElementById('scnTeams');
   const scnBarEl     = document.getElementById('scnBar');
