@@ -592,6 +592,7 @@
   let planViz = null;       // last planner decision (Grandmaster/Impossible), for the overlay
   let planVizDirty = false;
   let planPending = {};     // owner -> true while a server /api/plan request is in flight
+  let planEpoch = 0;        // bumped on every (re)start so stale worker replies from a past game are dropped
   // (planner simulation counts are no longer capped — the search is bounded by a thinking window;
   //  see planParams / NO_ITER_CAP.)
   let matchTrack = null;    // accumulates the local player's move stats this game (for their profile)
@@ -846,7 +847,7 @@
     autoLevelChange = '';
     const lv = LEVELS[levelIdx];
     cfg = lv;
-    troops = []; selected=null; dragPos=null; airArmed=false; aiTimers={}; planPending={}; resetCam();
+    troops = []; selected=null; dragPos=null; airArmed=false; aiTimers={}; planPending={}; planEpoch++; resetCam();
     matchTrack = { attacks:0, early:0, earlyEnemy:0, sumWeak:0, sumSrc:0, sumDist:0 };
     if (netMode!=='host') myOwner = PLAYER;
     if (!netMode && regionIdx!==0){ regionIdx=0; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default map
@@ -1512,11 +1513,24 @@
   }
 
   // ---- off-thread planner: a POOL of Web Workers running the MCTS over a board snapshot ----
-  // One worker per CPU core (up to 4): each enemy gets its own worker, so on the hard tiers
-  // every AI plans HARD and CONCURRENTLY (instead of taking turns on one worker and reacting
-  // slowly). null = not built yet · false = unavailable/disabled · [Worker,…] = ready.
+  // One worker per CPU core (up to 8): each enemy gets a GROUP of workers (2 when the machine has
+  // the cores to spare), so on the hard tiers every AI plans HARD and CONCURRENTLY. When an enemy
+  // owns 2 workers they run independent searches and the main thread MERGES their root-move visit
+  // counts (root parallelization) — roughly doubling the effective simulation budget at the SAME
+  // think-time. null = not built yet · false = unavailable/disabled · [Worker,…] = ready.
   let planWorkers = null, planReqSeq = 0;
   const planJobs = {};   // request id -> owner awaiting a move
+  const planAgg = {};    // owner -> { remaining, tally:{moveKey:{move,visits}}, viz, vizIters } while a worker GROUP runs
+  // Which workers plan for this enemy. With enough cores each enemy gets a 2-worker group (its
+  // searches are merged); on a smaller machine it falls back to a single dedicated worker.
+  function workersFor(owner){
+    const P = planWorkers.length;
+    const E = Math.max(1, (LEVELS[levelIdx].enemies) || 1);
+    const per = Math.max(1, Math.min(2, Math.floor(P / E)));
+    const base = ((owner - 2) * per) % P, g = [];
+    for (let i=0;i<per;i++) g.push(planWorkers[((base + i) % P + P) % P]);
+    return g;
+  }
   function ensurePlanWorkers(){
     if (Array.isArray(planWorkers)) return true;
     if (planWorkers === false) return false;          // already tried and failed
@@ -1524,7 +1538,7 @@
     try {
       const src = '(' + planWorkerMain.toString() + ')()';
       const url = URL.createObjectURL(new Blob([src], { type:'application/javascript' }));
-      const n = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4));
+      const n = Math.max(1, Math.min(8, navigator.hardwareConcurrency || 4));
       planWorkers = [];
       for (let i=0;i<n;i++){
         const w = new Worker(url);
@@ -1539,17 +1553,34 @@
   function planWorkerMove(owner){
     if (planPending[owner]) return;                   // already thinking about this enemy
     planPending[owner] = true;
-    const id = ++planReqSeq; planJobs[id] = owner;
-    const w = planWorkers[(owner-2 + planWorkers.length) % planWorkers.length];  // dedicated worker per enemy
-    w.postMessage({ type:'plan', id, req: buildPlanRequest(owner, 'worker') });
+    const group = workersFor(owner);                  // 1 or 2 workers, depending on the machine
+    planAgg[owner] = { remaining: group.length, tally: {}, viz: null, vizIters: -1, totalIters: 0 };
+    const req = buildPlanRequest(owner, 'worker');    // same board to every worker in the group
+    const epoch = planEpoch;
+    for (const w of group){ const id = ++planReqSeq; planJobs[id] = { owner, epoch }; w.postMessage({ type:'plan', id, req }); }
   }
   function onPlanWorkerMsg(e){
     const m = e.data; if (!m || m.type !== 'plan') return;
-    const owner = planJobs[m.id]; delete planJobs[m.id];
-    if (owner != null) planPending[owner] = false;
+    const job = planJobs[m.id]; delete planJobs[m.id];
+    if (!job || job.epoch !== planEpoch) return;      // stale reply from a previous game — drop it
+    const owner = job.owner;
+    const agg = planAgg[owner];
+    if (!agg) return;                                 // stale (group already resolved / aborted)
+    // merge this worker's root-move visit counts into the group tally
+    if (m.roots) for (const r of m.roots){ const key = r.move ? r.move[0]+'>'+r.move[1] : 'noop';
+      const cur = agg.tally[key] || (agg.tally[key] = { move: r.move, visits: 0 }); cur.visits += r.visits; }
+    agg.totalIters += (m.iters||0);
+    if (m.viz && (m.iters||0) > agg.vizIters){ agg.viz = m.viz; agg.vizIters = m.iters||0; }
+    if (--agg.remaining > 0) return;                  // wait for the rest of the group
+    delete planAgg[owner]; planPending[owner] = false;
     if (!running) return;
-    if (m.viz && showNN && vizMode==='planner'){ planViz = m.viz; planVizDirty = true; }
-    if (m.move){ const s=states[m.move[0]], t=states[m.move[1]];
+    if (agg.viz && showNN && vizMode==='planner'){ agg.viz.iters = agg.totalIters;   // show COMBINED sims/move
+      planViz = agg.viz; planVizDirty = true; }
+    // commit the root move with the most COMBINED visits across the group (no-op wins => do nothing)
+    let bestMove = null, bestV = -1, noopV = -1;
+    for (const k in agg.tally){ const c = agg.tally[k];
+      if (k === 'noop'){ noopV = c.visits; } else if (c.visits > bestV){ bestV = c.visits; bestMove = c.move; } }
+    if (bestMove && bestV > noopV){ const s=states[bestMove[0]], t=states[bestMove[1]];
       // same guards as the server path: ignore a stale/relocated source, and don't let it
       // instantly flee a freshly-threatened state (wait out REACT_DELAY).
       if (s && t && s!==t && s.owner===owner && !freshThreat(s)) sendTroops(s, t); }
@@ -1716,13 +1747,18 @@
       for (var i=0;i<root.children.length;i++) if (!bestChild || root.children[i].N>bestChild.N) bestChild=root.children[i];
       var move=(bestChild && bestChild.move) ? bestChild.move : null;
       var viz=req.wantViz ? buildViz(root, bestChild, iter, owner) : null;
-      return { move:move, viz:viz };
+      // root-move visit counts, so the main thread can MERGE several workers' independent searches
+      // (root parallelization): each worker explores a different random tree; summing visits per
+      // root move across them is like one search with the combined simulation budget.
+      var roots=[];
+      for (var r=0;r<root.children.length;r++) roots.push({ move:root.children[r].move, visits:root.children[r].N });
+      return { move:move, viz:viz, roots:roots, iters:iter };
     }
     self.onmessage = function(e){
       var m=e.data; if (!m) return;
       if (m.type==='init'){ POL=m.policy; return; }
-      if (m.type==='plan'){ if (!POL){ self.postMessage({ type:'plan', id:m.id, move:null, viz:null }); return; }
-        var out=plan(m.req); self.postMessage({ type:'plan', id:m.id, move:out.move, viz:out.viz }); }
+      if (m.type==='plan'){ if (!POL){ self.postMessage({ type:'plan', id:m.id, move:null, viz:null, roots:[], iters:0 }); return; }
+        var out=plan(m.req); self.postMessage({ type:'plan', id:m.id, move:out.move, viz:out.viz, roots:out.roots, iters:out.iters }); }
     };
   }
 
@@ -3257,7 +3293,7 @@
     levelIdx = scnLevelIdx; const lv = LEVELS[levelIdx]; cfg = lv;
     if (regionIdx !== scnRegionIdx){ regionIdx = scnRegionIdx; buildStatesForRegion(); buildRegionButtons(); }
     buildGeo();
-    troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; aiTimers={}; planPending={}; resetCam();
+    troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; aiTimers={}; planPending={}; planEpoch++; resetCam();
     matchTrack = null;
 
     const N = states.length;
