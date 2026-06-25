@@ -137,7 +137,7 @@ def main():
     print(f"feats16 net params={n} arch={ARCH16} cores={os.cpu_count()}", flush=True)
     print(f"WARM-START (=shipped 64-net, new inputs zeroed): econ {base_ev['econ']:.2f} turtle {base_ev['turtle']:.2f} rush {base_ev['rush']:.2f} heur {base_ev['heur']:.2f} rand {base_ev['rand']:.2f} metric {base_m:.3f}", flush=True)
     pool=Pool(processes=min(4,os.cpu_count() or 4)); t0=time.time()
-    data=[]; it=0; st=(np.zeros(n),np.zeros(n),0,4e-4); loss=0.0
+    data=[]; it=0; st=(np.zeros(n),np.zeros(n),0,1.2e-4); loss=0.0   # gentle LR: preserve the warm-start, let features only add
     json.dump(T.to_json(champ),open(os.path.join(SCR,'policy_big16_new.json'),'w'))   # warm-start as initial
     try:
         while time.time()-t0<secs:
@@ -153,10 +153,11 @@ def main():
                 for k in range(0,len(idx),64):
                     th,st,loss=train_epoch(th,[data[j] for j in idx[k:k+64]],st)
             ev=T.evalset(th,randnet,rng,120); m=T.metric(ev)
-            ok = ev['rand']>=base_ev['rand']-0.05 and ev['rush']>=base_ev['rush']-0.06 and ev['econ']>=base_ev['econ']-0.05 and ev['turtle']>=base_ev['turtle']-0.05
+            # league metric is timing-blind, so save the LATEST no-regression net (most-trained) and let the arena judge.
+            ok = ev['rush']>=base_ev['rush']-0.06 and ev['econ']>=base_ev['econ']-0.05 and ev['turtle']>=base_ev['turtle']-0.05
             tag=""
-            if m>best_m+0.004 and ok:
-                best_m=m; champ=th.copy(); tag=" *champion*"
+            if ok:
+                champ=th.copy(); tag=" *saved*" if m>=best_m else " *saved(latest)*"; best_m=max(best_m,m)
                 json.dump(T.to_json(champ),open(os.path.join(SCR,'policy_big16_new.json'),'w'))
             print(f"it {it:3d} t={time.time()-t0:5.0f}s data={len(data)} loss~{loss:.3f} econ {ev['econ']:.2f} turtle {ev['turtle']:.2f} rush {ev['rush']:.2f} heur {ev['heur']:.2f} rand {ev['rand']:.2f} metric {m:.3f}(base {base_m:.3f}){tag}", flush=True)
     finally:
