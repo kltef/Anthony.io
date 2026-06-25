@@ -12,7 +12,9 @@ import numpy as np, json, time, sys, os
 from multiprocessing import Pool
 import train_rl as T
 
-ARCHB=[12,64,64,1]
+import os as _os
+_W=int(_os.environ.get('NET_WIDTH','64'))      # Phase C: configurable hidden width via NET_WIDTH
+ARCHB=[12,_W,_W,1]
 T.ARCH=ARCHB                      # so T.unpack / T.to_json / T.evalset operate on the BIGGER net
 FN=T.FN; CAP=T.CAP; SCR=T.SCR; POLICY=T.POLICY
 
@@ -178,7 +180,7 @@ def main():
             tag=""
             if m>best_m+0.005 and ok:
                 best_m=m; champ=th.copy(); tag=" *champion*"
-                json.dump(T.to_json(champ),open(os.path.join(SCR,'policy_big_new.json'),'w'))
+                json.dump(T.to_json(champ),open(os.path.join(SCR,f'policy_big{_W}_new.json'),'w'))
             print(f"it {it:3d} t={time.time()-t0:5.0f}s data={len(data)} loss~{loss:.3f} econ {ev['econ']:.2f} turtle {ev['turtle']:.2f} rush {ev['rush']:.2f} heur {ev['heur']:.2f} rand {ev['rand']:.2f} metric {m:.3f}(base {base_m:.3f}){tag}", flush=True)
     finally:
         pool.close(); pool.join()
@@ -188,7 +190,7 @@ def main():
            fev['econ']>=base_ev['econ']-0.04 and fev['turtle']>=base_ev['turtle']-0.04
     print(f"DONE its={it} BIG champion: econ {fev['econ']:.2f} turtle {fev['turtle']:.2f} rush {fev['rush']:.2f} heur {fev['heur']:.2f}(base {base_ev['heur']:.2f}) rand {fev['rand']:.2f} metric {fm:.3f}(base {base_m:.3f})", flush=True)
     if ship:
-        json.dump(T.to_json(champ),open(os.path.join(SCR,'policy_big_new.json'),'w'))
+        json.dump(T.to_json(champ),open(os.path.join(SCR,f'policy_big{_W}_new.json'),'w'))
         print(f"SHIP: bigger net clears the gate (heur {fev['heur']-base_ev['heur']:+.2f}, metric {fm-base_m:+.2f}). saved.", flush=True)
     else:
         print("NO-REGRESSION: bigger capacity did not clear the gate; not shipping. (current net stays.)", flush=True)
