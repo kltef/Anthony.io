@@ -122,6 +122,26 @@ def globals_for(g, owner):
     myTot=float(t[o==owner].sum()); myStates=int((o==owner).sum())
     myAvg=myTot/max(1,myStates); allTot=float(t[o>0].sum())
     return (maxEnemy, myTot/max(1e-9,allTot), myAvg, bigIdx, myStates/N)
+def incoming_for(g, owner):
+    # in-flight troops arriving at each state: enemy (not mine) vs mine. Mirrors the JS incomingTo().
+    N=g['N']; incE=np.zeros(N); incM=np.zeros(N)
+    for a in g['armies']:
+        if a['owner']==owner: incM[a['ti']]+=a['count']
+        else: incE[a['ti']]+=a['count']
+    return incE, incM
+def feats16(g, si, owner, tgts, glob, inc):
+    # the 12 threat-aware features + 4 in-flight/timing features the net was blind to:
+    #   [incEnemy@tgt, incEnemy@src(=source vulnerability), incMine@tgt, canWinAfterInflight]
+    base=feats12(g, si, owner, tgts, glob)
+    incE,incM=inc; m=len(tgts); st=g['troops'][si]
+    incEtg=incE[tgts]; incMtg=incM[tgts]; incEsrc=incE[si]
+    extra=np.stack([
+        incEtg/FN,                                   # enemy reinforcements inbound to the target
+        np.full(m, incEsrc/FN),                      # enemy attack inbound to my source (don't empty it)
+        incMtg/FN,                                   # my troops already en route to the target
+        (st > g['troops'][tgts]+incEtg-incMtg).astype(np.float64),  # can I still win after in-flight resolves?
+    ],axis=1)
+    return np.concatenate([base, extra], axis=1)
 def choose(layers, noop, g, owner):
     o=g['owner']; t=g['troops']
     srcs=np.where((o==owner)&(t>=5))[0]
@@ -132,6 +152,18 @@ def choose(layers, noop, g, owner):
     best=noop; mv=None
     for si in srcs:
         sc=forward(layers, feats12(g,si,owner,tgts,glob)); j=int(np.argmax(sc))
+        if sc[j]>best: best=sc[j]; mv=(int(si),int(tgts[j]))
+    return mv
+def choose16(layers, noop, g, owner):   # 16-feature variant; monkeypatch onto `choose` to eval a 16-input net
+    o=g['owner']; t=g['troops']
+    srcs=np.where((o==owner)&(t>=5))[0]
+    if len(srcs)==0: return None
+    tgts=np.where(o!=owner)[0]
+    if len(tgts)==0: return None
+    glob=globals_for(g, owner); inc=incoming_for(g, owner)
+    best=noop; mv=None
+    for si in srcs:
+        sc=forward(layers, feats16(g,si,owner,tgts,glob,inc)); j=int(np.argmax(sc))
         if sc[j]>best: best=sc[j]; mv=(int(si),int(tgts[j]))
     return mv
 def heuristic(g,owner):

@@ -11,7 +11,7 @@
 const fs = require('fs');
 const { performance } = require('perf_hooks');
 
-const htmlPath = 'src/web/index.html';
+const htmlPath0 = process.env.HTML_DEFAULT || 'src/web/index.html';
 const [,, pathA, pathB, gamesArg, budgetArg, blendAArg, blendBArg] = process.argv;
 const GAMES = +(gamesArg || 40);
 const TBUDGET = +(budgetArg || 60);
@@ -20,12 +20,19 @@ const BLEND_B = blendBArg!=null ? +blendBArg : null;
 const NSTATES = 16, HORIZON = 8, DT = 0.4, K = 9, CPUCT = 1.3;
 const ORB = 70, AISPD = 0.6, ENVDT = 0.2, GAMECAP = 38, CADENCE = 0.7;
 
-// ---- extract planWorkerMain() source verbatim and instantiate it as a callable planner ----
-const html = fs.readFileSync(htmlPath, 'utf8');
-const m = html.match(/function planWorkerMain\(\)\s*\{[\s\S]*?\n  \}\n/);
-if (!m) { console.error('could not extract planWorkerMain'); process.exit(1); }
-const workerSrc = m[0];
-function makePlanner(policy, valueBlend){
+// ---- extract planWorkerMain() source verbatim (per html file) and instantiate as a callable planner ----
+// HTML_A / HTML_B env vars override the worker source per config, so a 16-input net (new index.html)
+// can play a 12-input net (snapshotted old index.html) across a feature-set change.
+const _srcCache = {};
+function loadWorkerSrc(path){
+  if (_srcCache[path]) return _srcCache[path];
+  const html = fs.readFileSync(path, 'utf8');
+  const m = html.match(/function planWorkerMain\(\)\s*\{[\s\S]*?\n  \}\n/);
+  if (!m) { console.error('could not extract planWorkerMain from '+path); process.exit(1); }
+  return (_srcCache[path] = m[0]);
+}
+function makePlanner(policy, valueBlend, htmlPath){
+  const workerSrc = loadWorkerSrc(htmlPath || htmlPath0);
   const self = { postMessage:(msg)=>{ self._last = msg; }, performance };
   // free variable `self` inside planWorkerMain resolves to this param lexically
   const install = new Function('self', '(' + workerSrc + ')();');
@@ -102,7 +109,7 @@ function playGame(planA, planB, ownerA, ownerB){
 function main(){
   const polA = JSON.parse(fs.readFileSync(pathA,'utf8'));
   const polB = JSON.parse(fs.readFileSync(pathB,'utf8'));
-  const planA = makePlanner(polA, BLEND_A), planB = makePlanner(polB, BLEND_B);
+  const planA = makePlanner(polA, BLEND_A, process.env.HTML_A), planB = makePlanner(polB, BLEND_B, process.env.HTML_B);
   const lays = (p,bl) => p.layers.map(l=>l.b.length).join('-') + (p.value?` +value(w=${bl==null?0.5:bl})`:'');
   console.log(`ARENA: A=${pathA} [${lays(polA,BLEND_A)}]  vs  B=${pathB} [${lays(polB,BLEND_B)}]`);
   console.log(`games=${GAMES} budget=${TBUDGET}ms/move states=${NSTATES} (same budget => slower net does fewer sims)`);
