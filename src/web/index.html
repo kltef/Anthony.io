@@ -437,15 +437,15 @@
     { name:'Easy',   enemies:1, aiSpeed:2.6, aiAggro:0.30, neutralMin:5,  neutralMax:18, growRate:1.7, playerStart:45, enemyStart:22, enemyGrow:0.65 },
     { name:'Medium', enemies:2, aiSpeed:1.4, aiAggro:0.70, neutralMin:10, neutralMax:34, growRate:1.2, playerStart:35, enemyStart:30, enemyGrow:0.9  },
     { name:'Hard',   enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:36, enemyGrow:1.0  },
-    // Grandmaster: the trained reinforcement-learning policy wrapped in a shallow-rollout PLANNER
-    // that simulates each candidate move several seconds into the future and picks the best
-    // projected board. Grandmaster plays fair: enemies start with the SAME unit count as the player
-    // (30) and the same growth rate (1.0×). No economic handicap — the difficulty is pure planner.
-    // `hunt` (0..1) = how willing the AI is to attack YOU before the neutral land is gone. Classic
-    // tiers stay timid (0) and ignore the player early; the hard tiers HUNT a leading/turtling human.
-    { name:'Grandmaster', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true, hunt:0.6 },
-    // Impossible: built to be brutal — but it now plays FAIR at the opening and earns the win with
-    // its brain, not a head start. Everyone (you + all four enemies) starts on the SAME unit count
+    // Grandmaster: the trained RL policy net playing on INSTINCT. It scores every move with the
+    // neural net and plays the best one immediately — NO planner lookahead, NO coordinated salvos.
+    // Smart per-move (threat-aware target selection), fast and reactive, but it doesn't think ahead
+    // or gang up — that's Impossible's job. A genuinely different, lighter brain one notch below it.
+    // `hunt` (0..1) = how willing the AI is to attack YOU before the neutral land is gone.
+    { name:'Grandmaster', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, hunt:0.6 },
+    // Impossible: the SAME net, but wrapped in the full MCTS PLANNER (lookahead + value net + rollouts)
+    // and coordinated multi-state salvos — it thinks several seconds ahead and gangs up. Built to be
+    // brutal but FAIR at the opening: everyone (you + all four enemies) starts on the SAME unit count
     // (22). The twist is rope-a-dope: for the first ~35s it plays timid (rope:true, low hunt) so it
     // grabs neutral land and leaves YOU alone — you feel like you're winning. Past the rope window
     // its hunt ramps PAST normal into a CRUSH (crush:1.6) and, growing 70% faster (enemyGrow 1.7),
@@ -1992,9 +1992,9 @@
       if (aiTimers[owner]>0) return;
       aiTimers[owner]=aiCooldown(lv);
 
-      // Coordinated multi-state salvo (only the trained tiers): overwhelm a turtled wall that
-      // no single state can crack. Pre-empts the single-move logic when it fires.
-      if ((lv.rl || lv.plan) && coordinatedAssault(owner)) return;
+      // Coordinated multi-state salvo (PLANNER tier only — Impossible): overwhelm a turtled wall that
+      // no single state can crack. Grandmaster plays on raw instinct (no salvo), so this is plan-gated.
+      if (lv.plan && coordinatedAssault(owner)) return;
 
       if (lv.plan && rlPolicy) { planMove(owner); return; }   // off-thread MCTS (Web Worker, else server, else sync)
       if (useRL) { rlMove(owner); return; }
