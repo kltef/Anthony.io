@@ -1422,7 +1422,10 @@
     if (mv){ snapSend(s, mv[0], mv[1]); events.push({ t:parentTime, o:owner, from:planName(mv[0]), to:planName(mv[1]) }); }
     const cad = LEVELS[levelIdx].aiSpeed, half = cad/2;
     snapAdvance(s, half);
-    for (const o of snapOwners(s)){ if (o===owner) continue; const m=snapHeuristic(s,o);
+    for (const o of snapOwners(s)){ if (o===owner) continue;
+      // model the HUMAN with the net (snapGreedy treats all others as rivals when o===PLAYER, since
+      // it can't target its own states), rivals with the cheap heuristic.
+      const m = (o===PLAYER) ? snapGreedy(s,o) : snapHeuristic(s,o);
       if (m){ snapSend(s, m[0], m[1]); events.push({ t:parentTime+half, o, from:planName(m[0]), to:planName(m[1]) }); } }
     snapAdvance(s, half);
     return { snap:s, time:parentTime+cad, events };
@@ -1671,13 +1674,40 @@
         if (sc>best){ best=sc; bt=ti; } }
       return bt<0 ? null : [si,bt];
     }
+    // Net-quality opponent model: the best move the TRAINED net would pick for `owner` (no hunt
+    // bias — from this seat everyone else is just a rival). Used to model the HUMAN inside the
+    // search so the planner anticipates STRONG play instead of assuming a dumb greedy human.
+    function snapGreedyNet(s, owner){
+      var FN=POL.feat_norm||50, ownCount=0;
+      for (var i=0;i<s.n;i++) if (s.owner[i]===owner) ownCount++;
+      if (!ownCount) return null;
+      var ownFrac=ownCount/s.n, srcs=[];
+      for (i=0;i<s.n;i++) if (s.owner[i]===owner && s.troops[i]>=5) srcs.push(i);
+      if (!srcs.length) return null;
+      if (srcs.length>2) srcs=srcs.sort(function(a,b){ return s.troops[b]-s.troops[a]; }).slice(0,2);
+      var myTot=0, allTot=0, maxEnemy=0, bigIdx=-1;
+      for (i=0;i<s.n;i++){ var oo=s.owner[i], tr=s.troops[i];
+        if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
+      var myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
+      var best=POL.noop_bias||0, bs=-1, bt=-1;
+      for (var q=0;q<srcs.length;q++){ var si=srcs[q], st=s.troops[si];
+        for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; var tt=s.troops[ti];
+          var sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/DIAG,
+            s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+            maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
+          sc += (s.owner[ti]===NEUTRAL) ? 0.3 : 0.8;     // mild "keep engaging" bias (no player-hunt)
+          if (sc>best){ best=sc; bs=si; bt=ti; } } }
+      return bs<0 ? null : [bs,bt];
+    }
     function mctsAdvance(parentSnap, owner, mv, parentTime){
       var s=cloneSnap(parentSnap), events=[];
       if (mv){ snapSend(s, mv[0], mv[1]); events.push({ t:parentTime, o:owner, from:nm(mv[0]), to:nm(mv[1]) }); }
       var cad=AISP, half=cad/2;
       snapAdvance(s, half);
       var os=snapOwners(s);
-      for (var k=0;k<os.length;k++){ var o=os[k]; if (o===owner) continue; var m=snapHeuristic(s,o);
+      for (var k=0;k<os.length;k++){ var o=os[k]; if (o===owner) continue;
+        // model the HUMAN with the net (anticipate strong play); rivals stay on the cheap heuristic
+        var m=(o===PLAYER)?snapGreedyNet(s,o):snapHeuristic(s,o);
         if (m){ snapSend(s, m[0], m[1]); events.push({ t:parentTime+half, o:o, from:nm(m[0]), to:nm(m[1]) }); } }
       snapAdvance(s, half);
       return { snap:s, time:parentTime+cad, events:events };
@@ -1685,6 +1715,8 @@
     function nodeVal(s, owner){
       var cnt={}, mass={};
       for (var i=0;i<s.n;i++){ var o=s.owner[i]; if (o!==NEUTRAL){ cnt[o]=(cnt[o]||0)+1; mass[o]=(mass[o]||0)+s.troops[i]; } }
+      // count troops in flight toward their owner's mass — a big incoming wave is real strength
+      for (var a=0;a<s.armies.length;a++){ var ar=s.armies[a]; if (ar.owner!==NEUTRAL) mass[ar.owner]=(mass[ar.owner]||0)+ar.count; }
       var myStates=cnt[owner]||0; if (myStates===0) return -1;
       if (Object.keys(cnt).length===1) return 1;
       function strength(o){ return (cnt[o]||0)+(mass[o]||0)/30; }
