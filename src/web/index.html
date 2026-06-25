@@ -587,7 +587,38 @@
     return x[0];
   }
 
-  // ---- neural-network visualizer state ----
+  // ---- learned VALUE network (planner leaf evaluation) ----
+  // valueScore: run the value MLP (rlPolicy.value) over a board-feature vector -> expected result
+  // in [-1,1]. valueFeatsSnap: the 12 owner-relative board features. BOTH the feature order here
+  // and the worker copy MUST match tools/train_value.py vfeats_from() exactly.
+  function valueScore(feats){
+    if (!rlPolicy || !rlPolicy.value) return null;
+    let x = feats;
+    for (const layer of rlPolicy.value.layers){
+      const out = new Array(layer.b.length);
+      for (let o=0;o<layer.b.length;o++){ let acc=layer.b[o]; const row=layer.W[o];
+        for (let i=0;i<row.length;i++) acc+=row[i]*x[i];
+        out[o]=Math.tanh(acc); }
+      x = out;
+    }
+    return x[0];
+  }
+  function valueFeatsSnap(s, owner){
+    const CAPV=MAX_TROOPS; let allT=0, neu=0, ownS=0, ownT=0, bigEnemy=0;
+    const cntS={}, cntT={};
+    for (let i=0;i<s.n;i++){ const o=s.owner[i], tr=s.troops[i];
+      if (o===NEUTRAL){ neu++; continue; }
+      allT+=tr; cntS[o]=(cntS[o]||0)+1; cntT[o]=(cntT[o]||0)+tr;
+      if (o===owner){ ownS++; ownT+=tr; } else if (tr>bigEnemy) bigEnemy=tr; }
+    let ifOwn=0, ifAll=0; const alive={}; for (const o in cntS) alive[o]=1;
+    for (let a=0;a<s.armies.length;a++){ const ar=s.armies[a]; if (ar.owner===NEUTRAL) continue;
+      ifAll+=ar.count; alive[ar.owner]=1; if (ar.owner===owner) ifOwn+=ar.count; }
+    let maxES=0, maxET=0;
+    for (const o in cntS){ if (+o===owner) continue; if (cntS[o]>maxES) maxES=cntS[o]; if (cntT[o]>maxET) maxET=cntT[o]; }
+    const N=s.n, aT=Math.max(1,allT), ownAvg=ownT/Math.max(1,ownS);
+    return [ ownS/N, ownT/aT, maxES/N, maxET/aT, (ownS-maxES)/N, (ownT-maxET)/aT,
+             neu/N, Object.keys(alive).length/5, ownAvg/CAPV, bigEnemy/CAPV, ownT/(N*CAPV), (2*ifOwn-ifAll)/aT ];
+  }
   let showNN = false;       // toggle
   let vizMode = 'brain';    // which overlay view: 'brain' (neural net) | 'planner' (rollout tree)
   let planViz = null;       // last planner decision (Grandmaster/Impossible), for the overlay
@@ -1441,7 +1472,10 @@
     const strength=o=>(cnt[o]||0)+(mass[o]||0)/30;
     const mine=strength(owner);
     let best=0; for (const o in cnt){ const k=+o; if (k!==owner) best=Math.max(best,strength(k)); }
-    return Math.tanh(0.22*(mine-best));
+    const heur=Math.tanh(0.22*(mine-best));
+    // blend the hand heuristic with the LEARNED value net (predicts the actual game outcome)
+    const v = valueScore(valueFeatsSnap(s, owner));
+    return v==null ? heur : 0.5*heur + 0.5*v;
   }
   // score all candidate moves on a snapshot with the net + biases (mirrors snapGreedy), then
   // soft-max the top K (+ no-op) into policy priors for PUCT.
@@ -1712,6 +1746,33 @@
       snapAdvance(s, half);
       return { snap:s, time:parentTime+cad, events:events };
     }
+    // learned value net (mirror of the main thread; POL.value set on init). Feature order MUST
+    // match tools/train_value.py vfeats_from() exactly.
+    function valueScore(feats){
+      if (!POL.value) return null;
+      var x=feats;
+      for (var l=0;l<POL.value.layers.length;l++){ var layer=POL.value.layers[l], out=new Array(layer.b.length);
+        for (var o=0;o<layer.b.length;o++){ var acc=layer.b[o], row=layer.W[o];
+          for (var i=0;i<row.length;i++) acc+=row[i]*x[i];
+          out[o]=Math.tanh(acc); }
+        x=out; }
+      return x[0];
+    }
+    function valueFeatsSnap(s, owner){
+      var CAPV=MAX_TROOPS, allT=0, neu=0, ownS=0, ownT=0, bigEnemy=0, cntS={}, cntT={}, i;
+      for (i=0;i<s.n;i++){ var o=s.owner[i], tr=s.troops[i];
+        if (o===NEUTRAL){ neu++; continue; }
+        allT+=tr; cntS[o]=(cntS[o]||0)+1; cntT[o]=(cntT[o]||0)+tr;
+        if (o===owner){ ownS++; ownT+=tr; } else if (tr>bigEnemy) bigEnemy=tr; }
+      var ifOwn=0, ifAll=0, alive={}; for (var q in cntS) alive[q]=1;
+      for (var a=0;a<s.armies.length;a++){ var ar=s.armies[a]; if (ar.owner===NEUTRAL) continue;
+        ifAll+=ar.count; alive[ar.owner]=1; if (ar.owner===owner) ifOwn+=ar.count; }
+      var maxES=0, maxET=0;
+      for (var o2 in cntS){ if (+o2===owner) continue; if (cntS[o2]>maxES) maxES=cntS[o2]; if (cntT[o2]>maxET) maxET=cntT[o2]; }
+      var N=s.n, aT=Math.max(1,allT), ownAvg=ownT/Math.max(1,ownS);
+      return [ ownS/N, ownT/aT, maxES/N, maxET/aT, (ownS-maxES)/N, (ownT-maxET)/aT,
+               neu/N, Object.keys(alive).length/5, ownAvg/CAPV, bigEnemy/CAPV, ownT/(N*CAPV), (2*ifOwn-ifAll)/aT ];
+    }
     function nodeVal(s, owner){
       var cnt={}, mass={};
       for (var i=0;i<s.n;i++){ var o=s.owner[i]; if (o!==NEUTRAL){ cnt[o]=(cnt[o]||0)+1; mass[o]=(mass[o]||0)+s.troops[i]; } }
@@ -1722,7 +1783,9 @@
       function strength(o){ return (cnt[o]||0)+(mass[o]||0)/30; }
       var mine=strength(owner), best=0;
       for (var o2 in cnt){ var k=+o2; if (k!==owner) best=Math.max(best,strength(k)); }
-      return Math.tanh(0.22*(mine-best));
+      var heur=Math.tanh(0.22*(mine-best));
+      var v=valueScore(valueFeatsSnap(s, owner));   // blend hand heuristic with the learned value net
+      return v==null ? heur : 0.5*heur + 0.5*v;
     }
     function computeUntried(s, owner){
       var FN=POL.feat_norm||50, ownCount=0;
