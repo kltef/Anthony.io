@@ -193,7 +193,7 @@ def main():
     print(f"params={n} DISTILL/DAgger cores={os.cpu_count()}", flush=True)
     print(f"BASELINE: econ {base_ev['econ']:.2f} turtle {base_ev['turtle']:.2f} rush {base_ev['rush']:.2f} heur {base_ev['heur']:.2f} rand {base_ev['rand']:.2f} metric {base_m:.3f}", flush=True)
     pool=Pool(processes=min(4,os.cpu_count() or 4)); t0=time.time()
-    data=[]; it=0; lr_state=(np.zeros(n),np.zeros(n),0,6e-4); loss=0.0
+    data=[]; it=0; lr_state=(np.zeros(n),np.zeros(n),0,3e-4); loss=0.0
     try:
         while time.time()-t0<secs:
             it+=1
@@ -208,7 +208,7 @@ def main():
             if len(data)<300:
                 print(f"it {it:3d} t={time.time()-t0:6.0f}s warming up data={len(data)}", flush=True); continue
             # a few gentle supervised epochs over the accumulated dataset
-            for ep in range(3):
+            for ep in range(2):
                 idx=rng.permutation(len(data))
                 for k in range(0,len(idx),64):
                     batch=[data[j] for j in idx[k:k+64]]
