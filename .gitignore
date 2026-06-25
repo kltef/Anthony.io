@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 
-# Training artifact — a candidate model written by tools/train_rl.py. Only promoted
-# to src/web/rl_policy.json (and rebuilt into the APK) if it beats the baseline.
+# Training artifacts — candidate models written by the trainers. Only promoted
+# to src/web/rl_policy.json (and rebuilt into the APK) if they beat the baseline.
 tools/rl_policy_new.json
+tools/policy_big_new.json
