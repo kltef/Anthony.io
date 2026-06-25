@@ -12,9 +12,11 @@ const fs = require('fs');
 const { performance } = require('perf_hooks');
 
 const htmlPath = 'src/web/index.html';
-const [,, pathA, pathB, gamesArg, budgetArg] = process.argv;
+const [,, pathA, pathB, gamesArg, budgetArg, blendAArg, blendBArg] = process.argv;
 const GAMES = +(gamesArg || 40);
 const TBUDGET = +(budgetArg || 60);
+const BLEND_A = blendAArg!=null ? +blendAArg : null;   // optional per-config value/heuristic blend
+const BLEND_B = blendBArg!=null ? +blendBArg : null;
 const NSTATES = 16, HORIZON = 8, DT = 0.4, K = 9, CPUCT = 1.3;
 const ORB = 70, AISPD = 0.6, ENVDT = 0.2, GAMECAP = 38, CADENCE = 0.7;
 
@@ -23,13 +25,14 @@ const html = fs.readFileSync(htmlPath, 'utf8');
 const m = html.match(/function planWorkerMain\(\)\s*\{[\s\S]*?\n  \}\n/);
 if (!m) { console.error('could not extract planWorkerMain'); process.exit(1); }
 const workerSrc = m[0];
-function makePlanner(policy){
+function makePlanner(policy, valueBlend){
   const self = { postMessage:(msg)=>{ self._last = msg; }, performance };
   // free variable `self` inside planWorkerMain resolves to this param lexically
   const install = new Function('self', '(' + workerSrc + ')();');
   install(self);
   self.onmessage({ data:{ type:'init', policy } });
-  return (req) => { self.onmessage({ data:{ type:'plan', id:1, req } }); return self._last && self._last.move; };
+  return (req) => { if (valueBlend!=null) req.valueBlend = valueBlend;   // per-planner leaf-eval blend
+    self.onmessage({ data:{ type:'plan', id:1, req } }); return self._last && self._last.move; };
 }
 
 // ---- faithful environment (mirrors the worker's snapStep/snapSend: growth + orb travel + combat) ----
@@ -99,9 +102,9 @@ function playGame(planA, planB, ownerA, ownerB){
 function main(){
   const polA = JSON.parse(fs.readFileSync(pathA,'utf8'));
   const polB = JSON.parse(fs.readFileSync(pathB,'utf8'));
-  const planA = makePlanner(polA), planB = makePlanner(polB);
-  const lays = p => p.layers.map(l=>l.b.length).join('-') + (p.value?' +value':'');
-  console.log(`ARENA: A=${pathA} [${lays(polA)}]  vs  B=${pathB} [${lays(polB)}]`);
+  const planA = makePlanner(polA, BLEND_A), planB = makePlanner(polB, BLEND_B);
+  const lays = (p,bl) => p.layers.map(l=>l.b.length).join('-') + (p.value?` +value(w=${bl==null?0.5:bl})`:'');
+  console.log(`ARENA: A=${pathA} [${lays(polA,BLEND_A)}]  vs  B=${pathB} [${lays(polB,BLEND_B)}]`);
   console.log(`games=${GAMES} budget=${TBUDGET}ms/move states=${NSTATES} (same budget => slower net does fewer sims)`);
   let aWins=0, bWins=0;
   const t0=performance.now();
