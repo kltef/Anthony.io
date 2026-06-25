@@ -14,7 +14,10 @@ import train_value as V
 
 ARCHB=[12,64,64,1]
 T.ARCH=ARCHB
-FN=T.FN; SCR=T.SCR; POLICY=T.POLICY
+FN=T.FN; SCR=T.SCR
+# BASE_NET overrides the teacher/warm-start net so each expert-iteration round builds on the last
+# (rising ceiling). Defaults to the shipped net for round 1.
+POLICY=os.environ.get('BASE_NET') or T.POLICY
 
 # ---- load the value net (flat theta in VARCH layout) for the teacher's leaf eval ----
 def load_value_theta(path):
