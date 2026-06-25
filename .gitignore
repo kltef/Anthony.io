@@ -6,3 +6,4 @@ __pycache__/
 # to src/web/rl_policy.json (and rebuilt into the APK) if they beat the baseline.
 tools/rl_policy_new.json
 tools/policy_big_new.json
+tools/policy_big*_new.json
