@@ -452,8 +452,9 @@
     // it turns on you all at once. `desp` makes a CORNERED enemy fight HARDER instead of folding, so
     // you can never just squeeze one down to nothing. Reacts fast (aiSpeed .55), stacks to 250
     // (aiCap) so shop upgrades can't out-muscle it. Fair start, impossible finish. Top tier.
-    { name:'Impossible', enemies:4, aiSpeed:0.55, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.7, rl:true, plan:true,
-      planDt:0.3, mctsK:9, tbudget:4000, workerMs:250, hunt:1.0, aiCap:250, rope:true, ropeT:35, crush:1.6, desp:9 },
+    { name:'Impossible', enemies:4, aiSpeed:0.50, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.7, rl:true, plan:true,
+      planDt:0.3, mctsK:9, tbudget:4000, workerMs:350, hunt:1.0, aiCap:250, rope:true, ropeT:30, crush:1.9, desp:11,
+      huntFloor:0.6, leadGain:1.2, rubber:0.6 },
   ];
   let levelIdx = 0;
 
@@ -801,9 +802,12 @@
   }
 
   let cfg = LEVELS[0];
+  let aiSnow = 0;   // cached humanSnowball() for the current tick (computed once per update)
   function growRateFor(owner) {
     if (owner === PLAYER) return cfg.growRate;
-    if (owner >= 2) return cfg.growRate * cfg.enemyGrow;
+    // Catch-up: enemies grow faster the further the HUMAN runs ahead of a fair share — this is what
+    // lets Impossible answer a shop-boosted economy without an unfair head start in an even game.
+    if (owner >= 2) return cfg.growRate * cfg.enemyGrow * (1 + (cfg.rubber || 0) * aiSnow);
     return 0;
   }
 
@@ -1018,17 +1022,39 @@
   // Feature order MUST match train_rl.py features(): see C:\Users\antho\stateio\train_rl.py.
 
   // ---- Impossible's "rope-a-dope" + comeback aggression ----
+  // humanSnowball(): how far the HUMAN is pulling ahead of a fair share of the board, 0..1.
+  // 0 = at/below an even split (one of N equal players); 1 = at/above DOUBLE a fair share (running
+  // away with it — usually a shop-boosted economy or a turtle hoard). This is the signal that the
+  // "let them think they're winning" rope is being ABUSED and must be dropped.
+  function humanSnowball(){
+    const owners = new Set(); let plyS = 0, totS = 0, plyT = 0, allT = 0;
+    for (const s of states){ if (s.owner!==NEUTRAL){ owners.add(s.owner); totS++; allT += s.troops;
+      if (s.owner===PLAYER){ plyS++; plyT += s.troops; } } }
+    if (!totS || !owners.has(PLAYER)) return 0;
+    const fair = 1/owners.size;
+    // take the WORSE (for the AI) of two leads: territory AND troop-mass. The mass term is what
+    // catches a turtle/airdrop hoarder who holds few states but a giant stack — the AI starts
+    // hunting (and growing to catch up) while they hoard, instead of waiting to be struck.
+    const terr = (plyS/totS - fair) / Math.max(1e-6, fair);
+    const mass = allT>0 ? (plyT/allT - fair) / Math.max(1e-6, fair) : 0;
+    return Math.max(0, Math.min(1, Math.max(terr, mass)));
+  }
   // aiHunt(): the EFFECTIVE hunt for the current moment. Normally just lv.hunt. On a `rope` tier
   // (Impossible) it's time-phased: for the first ropeT seconds it ramps up from a low floor (the
   // AI plays timid — grabs neutral land, leaves you alone, so you feel ahead), then past the rope
-  // window it ramps PAST lv.hunt into `crush` (it turns on you and presses hard). This is what
-  // makes Impossible "let you think you're winning, then crush you".
+  // window it ramps PAST lv.hunt into `crush` (it turns on you and presses hard) — "let you think
+  // you're winning, then crush you". BUT the rope is a trap for an EVEN game: the moment the human
+  // snowballs (shop economy, turtling), aiHunt abandons the timid phase and hunts immediately, so
+  // a strong opening can no longer be parlayed into a safe runaway lead.
   function aiHunt(){
     const lv = LEVELS[levelIdx], base = lv.hunt || 0;
     if (!lv.rope) return base;
     const R = lv.ropeT || 35, t = gameElapsed, lo = 0.12, peak = lv.crush || 1.6;
-    return t < R ? lo + (base - lo) * (t / R)
-                 : base + (peak - base) * Math.min(1, (t - R) / R);
+    let H = t < R ? lo + (base - lo) * (t / R)
+                  : base + (peak - base) * Math.min(1, (t - R) / R);
+    const snow = aiSnow;
+    if (snow > 0) H = Math.max(H, (lv.huntFloor || 0.6) + snow * (lv.leadGain || 1.0));
+    return H;
   }
   // despBias(): extra aggression for a CORNERED enemy (small share of the board). Grows as the AI
   // is squeezed toward elimination, so it fights back harder instead of turtling to death — you
@@ -1914,6 +1940,7 @@
 
   function update(dt) {
     gameTick++; gameElapsed += dt;
+    aiSnow = humanSnowball();   // once per tick: drives enemy catch-up growth + anti-snowball hunt
     updateThreats();
     for (const s of states) {
       const cap = capOf(s);

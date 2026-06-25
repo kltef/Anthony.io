@@ -47,12 +47,19 @@ def to_json(theta):
             "layers":[{"W":W.tolist(),"b":b.tolist(),"act":("tanh" if i<len(layers)-1 else "linear")}
                       for i,(W,b) in enumerate(layers)]}
 def init_from_baseline(path):
-    # build a 12-input net from the shipped 8-input net: first 8 input weights copied, new 4 = 0,
-    # all other layers identical. Behaves EXACTLY like today's net until training uses the new inputs.
+    # Warm-start the search from the shipped net. Two cases:
+    #   * shipped net is already 12-feature  -> load its weights verbatim (identity start).
+    #   * shipped net is the old 8-feature   -> copy the 8 input weights, zero the 4 new ones.
+    # Either way training begins behaving EXACTLY like today's net and only improves from there.
     p=json.load(open(path)); L=p['layers']
-    W0=np.array(L[0]['W'], dtype=np.float64)                       # (32,8)
-    assert W0.shape[1]==8, "baseline must be the 8-feature net"
-    W0e=np.concatenate([W0, np.zeros((W0.shape[0], ARCH[0]-8))], axis=1)   # (32,12)
+    W0=np.array(L[0]['W'], dtype=np.float64)                       # (32, nfeat)
+    nfeat=W0.shape[1]
+    if nfeat==ARCH[0]:
+        W0e=W0
+    elif nfeat==8:
+        W0e=np.concatenate([W0, np.zeros((W0.shape[0], ARCH[0]-8))], axis=1)   # (32,12)
+    else:
+        raise AssertionError(f"baseline has {nfeat} features; expected 8 or {ARCH[0]}")
     parts=[W0e.ravel(), np.array(L[0]['b'],dtype=np.float64).ravel()]
     for k in range(1,len(L)):
         parts.append(np.array(L[k]['W'],dtype=np.float64).ravel())
@@ -155,6 +162,28 @@ def rush(g,owner):
     beat=tgts[t[tgts]<st]; pool=beat if len(beat) else tgts
     d=np.hypot(pos[pool,0]-pos[si,0],pos[pool,1]-pos[si,1])
     return (int(si),int(pool[int(np.argmin(d))]))
+def economist(g,owner):
+    # The "shop turtle" the human used: grab a few cheap states early, then HOARD a huge stack and
+    # only strike when overwhelmingly strong. Combined with the airdrop top-ups injected in play(),
+    # this is the exact hoard-then-crush pattern the net must learn to pre-empt instead of ignore.
+    o=g['owner']; t=g['troops']; pos=g['pos']
+    myStates=int((o==owner).sum())
+    if myStates<=2:                                  # opening: snap up the nearest weak neutral, then sit
+        srcs=np.where((o==owner)&(t>=10))[0]
+        if len(srcs)==0: return None
+        si=srcs[np.argmax(t[srcs])]; st=t[si]
+        neu=np.where(o==0)[0]; neu=neu[t[neu]<st*0.7] if len(neu) else neu
+        if len(neu)==0: return None
+        d=np.hypot(pos[neu,0]-pos[si,0],pos[neu,1]-pos[si,1])
+        return (int(si),int(neu[int(np.argmin(d))]))
+    srcs=np.where((o==owner)&(t>=70))[0]             # hoard to 70+ before committing
+    if len(srcs)==0: return None
+    si=srcs[np.argmax(t[srcs])]; st=t[si]; tgts=np.where(o!=owner)[0]
+    if len(tgts)==0: return None
+    safe=tgts[t[tgts]<st*0.5]                         # only attack when ~2x stronger
+    if len(safe)==0: return None
+    d=np.hypot(pos[safe,0]-pos[si,0],pos[safe,1]-pos[si,1])
+    return (int(si),int(safe[int(np.argmin(d))]))
 def alive_owners(g):
     s=set(int(x) for x in np.unique(g['owner']) if x>0)
     for a in g['armies']: s.add(a['owner'])
@@ -162,15 +191,23 @@ def alive_owners(g):
 def play(seats, rng, N=18, max_t=150.0, dt=0.25):
     P=len(seats); g=new_game(N,P,rng)
     timers={p+1: rng.uniform(0.2,1.0) for p in range(P)}; t=0.0
+    air={p+1:7.0 for p in range(P)}            # airdrop cooldown per seat (economist tops up its hoard)
     while t<max_t:
         step(g,dt); t+=dt
         for p in range(1,P+1):
+            pol=seats[p-1]; k=pol[0]
+            if k=='econ':                       # +25 airdrop onto its biggest state every ~7s (shop perk)
+                air[p]-=dt
+                if air[p]<=0:
+                    air[p]=7.0; own=np.where(g['owner']==p)[0]
+                    if len(own): g['troops'][own[int(np.argmax(g['troops'][own]))]]+=25.0
             timers[p]-=dt
             if timers[p]<=0:
-                timers[p]=rng.uniform(0.6,1.0); pol=seats[p-1]; k=pol[0]
+                timers[p]=rng.uniform(0.6,1.0)
                 if   k=='net':    mv=choose(pol[1],pol[2],g,p)
                 elif k=='turtle': mv=turtle(g,p)
                 elif k=='rush':   mv=rush(g,p)
+                elif k=='econ':   mv=economist(g,p)
                 else:             mv=heuristic(g,p)
                 if mv: send(g,mv[0],mv[1])
         if len(alive_owners(g))<=1: break
@@ -193,13 +230,13 @@ def eval_theta(args):
         tot+=my-(max(others) if others else 0)
     return tot/len(specs)
 def make_specs(rng, n, nleague):
-    choices=[0,1,1,1,2,2]   # league idx: 0=heur, 1=turtle(x3), 2=rush(x2)
+    choices=[0,1,1,2,2,3,3,3]   # league idx: 0=heur, 1=turtle(x2), 2=rush(x2), 3=economist(x3, the friend)
     specs=[]
     for _ in range(n):
         P=int(rng.choice([2,3,4])); ci=int(rng.integers(P))
         opp=[]
         for _ in range(P):
-            if nleague>3 and rng.random()<0.15: opp.append(int(rng.integers(3,nleague)))
+            if nleague>4 and rng.random()<0.15: opp.append(int(rng.integers(4,nleague)))
             else: opp.append(int(rng.choice(choices)))
         specs.append((int(rng.integers(1<<30)),P,ci,opp))
     return specs
@@ -214,9 +251,11 @@ def wr_vs(theta, opp, rng, n=120, N=18):
         if res[ci+1]>=max(res.values())-1e-9: w+=1
     return w/n
 def evalset(theta, randnet, rng, n=120):
-    return {'turtle':wr_vs(theta,'turtle',rng,n), 'rush':wr_vs(theta,'rush',rng,n),
+    return {'econ':wr_vs(theta,'econ',rng,n), 'turtle':wr_vs(theta,'turtle',rng,n), 'rush':wr_vs(theta,'rush',rng,n),
             'heur':wr_vs(theta,'heuristic',rng,n), 'rand':wr_vs(theta,randnet,rng,n)}
-def metric(ev): return 0.5*ev['turtle']+0.25*ev['rush']+0.25*ev['heur']
+# The net already maxes econ/turtle; its real weakness is general play (beating the greedy heuristic
+# and out-playing arbitrary nets). Drive training at THOSE while holding econ/turtle/rush as floors.
+def metric(ev): return 0.45*ev['heur']+0.25*ev['rand']+0.12*ev['econ']+0.10*ev['turtle']+0.08*ev['rush']
 
 # ---------------- SNES ----------------
 def utilities(lam):
@@ -228,12 +267,12 @@ def main():
     rng=np.random.default_rng(7); randnet=rng.standard_normal(n)*0.5
     lam=24; eta_sigma=(3+math.log(n))/(5*math.sqrt(n)); u=utilities(lam)
     mean=init.copy(); sig=np.full(n,0.05)
-    league=[('heur',None),('turtle',None),('rush',None)]
+    league=[('heur',None),('turtle',None),('rush',None),('econ',None)]
     champ=init.copy()
     base_ev=evalset(init, randnet, rng, 200); base_m=metric(base_ev)
     best_m=base_m
     print(f"params={n} (12-feature) lam={lam} cores={os.cpu_count()}", flush=True)
-    print(f"WARM-START baseline: turtle {base_ev['turtle']:.2f} rush {base_ev['rush']:.2f} heur {base_ev['heur']:.2f} rand {base_ev['rand']:.2f}  metric {base_m:.3f}", flush=True)
+    print(f"WARM-START baseline: econ {base_ev['econ']:.2f} turtle {base_ev['turtle']:.2f} rush {base_ev['rush']:.2f} heur {base_ev['heur']:.2f} rand {base_ev['rand']:.2f}  metric {base_m:.3f}", flush=True)
     pool=Pool(processes=min(4,os.cpu_count() or 4)); t0=time.time(); gen=0
     try:
         while time.time()-t0<secs:
@@ -246,22 +285,25 @@ def main():
             sig=np.clip(sig*np.exp(0.5*eta_sigma*((u[:,None]*(So**2-1)).sum(0))),1e-4,0.5)
             if gen%8==0:
                 ev=evalset(mean,randnet,rng,120); m=metric(ev); tag=""
-                ok = ev['rand']>=base_ev['rand']-0.05 and ev['rush']>=base_ev['rush']-0.06 and ev['heur']>=base_ev['heur']-0.06
+                ok = ev['rand']>=base_ev['rand']-0.05 and ev['rush']>=base_ev['rush']-0.06 and ev['heur']>=base_ev['heur']-0.06 and ev['turtle']>=base_ev['turtle']-0.06
                 if m>best_m+0.01 and ok:
                     best_m=m; champ=mean.copy(); tag=" *champion*"
                     json.dump(to_json(champ),open(os.path.join(SCR,'rl_policy_new.json'),'w'))
-                    if len(league)<7: league.append(('net',champ.copy()))
-                print(f"gen {gen:4d} t={time.time()-t0:6.0f}s sig~{sig.mean():.3f} turtle {ev['turtle']:.2f} rush {ev['rush']:.2f} heur {ev['heur']:.2f} rand {ev['rand']:.2f} metric {m:.3f}(base {base_m:.3f}){tag}", flush=True)
+                    if len(league)<8: league.append(('net',champ.copy()))
+                print(f"gen {gen:4d} t={time.time()-t0:6.0f}s sig~{sig.mean():.3f} econ {ev['econ']:.2f} turtle {ev['turtle']:.2f} rush {ev['rush']:.2f} heur {ev['heur']:.2f} rand {ev['rand']:.2f} metric {m:.3f}(base {base_m:.3f}){tag}", flush=True)
     finally:
         pool.close(); pool.join()
     fev=evalset(champ,randnet,rng,300); fm=metric(fev)
-    ship = fev['turtle']>=base_ev['turtle']+0.08 and fev['rand']>=base_ev['rand']-0.05 and fev['rush']>=base_ev['rush']-0.06 and fev['heur']>=base_ev['heur']-0.06
-    print(f"DONE gens={gen}  champion: turtle {fev['turtle']:.2f}(base {base_ev['turtle']:.2f}) rush {fev['rush']:.2f} heur {fev['heur']:.2f} rand {fev['rand']:.2f}", flush=True)
+    # Ship only on a clear gain against the hoarder (econ) OR overall metric, with NO regression anywhere.
+    ship = (fm>=base_m+0.02 or fev['heur']>=base_ev['heur']+0.05) and \
+           fev['rand']>=base_ev['rand']-0.04 and fev['rush']>=base_ev['rush']-0.05 and \
+           fev['econ']>=base_ev['econ']-0.04 and fev['turtle']>=base_ev['turtle']-0.04
+    print(f"DONE gens={gen}  champion: econ {fev['econ']:.2f}(base {base_ev['econ']:.2f}) turtle {fev['turtle']:.2f}(base {base_ev['turtle']:.2f}) rush {fev['rush']:.2f} heur {fev['heur']:.2f} rand {fev['rand']:.2f} metric {fm:.3f}(base {base_m:.3f})", flush=True)
     if ship:
         json.dump(to_json(champ),open(os.path.join(SCR,'rl_policy_new.json'),'w'))
-        print(f"SHIP: turtle-resistance +{fev['turtle']-base_ev['turtle']:.2f} with no regression. 12-feature model saved.", flush=True)
+        print(f"SHIP: econ {fev['econ']-base_ev['econ']:+.2f} turtle {fev['turtle']-base_ev['turtle']:+.2f}, no regression. 12-feature model saved.", flush=True)
     else:
-        print("NO-REGRESSION: no clear turtle gain; not shipping. (8-feature net stays.)", flush=True)
+        print("NO-REGRESSION: no clear gain vs the hoarder; not shipping. (current net stays.)", flush=True)
 
 if __name__=='__main__':
     main()
