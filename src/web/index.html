@@ -1063,6 +1063,10 @@
     const lv = LEVELS[levelIdx];
     return lv.desp ? lv.desp * Math.max(0, 0.28 - ownFrac) : 0;
   }
+  // aiInfight(): how much the enemies still bother fighting EACH OTHER. Normally 1. On the rope tier,
+  // as the human snowballs the enemies call an unspoken truce (down toward 0.25) and pile onto the
+  // leader instead — coordinated focus-fire is a big part of what makes a lead on Impossible unsafe.
+  function aiInfight(){ return LEVELS[levelIdx].rope ? (1 - 0.75*aiSnow) : 1; }
 
   function rlEvaluate(owner, collect) {
     const FN = rlPolicy.feat_norm || 50;
@@ -1124,7 +1128,7 @@
         if (tg.owner===NEUTRAL) {
           if (playerStates.length) bias = Math.max(0, 1.2 - distToPlayer(tg)/rlDiag); // ring around player first
         }
-        else if (tg.owner>=2 && tg.owner!==owner) bias = 1.5;          // fight rival AIs
+        else if (tg.owner>=2 && tg.owner!==owner) bias = 1.5 * aiInfight();   // fight rival AIs (truce when human leads)
         else if (tg.owner===PLAYER) {
           if (endgame) bias = (st>tt ? 3 : -4);                        // endgame: strike whenever a state can win
           else {
@@ -1323,7 +1327,7 @@
                       maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ];
         let score=rlScore(feats);
         if (snap.owner[ti]===NEUTRAL){ if (playerIdx.length) score += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
-        else if (snap.owner[ti]>=2 && snap.owner[ti]!==owner) score += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
+        else if (snap.owner[ti]>=2 && snap.owner[ti]!==owner) score += 1.0 * aiInfight();   // infighting (truce when human leads)
         else if (snap.owner[ti]===PLAYER){ if (endgame) score += (st>tt?3:-4);
           else { const hunt=aiHunt(), lead=Math.max(0,Math.min(1,playerIdx.length/snap.n-ownFrac));
                  score += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10) + despBias(ownFrac); } }
@@ -1459,7 +1463,7 @@
                          s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
                          maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
         if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
-        else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
+        else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0 * aiInfight();   // infighting (truce when human leads)
         else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
           else { const hunt=aiHunt(), lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
                  sc += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10) + despBias(ownFrac); } }
@@ -1524,7 +1528,7 @@
     const pp = planParams(), worker = mode==='worker';
     return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
-      hunt:aiHunt(), desp:lv.desp||0,
+      hunt:aiHunt(), desp:lv.desp||0, infight:aiInfight(),
       horizon:pp.horizon, dt:pp.dt, ownerId:owner, wantViz: showNN && vizMode==='planner',
       humans, mcts:{ tbudget: worker?pp.workerMs:pp.serverMs, maxIter: NO_ITER_CAP, cPuct:MCTS.cPuct, K:pp.K } };
   }
@@ -1620,7 +1624,7 @@
     'use strict';
     var NEUTRAL=0, PLAYER=1, MAX_TROOPS=150;
     var POL=null;                                   // trained policy (set on init)
-    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, names=[];
+    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, INF=1, names=[];
     var DEPTH_CAP=4000;   // safety only — real depth is bounded by think time + terminal boards
     var now = (self.performance && self.performance.now) ? function(){ return self.performance.now(); } : function(){ return Date.now(); };
     function rand(a,b){ return a + Math.random()*(b-a); }
@@ -1709,7 +1713,7 @@
             s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
             maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
           if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/DIAG); }
-          else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;
+          else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0 * INF;
           else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
             else { var lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
                    sc += (1-HUNT)*(-6) + HUNT*((st>tt?1.0:-1.5)+lead*10) + (DESP>0?DESP*Math.max(0,0.28-ownFrac):0); } }
@@ -1759,7 +1763,7 @@
     function plan(req){
       GR=req.growRate; EG=req.enemyGrow; DIAG=req.rlDiag||1; ORB=req.orbSpeed||70;
       HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
-      CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0; DESP=req.desp||0;
+      CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0; DESP=req.desp||0; INF=(req.infight==null?1:req.infight);
       var tbudget=(req.mcts&&req.mcts.tbudget)||250, owner=req.ownerId;
       var base={ n:req.n, cx:req.cx, cy:req.cy, owner:req.owner.slice(), troops:req.troops.slice(),
         armies:(req.armies||[]).map(function(a){ return { owner:a.owner, count:a.count, ti:a.ti, t:0, ttotal:a.ttotal }; }) };
