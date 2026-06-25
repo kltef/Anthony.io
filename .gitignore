@@ -7,3 +7,4 @@ __pycache__/
 tools/rl_policy_new.json
 tools/policy_big_new.json
 tools/policy_big*_new.json
+tools/policy_*_new.json
