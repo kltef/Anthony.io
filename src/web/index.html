@@ -193,6 +193,29 @@
   .scn-preset.on { background: #46a6ef; border-color: #46a6ef; color: #fff; }
   #speed button:disabled { opacity: .5; cursor: default; }
   #scnBar > div { height: 100%; }
+  /* ---- on-map scenario editor ---- */
+  #scnEditBar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 22;
+    display: none; flex-direction: column; gap: 8px; align-items: center; pointer-events: auto;
+    width: min(580px, 96vw); background: rgba(16,23,37,.96); border: 1px solid #2a3850;
+    border-radius: 14px; padding: 12px 14px; box-shadow: 0 8px 40px rgba(0,0,0,.55); }
+  body.scn-editing #scnEditBar { display: flex; }
+  body.scn-editing #back, body.scn-editing #topbar, body.scn-editing #speed,
+  body.scn-editing #nnpanel { display: none !important; }
+  #scnEditBar .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; }
+  .scn-pal { pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 6px;
+    border: 2px solid rgba(255,255,255,.18); background: rgba(255,255,255,.07); color: #dfe9f4;
+    border-radius: 9px; padding: 5px 9px; font-size: 12px; font-weight: 700; }
+  .scn-pal .dot { width: 14px; height: 14px; border-radius: 4px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.22); }
+  .scn-pal.on { border-color: #fff; background: rgba(255,255,255,.16); }
+  #scnEditBar .tnum { min-width: 46px; text-align: center; font-size: 16px; font-weight: 800; color: #eaf1fb; }
+  #scnEditBar .mini, #scnEditBar .tpre { pointer-events: auto; cursor: pointer; border: none; border-radius: 8px;
+    background: rgba(255,255,255,.16); color: #eaf1fb; font-weight: 800; font-size: 14px; padding: 5px 11px; }
+  #scnEditBar .tpre { font-size: 12px; padding: 5px 9px; }
+  #scnEditBar .lbl { font-size: 12px; color: #9aa6b4; font-weight: 700; }
+  #scnEditBar .sel { font-size: 12px; color: #9fd9b0; font-weight: 700; min-height: 16px; text-align: center; }
+  #scnEditBar .go { background: #38c46f; color: #06210f; }
+  #scnEditBar .ghost { background: rgba(255,255,255,.1); color: #cfe0f0; }
+  #scnEditBtn { background: rgba(70,166,239,.16); border: 1px solid #46a6ef; }
 </style>
 </head>
 <body>
@@ -303,8 +326,9 @@
       <button class="scn-preset on" id="scnUpgrades">Cap upgrades: On</button>
       <button class="scn-preset on" id="scnTiles">Special tiles: On</button>
     </div>
+    <button class="btn" id="scnEditBtn" style="margin-bottom:8px">🗺️ Edit on map — set troops per state</button>
     <button class="btn" id="scnStartBtn" disabled>Loading map…</button>
-    <p class="hint">Set every team to <b>AI</b> to sit back and watch the AIs fight it out.</p>
+    <p class="hint">Quick start uses the shares above. <b>Edit on map</b> lets you see the board and paint each state's owner &amp; troop count yourself.</p>
   </div>
 
   <p class="hint"><a id="watchLink" href="watch.html" target="_blank" style="color:#9fd9b0;pointer-events:auto">Open spectator view ↗</a></p>
@@ -321,6 +345,28 @@
   <p class="hint" style="margin:-8px 0 12px">Earn coins by finishing solo games. Perks apply in <b>vs Computer</b> only — not Scenario or online.</p>
   <div id="shopBody"></div>
   <button class="btn" id="shopClose" style="margin-top:14px">Close</button>
+</div>
+
+<!-- on-map scenario editor toolbar (shown only while editing a scenario on the map) -->
+<div id="scnEditBar">
+  <div class="row" id="scnPalette"></div>
+  <div class="row">
+    <span class="lbl">Troops</span>
+    <button class="mini" id="scnTMinus">−</button>
+    <span class="tnum" id="scnTNum">25</span>
+    <button class="mini" id="scnTPlus">+</button>
+    <button class="tpre" data-t="1">1</button>
+    <button class="tpre" data-t="25">25</button>
+    <button class="tpre" data-t="50">50</button>
+    <button class="tpre" data-t="100">100</button>
+    <button class="tpre" data-t="250">Max</button>
+  </div>
+  <div class="sel" id="scnSel">Tap a state to paint it.</div>
+  <div class="row">
+    <button class="mini ghost" id="scnClear">Clear all</button>
+    <button class="mini ghost" id="scnEditBack">◀ Back</button>
+    <button class="mini go" id="scnEditStart">Start ▶</button>
+  </div>
 </div>
 
 <script src="d3.min.js"></script>
@@ -2792,6 +2838,7 @@
   // Drag from one of your states, sweep over your OTHER states to add them, then
   // release on a target so the whole group attacks together (joint attack).
   function gameDown(cssPt){
+    if (scnEdit){ scnPainting = scnEditPaintAt(cssPt); return; }
     if (!running) return;
     const pos=screenToWorld(cssPt); const s=stateAt(pos);
     // 🪂 Airdrop armed: this tap drops reinforcements on the tapped state (if it's yours), then disarms.
@@ -2807,12 +2854,14 @@
     else { selSet=[]; if (selected){ if (s) issueMove(selected,s); selected=null; } }
   }
   function gameMove(cssPt){
+    if (scnEdit){ if (scnPainting) scnEditPaintAt(cssPt); return; }
     if (!running||!pointerDown||!selSet.length) return;
     dragPos=screenToWorld(cssPt); moved=true;
     const over=stateAt(dragPos);
     if (over && over.owner===myOwner && !selSet.includes(over)) selSet.push(over);  // add to joint attack
   }
   function gameUp(){
+    if (scnEdit){ scnPainting=false; return; }
     if (!running) return; pointerDown=false;
     if (selSet.length){
       const target = dragPos ? stateAt(dragPos) : null;
@@ -3386,6 +3435,83 @@
     scnStartBtn.textContent = ready ? (youCount?'Start scenario':'Watch AIs battle') : 'Loading map…';
   }
 
+  // ---- on-map scenario editor: see the real map, paint owners, set per-state troops ----
+  let scnEdit=false, scnAuthored=false, scnPainting=false;
+  let scnBrushOwner=PLAYER, scnBrushTroops=25, scnSelState=null;
+  const SCN_TCAP=250;
+  // The brush palette: each distinct team owner offered by the current team setup, plus Neutral.
+  function scnBrushTeams(){
+    const owners=scnTeamOwners(), seen=new Set(), pal=[];
+    scnTeams.forEach((t,i)=>{ const o=owners[i]; if(seen.has(o))return; seen.add(o);
+      pal.push({owner:o, label: t.ctrl==='you'?'You':(COLOR_NAMES[o]||('AI '+o))}); });
+    pal.push({owner:NEUTRAL, label:'Neutral'});
+    return pal;
+  }
+  function buildScnPalette(){
+    const el=document.getElementById('scnPalette'); if(!el)return; el.innerHTML='';
+    scnBrushTeams().forEach(p=>{
+      const b=document.createElement('button'); b.className='scn-pal'+(p.owner===scnBrushOwner?' on':'');
+      const d=document.createElement('span'); d.className='dot'; d.style.background=COLORS[p.owner]||'#ccc';
+      const t=document.createElement('span'); t.textContent=p.label;
+      b.appendChild(d); b.appendChild(t);
+      b.onclick=()=>{ scnBrushOwner=p.owner; buildScnPalette(); };
+      el.appendChild(b);
+    });
+  }
+  // The troop stepper sets the brush value AND, when a state is selected, edits that state directly.
+  function scnSetTroops(v){
+    scnBrushTroops=Math.max(0,Math.min(SCN_TCAP, Math.round(v)));
+    const n=document.getElementById('scnTNum'); if(n) n.textContent=scnBrushTroops;
+    if(scnSelState){ scnSelState.troops=scnBrushTroops; renderScnEditor(); }
+  }
+  function scnEditStatus(){
+    const el=document.getElementById('scnSel'); if(!el)return;
+    if(scnSelState){ const o=scnSelState.owner;
+      el.textContent='Selected: '+scnSelState.name+' — '+(o===NEUTRAL?'Neutral':(o===PLAYER?'You':(COLOR_NAMES[o]||('AI '+o))))+' · '+scnSelState.troops+' troops  (− / + to fine-tune)'; }
+    else el.textContent='Pick a team + troop count, then tap states to paint them.';
+  }
+  function renderScnEditor(){ selected=scnSelState; render(); scnEditStatus(); }
+  function scnBlankBoard(){
+    const lv=LEVELS[scnLevelIdx];
+    for(const s of states){ s.owner=NEUTRAL; s._team=-1; s._seed=false; s.type=null; s.level=0; s.pulse=0; s.growAcc=0;
+      s.troops=Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
+    scnSelState=null;
+  }
+  function openScnEditor(){
+    if(!ready) return;
+    if (regionIdx !== scnRegionIdx){ regionIdx = scnRegionIdx; buildStatesForRegion(); buildRegionButtons(); }
+    buildGeo(); buildBackground(); clampOffset();
+    scnBlankBoard();
+    troops=[]; selected=null; selSet=[]; dragPos=null; resetCam();
+    scnBrushOwner = scnTeamOwners()[0] ?? PLAYER; scnBrushTroops=25;
+    const n=document.getElementById('scnTNum'); if(n) n.textContent=scnBrushTroops;
+    scnEdit=true; scnPainting=false; document.body.classList.add('scn-editing'); overlay.classList.add('hidden');
+    buildScnPalette(); renderScnEditor();
+  }
+  function closeScnEditor(){
+    scnEdit=false; scnPainting=false; document.body.classList.remove('scn-editing');
+    overlay.classList.remove('hidden'); selected=null;
+  }
+  function scnEditPaintAt(cssPt){
+    const s=stateAt(screenToWorld(cssPt)); if(!s) return false;
+    s.owner=scnBrushOwner; s.troops=scnBrushTroops; s._team=-1; s._seed=false;
+    scnSelState=s; renderScnEditor(); return true;
+  }
+  (function wireScnEditor(){
+    const on=(id,fn)=>{ const e=document.getElementById(id); if(e) e.addEventListener('click', fn); };
+    on('scnEditBtn', openScnEditor);
+    on('scnTMinus', ()=>scnSetTroops(scnBrushTroops-5));
+    on('scnTPlus',  ()=>scnSetTroops(scnBrushTroops+5));
+    document.querySelectorAll('#scnEditBar .tpre').forEach(b=> b.addEventListener('click', ()=>scnSetTroops(parseInt(b.dataset.t,10))));
+    on('scnClear', ()=>{ scnBlankBoard(); renderScnEditor(); });
+    on('scnEditBack', closeScnEditor);
+    on('scnEditStart', ()=>{
+      const owned = states.filter(s=>s.owner!==NEUTRAL).length;
+      if (owned===0){ const el=document.getElementById('scnSel'); if(el) el.textContent='Paint at least one state for a team before starting.'; return; }
+      scnAuthored=true; closeScnEditor(); startScenario();
+    });
+  })();
+
   // Grow each team's territory as a contiguous blob: seed teams far apart, then repeatedly hand the
   // neediest team (lowest owned/target ratio) the nearest still-unclaimed state to one it already
   // holds. Whatever is left over stays neutral. Marks seed states with _seed for the "capital" bonus.
@@ -3420,37 +3546,53 @@
     troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; aiTimers={}; planPending={}; planEpoch++; resetCam();
     matchTrack = null;
 
-    const N = states.length;
-    const owners = scnTeamOwners();
-    const counts = scnCounts(N);
-    const targets = owners.map((o,i) => ({ owner:o, count:counts[i] }));
-    const hasYou = scnTeams.some(t => t.ctrl==='you');
     myOwner = PLAYER;
-    scenarioMode = true; scenarioObserver = !hasYou;
+    scenarioMode = true;
     // scenario rule toggles (shop perks never apply here; the cosmetic colour is harmless)
     upgradesOn = scnUpgradesOn; tilesOn = scnTilesOn; boomUntil = 0;
     applyPlayerColor();
 
-    allocateTerritory(targets);
-
-    // troops: a team's seed is its "capital" (full start strength); its other states hold a
-    // modest garrison; unclaimed land keeps the usual neutral spread.
-    for (const s of states){
-      s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null;
-      if (s.owner===NEUTRAL){ s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
-      else {
-        const base = s.owner===PLAYER ? lv.playerStart : lv.enemyStart;
-        s.troops = s._seed ? base : Math.max(6, Math.floor(rand(lv.neutralMin, Math.min(lv.neutralMax, base))));
+    let owners;
+    if (scnAuthored){
+      // The board was painted by hand in the on-map editor: states already carry their owner and
+      // troop count. Don't allocate or re-roll troops — launch exactly what the user laid out.
+      for (const s of states){ s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null; }
+      owners = [...new Set(states.filter(s => s.owner!==NEUTRAL).map(s => s.owner))];
+      scenarioObserver = !owners.includes(PLAYER);
+      if (tilesOn){
+        // each team's strongest state becomes its capital tile
+        const best = {};
+        for (const s of states){ if (s.owner===NEUTRAL) continue; if (!best[s.owner] || s.troops>best[s.owner].troops) best[s.owner]=s; }
+        const seeds = Object.values(best); for (const s of seeds){ s._seed=true; s.type='capital'; }
+        assignTiles(seeds);
+      }
+    } else {
+      const N = states.length;
+      owners = scnTeamOwners();
+      const counts = scnCounts(N);
+      const targets = owners.map((o,i) => ({ owner:o, count:counts[i] }));
+      scenarioObserver = !scnTeams.some(t => t.ctrl==='you');
+      allocateTerritory(targets);
+      // troops: a team's seed is its "capital" (full start strength); its other states hold a
+      // modest garrison; unclaimed land keeps the usual neutral spread.
+      for (const s of states){
+        s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null;
+        if (s.owner===NEUTRAL){ s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
+        else {
+          const base = s.owner===PLAYER ? lv.playerStart : lv.enemyStart;
+          s.troops = s._seed ? base : Math.max(6, Math.floor(rand(lv.neutralMin, Math.min(lv.neutralMax, base))));
+        }
+      }
+      if (tilesOn){
+        const seeds = states.filter(s => s._seed);
+        for (const s of seeds) s.type = 'capital';   // each team's capital is a Capital tile
+        assignTiles(seeds);                          // plus contested tiles on the neutral land
       }
     }
-    if (tilesOn){
-      const seeds = states.filter(s => s._seed);
-      for (const s of seeds) s.type = 'capital';   // each team's capital is a Capital tile
-      assignTiles(seeds);                          // plus contested tiles on the neutral land
-    }
+    scnAuthored = false;   // consume the one-shot flag
     // every AI colour is driven by the AI; the human (if any) holds PLAYER.
     slotControl = {};
-    for (const t of targets) if (t.owner>=2) slotControl[t.owner] = 'ai';
+    for (const o of owners) if (o>=2) slotControl[o] = 'ai';
 
     running = true; gameTick = 0; gameElapsed = 0; nnHist.length = 0;
     overlay.classList.add('hidden');
