@@ -127,3 +127,19 @@ produces an equivalent artifact.
 required — a v1 (JAR) signature alone would be rejected on install by modern
 Android. The committed APK is signed with a throwaway debug key; re-sign with
 your own release key before distributing.
+
+## Samsung Game Launcher / Game Mode
+
+The binary `AndroidManifest.xml` sets `android:appCategory="game"` (resource id
+`0x01010545`, encoded as a typed `TYPE_INT_DEC` enum with value `0` =
+`CATEGORY_GAME`). This is the signal Samsung's Game Launcher / Game Booster (and
+Android's own game-mode interventions) use to auto-detect the app as a game, so
+it shows up under Game Launcher and benefits from performance/no-interruption
+modes without the user adding it manually.
+
+The patched binary manifest lives at `build/AndroidManifest.xml`. To reproduce
+the patch from an unmodified manifest: decode with `pyaxml`, add the
+`android:appCategory` attribute to `<application>`, then fix its `Res_value` to
+`dataType=0x10` (TYPE_INT_DEC), `data=0`, raw value none. `build/repack.py`
+swaps this manifest plus the current web assets into the previous signed APK;
+then sign per the steps above.
