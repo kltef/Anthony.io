@@ -443,18 +443,15 @@
     // or gang up — that's Impossible's job. A genuinely different, lighter brain one notch below it.
     // `hunt` (0..1) = how willing the AI is to attack YOU before the neutral land is gone.
     { name:'Grandmaster', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, hunt:0.6 },
-    // Impossible: the SAME net, but wrapped in the full MCTS PLANNER (lookahead + value net + rollouts)
-    // and coordinated multi-state salvos — it thinks several seconds ahead and gangs up. Built to be
-    // brutal but FAIR at the opening: everyone (you + all four enemies) starts on the SAME unit count
-    // (22). The twist is rope-a-dope: for the first ~35s it plays timid (rope:true, low hunt) so it
-    // grabs neutral land and leaves YOU alone — you feel like you're winning. Past the rope window
-    // its hunt ramps PAST normal into a CRUSH (crush:1.6) and, growing 70% faster (enemyGrow 1.7),
-    // it turns on you all at once. `desp` makes a CORNERED enemy fight HARDER instead of folding, so
-    // you can never just squeeze one down to nothing. Reacts fast (aiSpeed .55), stacks to 250
-    // (aiCap) so shop upgrades can't out-muscle it. Fair start, impossible finish. Top tier.
-    { name:'Impossible', enemies:4, aiSpeed:0.50, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.7, rl:true, plan:true,
-      planDt:0.3, mctsK:9, tbudget:4000, workerMs:350, hunt:1.0, aiCap:250, rope:true, ropeT:30, crush:1.9, desp:11,
-      huntFloor:0.6, leadGain:1.2, rubber:0.6 },
+    // Impossible: a PURE-INTELLIGENCE 1v1 duel — you vs the SAME net wrapped in the full MCTS PLANNER
+    // (lookahead + value net + rollouts) and coordinated multi-state salvos. The whole point: it wins
+    // on DECISIONS ALONE, with ZERO stat advantages. Perfectly symmetric — equal start (22 each), equal
+    // growth (enemyGrow 1.0), human-fair reaction cadence (aiSpeed 0.85, same as Hard), and the same
+    // MAX_TROOPS cap you have. No rope-a-dope, no CRUSH ramp, no rubber-band comeback, no cornered-fight
+    // bonus, no faster economy. The ONLY thing it gets is think time (the planner budget below) — i.e.
+    // it out-thinks you, it doesn't out-cheat you. If it beats you here, it genuinely outplayed you.
+    { name:'Impossible', enemies:1, aiSpeed:0.85, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true,
+      planDt:0.3, mctsK:9, tbudget:4000, workerMs:350, hunt:0.7 },
   ];
   let levelIdx = 0;
 
@@ -2886,7 +2883,7 @@
   document.getElementById('zoomIn').addEventListener('click', ()=>zoomAt(W/2,H/2,1.3));
   document.getElementById('zoomOut').addEventListener('click', ()=>zoomAt(W/2,H/2,1/1.3));
   const speedBtn = document.getElementById('speedBtn');
-  const SPEEDS = [0.5,1,2,3,5,10];   // 0.5× = slow-motion, handy for watching the AI think
+  const SPEEDS = [0.25,0.5,1,2,3,5,10];   // 0.25×/0.5× = slow-motion, handy for watching the AI think
   speedBtn.addEventListener('click', ()=>{
     const idx = SPEEDS.indexOf(gameSpeed);
     gameSpeed = SPEEDS[(idx<0 ? 1 : idx+1) % SPEEDS.length];
