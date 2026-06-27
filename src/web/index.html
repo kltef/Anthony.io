@@ -1079,11 +1079,10 @@
   // We capture WAY more than the old 5-scalar profile: the full board state at the moment of every
   // human decision plus the exact action taken (the gold data for a P(move|board) opponent model),
   // a periodic full-board trajectory sample, and an expanded behavioural profile. Everything is
-  // POSTed to /api/record AND accumulated locally (statio_games_v1) so it survives offline and can
-  // be exported for training.
-  const PLAYLOG_KEY = 'statio_games_v1';
-  const PLAYLOG_CAP_BYTES = 4000000;   // keep the most-recent ~4MB of games in localStorage
-  let snapClock = 0;                   // throttle for periodic full-board snapshots
+  // POSTed to /api/record AND accumulated locally so it survives offline and can be exported for
+  // training. Storage is IndexedDB (NOT localStorage, which caps at ~5MB) with a 500MB soft cap.
+  const PLAYLOG_CAP_BYTES = 500*1024*1024;   // 500 MB soft cap; oldest games are trimmed first
+  let snapClock = 0;                         // throttle for periodic full-board snapshots
   function startGameLog(){
     matchTrack = { attacks:0, early:0, earlyEnemy:0, sumWeak:0, sumSrc:0, sumDist:0, sumTgtT:0,
       reinforce:0, joint:0, fracAll:0, fracHalf:0, fracQuarter:0, atkNeutral:0, atkEnemy:0,
@@ -1127,19 +1126,75 @@
                  joint:(selSet && selSet.length) || 1 };
     matchTrack.moves.push(snap);
   }
-  // persist a finished game's full log to a capped local ring buffer (for offline keep + export)
-  function savePlayLog(g){
-    try {
-      let arr=[]; const raw=localStorage.getItem(PLAYLOG_KEY); if (raw) arr=JSON.parse(raw)||[];
-      arr.push(g);
-      let s=JSON.stringify(arr);
-      while (s.length>PLAYLOG_CAP_BYTES && arr.length>1){ arr.shift(); s=JSON.stringify(arr); }
-      localStorage.setItem(PLAYLOG_KEY, s);
-    } catch(e){}
+  // ---- IndexedDB-backed archive (localStorage can't hold 500MB; it caps at ~5MB) -------------
+  const PLAYDB='statio_play', PLAYSTORE='games', OLD_LS_KEY='statio_games_v1';
+  let _pdb=null, _pCount=0, _pBytes=0;
+  const _idbReq = req => new Promise((res,rej)=>{ req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error); });
+  function playDBOpen(){
+    if (_pdb) return Promise.resolve(_pdb);
+    return new Promise((res,rej)=>{
+      let req; try { req=indexedDB.open(PLAYDB,1); } catch(e){ return rej(e); }
+      req.onupgradeneeded=()=>{ const db=req.result;
+        if(!db.objectStoreNames.contains(PLAYSTORE)){ const os=db.createObjectStore(PLAYSTORE,{keyPath:'k',autoIncrement:true}); os.createIndex('bytes','bytes'); } };
+      req.onsuccess=()=>{ _pdb=req.result; res(_pdb); };
+      req.onerror=()=>rej(req.error);
+    });
   }
-  function playLogCount(){ try { return (JSON.parse(localStorage.getItem(PLAYLOG_KEY)||'[]')).length; } catch(e){ return 0; } }
-  window.exportPlayData = function(){ try { return localStorage.getItem(PLAYLOG_KEY) || '[]'; } catch(e){ return '[]'; } };
-  window.clearPlayData = function(){ try { localStorage.removeItem(PLAYLOG_KEY); } catch(e){} ; if (typeof refreshExportBtn==='function') refreshExportBtn(); };
+  const _store = (db,mode) => db.transaction(PLAYSTORE,mode).objectStore(PLAYSTORE);
+  async function _recountStats(db){
+    _pCount = await _idbReq(_store(db,'readonly').count());
+    _pBytes = 0;   // sum the 'bytes' index via a key-cursor — no game blobs are deserialized
+    await new Promise(res=>{ const c=_store(db,'readonly').index('bytes').openKeyCursor();
+      c.onsuccess=()=>{ const cur=c.result; if(cur){ _pBytes+=cur.key||0; cur.continue(); } else res(); }; c.onerror=()=>res(); });
+  }
+  async function _trim(db){
+    while (_pBytes > PLAYLOG_CAP_BYTES){
+      const b = await new Promise(res=>{ const c=_store(db,'readwrite').openCursor();   // oldest (lowest key) first
+        c.onsuccess=()=>{ const cur=c.result; if(!cur){ res(null); return; } const by=cur.value.bytes||0; cur.delete(); res(by); }; c.onerror=()=>res(null); });
+      if (b==null) break; _pBytes-=b; _pCount=Math.max(0,_pCount-1);
+    }
+  }
+  // persist a finished game's full log into IndexedDB (trim oldest-first past the 500MB cap)
+  async function savePlayLog(g){
+    try{
+      if (typeof indexedDB==='undefined'){ _saveLS(g); return; }   // graceful fallback
+      const db=await playDBOpen();
+      const json=JSON.stringify(g); const rec={ ts:g.ts||0, bytes:json.length, game:g };
+      await _idbReq(_store(db,'readwrite').add(rec));
+      _pCount++; _pBytes+=rec.bytes;
+      await _trim(db);
+      if (typeof refreshExportBtn==='function') refreshExportBtn();
+    }catch(e){}
+  }
+  function playLogCount(){ return _pCount; }
+  function playLogBytes(){ return _pBytes; }
+  window.exportPlayData = async function(){
+    try{ const db=await playDBOpen(); const all=[];
+      await new Promise(res=>{ const c=_store(db,'readonly').openCursor();   // chronological
+        c.onsuccess=()=>{ const cur=c.result; if(cur){ all.push(cur.value.game); cur.continue(); } else res(); }; c.onerror=()=>res(); });
+      return JSON.stringify(all);
+    }catch(e){ return '[]'; }
+  };
+  window.clearPlayData = async function(){
+    try{ const db=await playDBOpen(); await _idbReq(_store(db,'readwrite').clear()); _pCount=0; _pBytes=0; }catch(e){}
+    if (typeof refreshExportBtn==='function') refreshExportBtn();
+  };
+  // tiny localStorage fallback, only used if IndexedDB is entirely unavailable
+  function _saveLS(g){ try{ let a=JSON.parse(localStorage.getItem(OLD_LS_KEY)||'[]'); a.push(g); let s=JSON.stringify(a);
+    while(s.length>4000000&&a.length>1){a.shift();s=JSON.stringify(a);} localStorage.setItem(OLD_LS_KEY,s); _pCount=a.length; }catch(e){} }
+  // open the DB, compute stats, and migrate any old localStorage archive into IndexedDB once
+  async function playInit(){
+    try{
+      if (typeof indexedDB==='undefined'){ try{ _pCount=JSON.parse(localStorage.getItem(OLD_LS_KEY)||'[]').length; }catch(e){} if(typeof refreshExportBtn==='function')refreshExportBtn(); return; }
+      const db=await playDBOpen();
+      await _recountStats(db);
+      const old=localStorage.getItem(OLD_LS_KEY);
+      if (old){ try{ for(const g of (JSON.parse(old)||[])){ const json=JSON.stringify(g);
+        await _idbReq(_store(db,'readwrite').add({ts:g.ts||0,bytes:json.length,game:g})); _pCount++; _pBytes+=json.length; } }catch(e){}
+        try{ localStorage.removeItem(OLD_LS_KEY); }catch(e){} await _trim(db); }
+      if (typeof refreshExportBtn==='function') refreshExportBtn();
+    }catch(e){}
+  }
 
   function arrive(t) {
     const to = states.find(s => s.id===t.targetId);
@@ -3324,9 +3379,11 @@
   if (playerName){ setPlayerName(playerName); } else { if (nameDisp) nameDisp.textContent='Player'; openNameModal(); }
   // ---- export recorded play data ----
   const exportBtn = document.getElementById('exportBtn');
-  function refreshExportBtn(){ if (exportBtn) exportBtn.textContent = '⬇ Data ('+playLogCount()+')'; }
-  function exportPlayDataUI(){
-    const data = window.exportPlayData();
+  function refreshExportBtn(){ if (!exportBtn) return; const mb=(typeof playLogBytes==='function'?playLogBytes():0)/1048576;
+    exportBtn.textContent = '⬇ Data ('+playLogCount()+(mb>=0.1?', '+mb.toFixed(mb>=10?0:1)+'MB':'')+')'; }
+  async function exportPlayDataUI(){
+    if (exportBtn) exportBtn.textContent = '… exporting';
+    const data = await window.exportPlayData();
     let ok = false;
     try { const blob=new Blob([data],{type:'application/json'}); const url=URL.createObjectURL(blob);
       const aEl=document.createElement('a'); aEl.href=url; aEl.download='stateio_playdata.json';
@@ -3335,7 +3392,7 @@
     if (exportBtn){ const n=playLogCount(); exportBtn.textContent = ok ? ('✓ '+n+' games') : '⚠ none'; setTimeout(refreshExportBtn, 1600); }
   }
   if (exportBtn) exportBtn.addEventListener('click', exportPlayDataUI);
-  refreshExportBtn();
+  playInit();   // open IndexedDB, compute stats, migrate any old localStorage archive
   function recordResult(won){
     if (scenarioMode) { matchTrack = null; lastCoinAward = 0; return; }   // scenarios aren't ranked or paid
     awardCoins(won);                                   // solo only — coins for finishing the game
