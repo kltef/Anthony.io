@@ -216,6 +216,16 @@
   #scnEditBar .go { background: #38c46f; color: #06210f; }
   #scnEditBar .ghost { background: rgba(255,255,255,.1); color: #cfe0f0; }
   #scnEditBtn { background: rgba(70,166,239,.16); border: 1px solid #46a6ef; }
+  /* ---- name entry modal ---- */
+  #namePanel { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 30;
+    width: min(380px, 92vw); pointer-events: auto; text-align: center;
+    background: rgba(16,23,37,.98); border: 1px solid #2a3850; border-radius: 14px; padding: 22px 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.6); }
+  #namePanel.gone { display: none; }
+  #pnameInput { width: 100%; box-sizing: border-box; background: #16233b; color: #fff;
+    border: 1px solid #2a3850; border-radius: 9px; padding: 11px 12px; font-size: 16px; text-align: center; }
+  #pnameInput:focus { outline: none; border-color: #46a6ef; }
+  #playerNameDisp { color: #8fd6ff; }
 </style>
 </head>
 <body>
@@ -243,14 +253,11 @@
     <div class="mode" data-mode="join">Join Online</div>
   </div>
 
-  <div class="who">Playing as
-    <select id="playerName">
-      <option>Anthony</option>
-      <option>Chris</option>
-      <option>Melissa</option>
-    </select>
+  <div class="who">Playing as <b id="playerNameDisp">Player</b>
+    <button class="mini2" id="changeNameBtn" title="Change your name">✎</button>
     <button class="mini2" id="lbBtn">🏆 Leaderboard</button>
     <button class="mini2" id="shopBtn">🪙 Shop</button>
+    <button class="mini2" id="exportBtn" title="Export your recorded play data">⬇ Data</button>
   </div>
   <p class="coinline" id="coinLine" style="display:none"></p>
 
@@ -345,6 +352,13 @@
   <p class="hint" style="margin:-8px 0 12px">Earn coins by finishing solo games. Perks apply in <b>vs Computer</b> only — not Scenario or online.</p>
   <div id="shopBody"></div>
   <button class="btn" id="shopClose" style="margin-top:14px">Close</button>
+</div>
+
+<div id="namePanel" class="gone">
+  <h2 class="lbh">What's your name?</h2>
+  <p class="hint" style="margin:-6px 0 14px">It labels your games so the AI can learn how <i>you</i> play. You can change it any time.</p>
+  <input id="pnameInput" type="text" maxlength="16" placeholder="Enter a name" autocomplete="off" />
+  <button class="btn" id="pnameSave" style="margin-top:14px">Save</button>
 </div>
 
 <!-- on-map scenario editor toolbar (shown only while editing a scenario on the map) -->
@@ -927,7 +941,7 @@
     const lv = LEVELS[levelIdx];
     cfg = lv;
     troops = []; selected=null; dragPos=null; airArmed=false; aiTimers={}; planPending={}; planEpoch++; resetCam();
-    matchTrack = { attacks:0, early:0, earlyEnemy:0, sumWeak:0, sumSrc:0, sumDist:0 };
+    startGameLog();
     if (netMode!=='host') myOwner = PLAYER;
     if (!netMode && regionIdx!==0){ regionIdx=0; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default map
     buildGeo();
@@ -1061,18 +1075,71 @@
     if (netMode==='guest') { api('/api/action?room='+NET.room, { cid:NET.cid, from:from.id, to:to.id, denom }); return; }
     sendTroops(from, to, denom);
   }
-  // observe the local human's move to learn their style (folded into their profile at game end)
+  // ---- rich play-data recorder -------------------------------------------------------------
+  // We capture WAY more than the old 5-scalar profile: the full board state at the moment of every
+  // human decision plus the exact action taken (the gold data for a P(move|board) opponent model),
+  // a periodic full-board trajectory sample, and an expanded behavioural profile. Everything is
+  // POSTed to /api/record AND accumulated locally (statio_games_v1) so it survives offline and can
+  // be exported for training.
+  const PLAYLOG_KEY = 'statio_games_v1';
+  const PLAYLOG_CAP_BYTES = 4000000;   // keep the most-recent ~4MB of games in localStorage
+  let snapClock = 0;                   // throttle for periodic full-board snapshots
+  function startGameLog(){
+    matchTrack = { attacks:0, early:0, earlyEnemy:0, sumWeak:0, sumSrc:0, sumDist:0, sumTgtT:0,
+      reinforce:0, joint:0, fracAll:0, fracHalf:0, fracQuarter:0, atkNeutral:0, atkEnemy:0,
+      header:null, moves:[], snaps:[] };
+    snapClock = 0;
+  }
+  function ensureHeader(){
+    if (!matchTrack || matchTrack.header) return;
+    const ids=[], names=[], cx=[], cy=[];
+    for (const s of states){ ids.push(s.id); names.push(s.name); cx.push(Math.round(s.cx)); cy.push(Math.round(s.cy)); }
+    matchTrack.header = { region: REGIONS[regionIdx] && REGIONS[regionIdx].name, level: LEVELS[levelIdx] && LEVELS[levelIdx].name,
+      n: states.length, ids, names, cx, cy, rlDiag: Math.round(rlDiag||1) };
+  }
+  // a compact dynamic snapshot of the whole board (positions/ids live once in the header)
+  function boardSnapshot(){
+    const own=[], tr=[], lv=[], ty=[];
+    for (const s of states){ own.push(s.owner); tr.push(Math.round(s.troops)); lv.push(s.level||0); ty.push(s.type||0); }
+    return { t:Math.round(gameElapsed*10)/10, own, tr, lv, ty };
+  }
+  // observe the local human's move to learn their style (full board context + the action taken)
   function trackPlayerMove(from, to) {
     if (!matchTrack || from.owner!==myOwner) return;
+    ensureHeader();
     const cands = states.filter(s => s.owner!==myOwner);
     const stronger = cands.filter(s => s.troops > to.troops).length;
     const weak = cands.length ? stronger/cands.length : 0.5;   // 1 = chose the weakest available target
+    const denom = currentSendDenom();
     matchTrack.attacks++;
     matchTrack.sumWeak += weak;
     matchTrack.sumSrc  += from.troops;
+    matchTrack.sumTgtT += to.troops;
     matchTrack.sumDist += Math.hypot(to.cx-from.cx, to.cy-from.cy);
+    if (to.owner===myOwner) matchTrack.reinforce++; else if (to.owner===NEUTRAL) matchTrack.atkNeutral++; else matchTrack.atkEnemy++;
+    if (selSet && selSet.length>1) matchTrack.joint++;
+    if (denom===1) matchTrack.fracAll++; else if (denom===2) matchTrack.fracHalf++; else matchTrack.fracQuarter++;
     if (gameElapsed < 20) { matchTrack.early++; if (to.owner!==NEUTRAL) matchTrack.earlyEnemy++; }
+    // the gold data: full board state at the instant of decision + the action
+    const snap = boardSnapshot();
+    snap.act = { src:from.id, tgt:to.id, frac:denom, srcT:Math.round(from.troops), tgtT:Math.round(to.troops),
+                 tgtOwner:to.owner, dist:Math.round(Math.hypot(to.cx-from.cx, to.cy-from.cy)),
+                 joint:(selSet && selSet.length) || 1 };
+    matchTrack.moves.push(snap);
   }
+  // persist a finished game's full log to a capped local ring buffer (for offline keep + export)
+  function savePlayLog(g){
+    try {
+      let arr=[]; const raw=localStorage.getItem(PLAYLOG_KEY); if (raw) arr=JSON.parse(raw)||[];
+      arr.push(g);
+      let s=JSON.stringify(arr);
+      while (s.length>PLAYLOG_CAP_BYTES && arr.length>1){ arr.shift(); s=JSON.stringify(arr); }
+      localStorage.setItem(PLAYLOG_KEY, s);
+    } catch(e){}
+  }
+  function playLogCount(){ try { return (JSON.parse(localStorage.getItem(PLAYLOG_KEY)||'[]')).length; } catch(e){ return 0; } }
+  window.exportPlayData = function(){ try { return localStorage.getItem(PLAYLOG_KEY) || '[]'; } catch(e){ return '[]'; } };
+  window.clearPlayData = function(){ try { localStorage.removeItem(PLAYLOG_KEY); } catch(e){} ; if (typeof refreshExportBtn==='function') refreshExportBtn(); };
 
   function arrive(t) {
     const to = states.find(s => s.id===t.targetId);
@@ -2083,6 +2150,9 @@
 
   function update(dt) {
     gameTick++; gameElapsed += dt;
+    // periodic full-board trajectory sample (~every 1.5s) — captures the whole game evolution,
+    // not just the human's move instants, for value/dynamics training. Capped to bound size.
+    if (matchTrack){ snapClock += dt; if (snapClock >= 1.5){ snapClock = 0; ensureHeader(); if (matchTrack.snaps.length < 800) matchTrack.snaps.push(boardSnapshot()); } }
     aiSnow = humanSnowball();   // once per tick: drives enemy catch-up growth + anti-snowball hunt
     updateThreats();
     for (const s of states) {
@@ -3231,11 +3301,41 @@
   }
 
   // ---- player identity + leaderboard ----
-  let playerName = 'Anthony';
-  try { const sv = localStorage.getItem('statio_player'); if (sv) playerName = sv; } catch(e){}
-  const playerSel = document.getElementById('playerName');
-  if (playerSel){ playerSel.value = playerName;
-    playerSel.onchange = () => { playerName = playerSel.value; try { localStorage.setItem('statio_player', playerName); } catch(e){} }; }
+  // Name is chosen once at startup (no more fixed dropdown) and persisted; changeable via the ✎ button.
+  let playerName = '';
+  try { playerName = localStorage.getItem('statio_player') || ''; } catch(e){}
+  const nameDisp = document.getElementById('playerNameDisp');
+  const namePanel = document.getElementById('namePanel');
+  const pnameInput = document.getElementById('pnameInput');
+  function setPlayerName(n){ n = (n||'').trim().slice(0,16) || 'Player'; playerName = n;
+    try { localStorage.setItem('statio_player', n); } catch(e){}
+    if (nameDisp) nameDisp.textContent = n; }
+  function openNameModal(){ if (!namePanel) return;
+    pnameInput.value = (playerName && playerName!=='Player') ? playerName : '';
+    namePanel.classList.remove('gone'); setTimeout(()=>{ try{ pnameInput.focus(); }catch(e){} }, 30); }
+  function closeNameModal(){ if (namePanel) namePanel.classList.add('gone'); }
+  function saveNameFromInput(){ const v = (pnameInput.value||'').trim(); if (!v){ try{pnameInput.focus();}catch(e){} return; } setPlayerName(v); closeNameModal(); }
+  const pnameSaveBtn = document.getElementById('pnameSave');
+  if (pnameSaveBtn) pnameSaveBtn.addEventListener('click', saveNameFromInput);
+  if (pnameInput) pnameInput.addEventListener('keydown', e=>{ if (e.key==='Enter') saveNameFromInput(); });
+  const changeNameBtn = document.getElementById('changeNameBtn');
+  if (changeNameBtn) changeNameBtn.addEventListener('click', openNameModal);
+  // first launch: no stored name -> ask for one; otherwise just show it
+  if (playerName){ setPlayerName(playerName); } else { if (nameDisp) nameDisp.textContent='Player'; openNameModal(); }
+  // ---- export recorded play data ----
+  const exportBtn = document.getElementById('exportBtn');
+  function refreshExportBtn(){ if (exportBtn) exportBtn.textContent = '⬇ Data ('+playLogCount()+')'; }
+  function exportPlayDataUI(){
+    const data = window.exportPlayData();
+    let ok = false;
+    try { const blob=new Blob([data],{type:'application/json'}); const url=URL.createObjectURL(blob);
+      const aEl=document.createElement('a'); aEl.href=url; aEl.download='stateio_playdata.json';
+      document.body.appendChild(aEl); aEl.click(); aEl.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500); ok=true; } catch(e){}
+    try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(data); ok=true; } catch(e){}
+    if (exportBtn){ const n=playLogCount(); exportBtn.textContent = ok ? ('✓ '+n+' games') : '⚠ none'; setTimeout(refreshExportBtn, 1600); }
+  }
+  if (exportBtn) exportBtn.addEventListener('click', exportPlayDataUI);
+  refreshExportBtn();
   function recordResult(won){
     if (scenarioMode) { matchTrack = null; lastCoinAward = 0; return; }   // scenarios aren't ranked or paid
     awardCoins(won);                                   // solo only — coins for finishing the game
@@ -3246,16 +3346,29 @@
     // with a growth handicap isn't representative of real play).
     if (a && a.attacks >= 3 && LEVELS[levelIdx].name !== 'Easy'){
       const clamp = x => Math.max(0, Math.min(1, x));
-      const mins = Math.max(0.2, gameElapsed/60);
+      const mins = Math.max(0.2, gameElapsed/60), atk = a.attacks;
       profile = {
-        aggression:     clamp((a.attacks/mins)/30),       // attacks per minute, ~30 = very aggressive
+        aggression:     clamp((atk/mins)/30),             // attacks per minute, ~30 = very aggressive
         earlyAggro:     a.early ? a.earlyEnemy/a.early : 0.5,
-        targetWeakness: a.sumWeak/a.attacks,
-        armySize:       clamp((a.sumSrc/a.attacks)/120),
-        reach:          clamp((a.sumDist/a.attacks)/(rlDiag||1)),
+        targetWeakness: a.sumWeak/atk,                    // 1 = always picks the weakest target
+        armySize:       clamp((a.sumSrc/atk)/120),        // avg troops committed per attack
+        reach:          clamp((a.sumDist/atk)/(rlDiag||1)),// avg attack distance
+        avgTargetT:     a.sumTgtT/atk,                    // how defended the targets you pick are
+        reinforceRate:  a.reinforce/atk,                  // share of moves that reinforce your own land
+        jointRate:      a.joint/atk,                      // share of multi-source coordinated attacks
+        neutralBias:    (a.atkNeutral)/Math.max(1,a.atkNeutral+a.atkEnemy), // expand vs fight preference
+        fracAll:        a.fracAll/atk, fracHalf:a.fracHalf/atk, fracQuarter:a.fracQuarter/atk, // send-size habits
       };
     }
-    api('/api/record', { name: playerName, difficulty: LEVELS[levelIdx].name, won: !!won, profile }).catch(()=>{});
+    // full game log: header + expanded profile + every move's board context + trajectory samples
+    const gameLog = { v:1, name: playerName, ts: Date.now(), won: !!won,
+      difficulty: LEVELS[levelIdx].name, region: REGIONS[regionIdx] && REGIONS[regionIdx].name,
+      duration: Math.round(gameElapsed), outcome: won ? 'win' : 'loss',
+      header: a && a.header, profile, moves: (a && a.moves) || [], snaps: (a && a.snaps) || [],
+      finalBoard: a ? boardSnapshot() : null };
+    api('/api/record', gameLog).catch(()=>{});
+    savePlayLog(gameLog);
+    if (typeof refreshExportBtn==='function') refreshExportBtn();
     matchTrack = null;
   }
   const lbEsc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
