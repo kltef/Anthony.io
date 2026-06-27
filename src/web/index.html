@@ -216,6 +216,11 @@
   #scnEditBar .go { background: #38c46f; color: #06210f; }
   #scnEditBar .ghost { background: rgba(255,255,255,.1); color: #cfe0f0; }
   #scnEditBtn { background: rgba(70,166,239,.16); border: 1px solid #46a6ef; }
+  /* ---- adaptive-AI read-out ---- */
+  #adaptHud { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); z-index: 6;
+    background: rgba(16,23,37,.82); border: 1px solid #46a6ef; color: #cfe6ff;
+    border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 700;
+    pointer-events: none; white-space: nowrap; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
   /* ---- name entry modal ---- */
   #namePanel { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 30;
     width: min(380px, 92vw); pointer-events: auto; text-align: center;
@@ -232,6 +237,7 @@
 <canvas id="game"></canvas>
 <div id="back">&#10094;</div>
 <div id="topbar"><div id="bar"></div></div>
+<div id="adaptHud" style="display:none"></div>
 <div id="zoom"><button id="zoomIn" title="Zoom in">+</button><button id="zoomOut" title="Zoom out">&minus;</button></div>
 <div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="upgradeBtn" title="Upgrade the selected state's troop cap" style="display:none">⬆ Upgrade</button><button id="airdropBtn" title="Drop reinforcements onto the selected state" style="display:none">🪂 Airdrop</button><button id="nnBtn" title="Show the Grandmaster AI's neural network">AI brain</button></div>
 <div id="nnpanel">
@@ -512,6 +518,12 @@
     // it out-thinks you, it doesn't out-cheat you. If it beats you here, it genuinely outplayed you.
     { name:'Impossible', enemies:1, aiSpeed:0.85, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true,
       planDt:0.3, mctsK:9, tbudget:4000, workerMs:350, hunt:0.7 },
+    // Adaptive: a fair 1v1 on the raw trained net (instinct, no planner) whose ONLY edge is that it
+    // LEARNS YOU. An on-device opponent model fits P(your move | board) online as you play and the
+    // AI best-responds — pouncing on the state you're about to empty, racing you to land you're about
+    // to grab — gated by its confidence, so it plays safe when unsure or when you switch styles. It
+    // remembers you across sessions. Symmetric stats; the intelligence is in reading the human.
+    { name:'Adaptive', enemies:1, aiSpeed:0.85, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, adapt:true, hunt:0.7 },
   ];
   let levelIdx = 0;
 
@@ -942,6 +954,7 @@
     cfg = lv;
     troops = []; selected=null; dragPos=null; airArmed=false; aiTimers={}; planPending={}; planEpoch++; resetCam();
     startGameLog();
+    OppModel.load(playerName);                          // load this player's learned opponent model
     if (netMode!=='host') myOwner = PLAYER;
     if (!netMode && regionIdx!==0){ regionIdx=0; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default map
     buildGeo();
@@ -1125,6 +1138,9 @@
                  tgtOwner:to.owner, dist:Math.round(Math.hypot(to.cx-from.cx, to.cy-from.cy)),
                  joint:(selSet && selSet.length) || 1 };
     matchTrack.moves.push(snap);
+    // feed the live opponent model one online learning step (board state is pre-move, so it's the
+    // decision context). Runs every game so it keeps learning you even when the AI isn't Adaptive.
+    OppModel.update(from, to);
   }
   // ---- IndexedDB-backed archive (localStorage can't hold 500MB; it caps at ~5MB) -------------
   const PLAYDB='statio_play', PLAYSTORE='games', OLD_LS_KEY='statio_games_v1';
@@ -1195,6 +1211,64 @@
       if (typeof refreshExportBtn==='function') refreshExportBtn();
     }catch(e){}
   }
+
+  // ---- live opponent model: learns P(your move | board) on-device, in real time ----------------
+  // A tiny conditional-logit over move features, trained ONLINE (one gradient step per human move)
+  // and persisted per player. The Adaptive AI queries predict() to best-respond, gated by a rolling
+  // confidence so it plays safe when unsure or when you switch styles (defeats deliberate poisoning).
+  // Features per candidate human move mirror tools/parse_play_data.py so the offline + online models
+  // are the same shape (a bigger net can drop into score()/update() later without changing callers).
+  const OppModel = {
+    D: 7, W: null, lr: 0.08, conf: 0, hits: [], who: null,
+    feat(st, tt, dist, isNeu){ return [ st/50, tt/50, (st-tt)/50, dist/(rlDiag||1), isNeu?1:0, st>tt?1:0, 1 ]; },
+    ensure(){ if (!this.W) this.W = new Array(this.D).fill(0); },
+    cands(human){                                  // every legal move: owned source (>1) x any non-owned target
+      const srcs=[], out=[];
+      for (const s of states) if (s.owner===human && s.troops>1) srcs.push(s);
+      for (const s of srcs) for (const t of states){
+        if (t===s || t.owner===human) continue;
+        out.push({ s, t, f: this.feat(s.troops, t.troops, Math.hypot(s.cx-t.cx, s.cy-t.cy), t.owner===NEUTRAL) });
+      }
+      return out;
+    },
+    score(f){ let z=0; for (let i=0;i<this.D;i++) z+=this.W[i]*f[i]; return z; },
+    probs(cl){ let m=-1e9; for (const c of cl){ c.z=this.score(c.f); if(c.z>m)m=c.z; }
+      let s=0; for (const c of cl){ c.p=Math.exp(c.z-m); s+=c.p; } for (const c of cl) c.p/=(s||1); return cl; },
+    load(name){
+      this.ensure(); this.who=name; this.conf=0; this.hits=[];
+      try { const j=JSON.parse(localStorage.getItem('oppmodel_'+name)||'null');
+        if (j && Array.isArray(j.W) && j.W.length===this.D){ this.W=j.W.slice(); } } catch(e){}
+    },
+    save(){ try { localStorage.setItem('oppmodel_'+(this.who||playerName||'Player'), JSON.stringify({W:this.W})); } catch(e){} },
+    update(from, to){                              // one online gradient step toward the move you made
+      if (!from || !to) return;
+      this.ensure();
+      const cl=this.cands(from.owner); if (cl.length<2) return;
+      this.probs(cl);
+      let ci=-1, top=0, tp=-1;
+      for (let i=0;i<cl.length;i++){ if (cl[i].s===from && cl[i].t===to) ci=i; if (cl[i].p>tp){ tp=cl[i].p; top=i; } }
+      if (ci<0) return;
+      const Ef=new Array(this.D).fill(0);          // E_p[features] under the current model
+      for (const c of cl) for (let i=0;i<this.D;i++) Ef[i]+=c.p*c.f[i];
+      for (let i=0;i<this.D;i++) this.W[i] += this.lr*(cl[ci].f[i]-Ef[i]);   // w += lr*(f_chosen - E_p[f])
+      this.hits.push(top===ci?1:0); if (this.hits.length>12) this.hits.shift();
+      const acc=this.hits.reduce((a,b)=>a+b,0)/this.hits.length;
+      this.conf = acc * Math.min(1, this.hits.length/5);   // ramp confidence in over the first few moves
+    },
+    // where is the human likely to act next? per-state P(used as source / "about to empty") and
+    // P(targeted). Returns conf<=0 (empty) until the model has a real read — so the AI plays safe.
+    predict(human){
+      this.ensure();
+      const soft={}, threat={};
+      if (this.conf<=0) return { soft, threat, conf:0 };
+      const cl=this.cands(human); if (!cl.length) return { soft, threat, conf:this.conf };
+      this.probs(cl);
+      let best=null;
+      for (const c of cl){ soft[c.s.id]=(soft[c.s.id]||0)+c.p; threat[c.t.id]=(threat[c.t.id]||0)+c.p;
+        if (!best || c.p>best.p) best=c; }
+      return { soft, threat, conf:this.conf, topSrc:best&&best.s, topTgt:best&&best.t };
+    }
+  };
 
   function arrive(t) {
     const to = states.find(s => s.id===t.targetId);
@@ -1281,6 +1355,9 @@
     const rivalsLeft   = states.some(s=>s.owner>=2 && s.owner!==owner);
     const endgame = !neutralsLeft && !rivalsLeft;   // only this AI and the player are left
     const playerStates = states.filter(s=>s.owner===PLAYER);
+    // Adaptive AI: ask the live opponent model where the human is about to act, and best-respond.
+    // Returns conf<=0 (no effect) until it has a confident read — so low-confidence play stays safe.
+    const adaptPred = (LEVELS[levelIdx].adapt && playerStates.length) ? OppModel.predict(myOwner) : null;
     const distToPlayer = tg => {
       let m = Infinity;
       for (const p of playerStates) { const d=Math.hypot(tg.cx-p.cx, tg.cy-p.cy); if (d<m) m=d; }
@@ -1338,6 +1415,14 @@
         }
         if (tg.type==='capital' || tg.type==='factory') bias += 1.2;   // value high-growth tiles
         else if (tg.type==='fortress') bias += 0.5;
+        // Adaptive best-response (gated by the model's confidence in its read of you):
+        //  • pounce on a state you're predicted to EMPTY next — it'll be thin when our orb lands
+        //  • race you to neutral land you're predicted to grab
+        if (adaptPred && adaptPred.conf>0){
+          const w = 2.4 * adaptPred.conf;
+          if (tg.owner===PLAYER)        bias += w * (adaptPred.soft[tg.id]   || 0);
+          else if (tg.owner===NEUTRAL)  bias += w * 0.7 * (adaptPred.threat[tg.id] || 0);
+        }
         score += bias;
         if (cands) cands.push({ src, tg, score, raw, bias, feats });
         if (score>bestScore){ bestScore=score; bestSrc=src; bestTgt=tg; }
@@ -3430,6 +3515,7 @@
       finalBoard: a ? boardSnapshot() : null };
     api('/api/record', gameLog).catch(()=>{});
     savePlayLog(gameLog);
+    OppModel.save();                                    // persist what the opponent model learned this game
     if (typeof refreshExportBtn==='function') refreshExportBtn();
     matchTrack = null;
   }
@@ -3802,6 +3888,7 @@
   const upgradeBtn = document.getElementById('upgradeBtn');
   const airdropBtn = document.getElementById('airdropBtn');
   let hudUpg = null, hudAir = null;   // last-rendered keys (only touch the DOM on change)
+  const adaptHud = document.getElementById('adaptHud'); let _adaptHudT = 0;
   function refreshHud(){
     if (!upgradeBtn || !airdropBtn) return;
     // ⬆ Upgrade — visible when a player state is selected and can still be upgraded
@@ -3820,6 +3907,20 @@
     if (aKey!==hudAir){ hudAir=aKey; airdropBtn.style.display = aShow?'':'none';
       if (aShow){ airdropBtn.textContent = airArmed ? '🪂 Tap a state ('+PERK.airdrops+')' : '🪂 Airdrop ('+PERK.airdrops+')';
                   airdropBtn.disabled=false; airdropBtn.classList.toggle('armed', airArmed); } }
+    // 🧠 Adaptive AI read-out: confidence in its model of you + what it expects you to do next
+    if (adaptHud){
+      const lvA = LEVELS[levelIdx];
+      if (lvA && lvA.adapt && running && !scenarioObserver){
+        const now = performance.now();
+        if (now - _adaptHudT > 300){
+          _adaptHudT = now;
+          const pr = OppModel.predict(myOwner); const pct = Math.round((pr.conf||0)*100);
+          adaptHud.textContent = pct<=0 ? '🧠 learning you…'
+            : '🧠 read '+pct+'%'+(pr.topTgt ? ' · expecting → '+pr.topTgt.name : '');
+        }
+        adaptHud.style.display='';
+      } else if (adaptHud.style.display!=='none'){ adaptHud.style.display='none'; }
+    }
   }
   if (upgradeBtn) upgradeBtn.addEventListener('click', ()=>{ if (tryUpgrade(selected)) refreshHud(); });
   if (airdropBtn) airdropBtn.addEventListener('click', ()=>{

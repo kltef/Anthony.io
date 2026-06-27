@@ -161,6 +161,18 @@ def main():
             ['srcT','tgtT','delta','dist','neutral','can-take','bias'], w)})
         print("\n  NOTE: with few games this is in-sample/overfit — it's the pipeline, not a verdict.")
         print("  Accuracy and the model sharpen as more exported games accumulate.")
+        # learning curve: train on the first K games, test on the rest — shows when more data stops helping
+        if len(games) >= 6:
+            print("\n== learning curve (train on first K games, top-1 on held-out rest) ==")
+            for frac in (0.25, 0.5, 0.75):
+                k = max(1, int(len(games)*frac))
+                tr = build_dataset(games[:k]); te = build_dataset(games[k:])
+                if len(tr) >= 4 and te:
+                    wk = train_condlogit(tr); acc = top1(lambda X,c: X @ wk, te)
+                    print(f"  first {k:3d} games ({len(tr):4d} decisions) -> held-out top-1 {acc:.2f}")
+            print("  Rising = keep playing. Flat = you have enough data for a stable model (step 3).")
+        else:
+            print("  (need >=6 games for a held-out learning curve — keep playing + exporting.)")
     else:
         print("  need more logged moves to fit a stable model (keep playing + export).")
 
