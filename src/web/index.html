@@ -3383,13 +3383,18 @@
     exportBtn.textContent = '⬇ Data ('+playLogCount()+(mb>=0.1?', '+mb.toFixed(mb>=10?0:1)+'MB':'')+')'; }
   async function exportPlayDataUI(){
     if (exportBtn) exportBtn.textContent = '… exporting';
-    const data = await window.exportPlayData();
     let ok = false;
-    try { const blob=new Blob([data],{type:'application/json'}); const url=URL.createObjectURL(blob);
-      const aEl=document.createElement('a'); aEl.href=url; aEl.download='stateio_playdata.json';
-      document.body.appendChild(aEl); aEl.click(); aEl.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500); ok=true; } catch(e){}
-    try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(data); ok=true; } catch(e){}
-    if (exportBtn){ const n=playLogCount(); exportBtn.textContent = ok ? ('✓ '+n+' games') : '⚠ none'; setTimeout(refreshExportBtn, 1600); }
+    try {
+      const data = await window.exportPlayData();
+      const blob = new Blob([data], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const aEl = document.createElement('a');
+      aEl.href = url; aEl.download = 'stateio_playdata.json'; aEl.style.display = 'none';
+      document.body.appendChild(aEl); aEl.click(); aEl.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      ok = true;
+    } catch(e){}
+    if (exportBtn){ const n=playLogCount(); exportBtn.textContent = ok ? ('✓ saved '+n+' games') : '⚠ save failed'; setTimeout(refreshExportBtn, 1600); }
   }
   if (exportBtn) exportBtn.addEventListener('click', exportPlayDataUI);
   playInit();   // open IndexedDB, compute stats, migrate any old localStorage archive
