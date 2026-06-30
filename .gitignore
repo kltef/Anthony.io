@@ -2,6 +2,10 @@
 __pycache__/
 *.pyc
 
+# APK build intermediates
+build/unsigned.apk
+build/aligned.apk
+
 # Training artifacts — candidate models written by the trainers. Only promoted
 # to src/web/rl_policy.json (and rebuilt into the APK) if they beat the baseline.
 tools/rl_policy_new.json
