@@ -1188,7 +1188,7 @@
       _pCount++; _pBytes+=rec.bytes;
       await _trim(db);
       if (typeof refreshExportBtn==='function') refreshExportBtn();
-    }catch(e){}
+    }catch(e){ console.error('[stateio] savePlayLog failed:', e); }
   }
   function playLogCount(){ return _pCount; }
   function playLogBytes(){ return _pBytes; }
@@ -1217,7 +1217,7 @@
         await _idbReq(_store(db,'readwrite').add({ts:g.ts||0,bytes:json.length,game:g})); _pCount++; _pBytes+=json.length; } }catch(e){}
         try{ localStorage.removeItem(OLD_LS_KEY); }catch(e){} await _trim(db); }
       if (typeof refreshExportBtn==='function') refreshExportBtn();
-    }catch(e){}
+    }catch(e){ console.error('[stateio] playInit failed:', e); }
   }
 
   // ---- live opponent model: learns P(your move | board) on-device, in real time ----------------
@@ -3475,6 +3475,11 @@
   function refreshExportBtn(){ if (!exportBtn) return; const mb=(typeof playLogBytes==='function'?playLogBytes():0)/1048576;
     exportBtn.textContent = '⬇ Data ('+playLogCount()+(mb>=0.1?', '+mb.toFixed(mb>=10?0:1)+'MB':'')+')'; }
   async function exportPlayDataUI(){
+    const n = playLogCount();
+    if (n === 0) {
+      if (exportBtn){ exportBtn.textContent = '⚠ No games yet'; setTimeout(refreshExportBtn, 2000); }
+      return;
+    }
     if (exportBtn) exportBtn.textContent = '… exporting';
     let ok = false;
     try {
@@ -3486,8 +3491,8 @@
       document.body.appendChild(aEl); aEl.click(); aEl.remove();
       setTimeout(()=>URL.revokeObjectURL(url), 2000);
       ok = true;
-    } catch(e){}
-    if (exportBtn){ const n=playLogCount(); exportBtn.textContent = ok ? ('✓ saved '+n+' games') : '⚠ save failed'; setTimeout(refreshExportBtn, 1600); }
+    } catch(e){ console.error('[stateio] exportPlayData failed:', e); }
+    if (exportBtn){ exportBtn.textContent = ok ? ('✓ saved '+n+' games') : '⚠ export failed'; setTimeout(refreshExportBtn, 2000); }
   }
   if (exportBtn) exportBtn.addEventListener('click', exportPlayDataUI);
   playInit();   // open IndexedDB, compute stats, migrate any old localStorage archive
