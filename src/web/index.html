@@ -3507,13 +3507,7 @@
     let ok = false;
     try {
       const data = await window.exportPlayData();
-      const blob = new Blob([data], {type:'application/json'});
-      const url = URL.createObjectURL(blob);
-      const aEl = document.createElement('a');
-      aEl.href = url; aEl.download = 'stateio_playdata.json'; aEl.style.display = 'none';
-      document.body.appendChild(aEl); aEl.click(); aEl.remove();
-      setTimeout(()=>URL.revokeObjectURL(url), 2000);
-      showDlToast('stateio_playdata.json');
+      await shareFile(data, 'stateio_playdata.json', 'application/json');
       ok = true;
     } catch(e){ console.error('[stateio] exportPlayData failed:', e); }
     if (exportBtn){ exportBtn.textContent = ok ? ('✓ saved '+n+' games') : '⚠ export failed'; setTimeout(refreshExportBtn, 2000); }
@@ -4058,20 +4052,28 @@
   }
   if (dlToastClose) dlToastClose.onclick = hideDlToast;
 
+  async function shareFile(content, filename, mimeType) {
+    const file = new File([content], filename, {type: mimeType});
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      try { await navigator.share({files: [file], title: filename}); return; }
+      catch(e) { if (e.name === 'AbortError') return; }
+    }
+    const url = URL.createObjectURL(new Blob([content], {type: mimeType}));
+    const a = document.createElement('a'); a.style.display = 'none';
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showDlToast(filename);
+  }
+
   // ---- export / import shop save data (coins, perks) ----
   const PERK_KEYS = ['coins','extraStates','startTroops','preUpgraded','startCapital','boomStart','investor','airdrops','colorUnlocked','color'];
   const shopExportBtn = document.getElementById('shopExportBtn');
   const shopImportBtn = document.getElementById('shopImportBtn');
-  if (shopExportBtn) shopExportBtn.onclick = () => {
+  if (shopExportBtn) shopExportBtn.onclick = async () => {
     const data = { version: 2 };
     for (const k of PERK_KEYS) data[k] = PERK[k];
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.style.display = 'none';
-    a.href = url; a.download = 'stateio-save.json';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-    showDlToast('stateio-save.json');
+    await shareFile(JSON.stringify(data, null, 2), 'stateio-save.json', 'application/json');
   };
   if (shopImportBtn) shopImportBtn.onclick = () => {
     const input = document.createElement('input');
