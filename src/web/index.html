@@ -4018,9 +4018,10 @@
     for (const k of PERK_KEYS) data[k] = PERK[k];
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'stateio-save.json'; a.click();
-    URL.revokeObjectURL(url);
+    const a = document.createElement('a'); a.style.display = 'none';
+    a.href = url; a.download = 'stateio-save.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
   };
   if (shopImportBtn) shopImportBtn.onclick = () => {
     const input = document.createElement('input');
