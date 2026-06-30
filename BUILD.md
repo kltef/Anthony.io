@@ -143,3 +143,27 @@ the patch from an unmodified manifest: decode with `pyaxml`, add the
 `dataType=0x10` (TYPE_INT_DEC), `data=0`, raw value none. `build/repack.py`
 swaps this manifest plus the current web assets into the previous signed APK;
 then sign per the steps above.
+
+## ⚠️ Signing key — DO NOT regenerate
+
+App updates only install over an existing install if signed with the **same** key.
+The `keytool -genkeypair …` command above generates a **new random key each run** —
+running it will break the update path for anyone who already has the app.
+
+The shipping **v1.5-shop** line is signed with one specific keystore:
+
+- alias: `stateio`, store/key password: `android`
+- signer cert **SHA-256: `81:2E:C5:A8:AC:F0:47:A2:BA:9D:E9:98:70:C3:F1:CD:50:13:8C:76:CE:CB:62:31:22:1D:AB:B7:1C:85:15:FA`**
+
+That `release.keystore` is **kept out of the repo on purpose** (a private signing key
+must not live in version control). Keep a private backup of it and sign every future
+build with it. Verify a build matches before shipping:
+
+```
+# prints the signer cert SHA-256; must equal the fingerprint above
+java -cp apksig.jar:. CertFp State.io_v1.5-shop.apk
+```
+
+(The older v1.2 / v1.3 APKs were each signed with different, now-lost keys —
+`2F:3B:DF:F6…` and `83:CF:A7:58…` — so updating *from* those required an uninstall.
+Going forward, only the `81:2E…` key matters.)
