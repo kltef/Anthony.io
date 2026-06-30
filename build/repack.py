@@ -6,7 +6,7 @@
 #   python3 build/repack.py  ->  build/unsigned.apk
 import zipfile, os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PREV = os.path.join(ROOT, "State.io_v1.5-shop.apk")   # previous signed APK (carries all assets/res)
+PREV = os.path.join(ROOT, "State.io_v1.6.apk")   # previous signed APK (carries all assets/res)
 OUT  = os.path.join(ROOT, "build", "unsigned.apk")
 html     = open(os.path.join(ROOT, "src/web/index.html"), "rb").read()
 policy   = open(os.path.join(ROOT, "src/web/rl_policy.json"), "rb").read()
