@@ -165,6 +165,20 @@
   .scn-preset:hover { border-color: #46a6ef; }
   #scnBar { width: min(330px, 88vw); height: 14px; border-radius: 8px; overflow: hidden;
     display: flex; background: #b4bbc2; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  /* ---- download toast ---- */
+  #dlToast { position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%) translateY(16px);
+    background: #1a2a3d; border: 1px solid #2e4a6a; border-radius: 13px;
+    padding: 11px 14px; z-index: 35; display: flex; align-items: center; gap: 11px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.55); min-width: 220px; max-width: min(340px,92vw);
+    pointer-events: auto; opacity: 0; transition: opacity .22s ease, transform .22s ease; }
+  #dlToast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #dlToast.gone { display: none !important; }
+  .dl-icon { font-size: 22px; flex: none; }
+  .dl-body { flex: 1; min-width: 0; }
+  .dl-title { color: #8fd6a6; font-weight: 800; font-size: 13px; margin-bottom: 1px; }
+  .dl-file { color: #b8cfe0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dl-close { pointer-events: auto; cursor: pointer; background: none; border: none;
+    color: #6a7e96; font-size: 18px; line-height: 1; padding: 2px 4px; flex: none; }
   /* ---- coins & shop ---- */
   #upgradeBtn { font-size: 14px !important; }
   #upgradeBtn:not(:disabled) { background: #f5c84a; color: #3a2c00; }
@@ -391,6 +405,15 @@
     <button class="mini ghost" id="scnEditBack">◀ Back</button>
     <button class="mini go" id="scnEditStart">Start ▶</button>
   </div>
+</div>
+
+<div id="dlToast" class="gone">
+  <span class="dl-icon">📥</span>
+  <div class="dl-body">
+    <div class="dl-title">Saved to Downloads</div>
+    <div class="dl-file" id="dlToastFile"></div>
+  </div>
+  <button class="dl-close" id="dlToastClose">×</button>
 </div>
 
 <script src="d3.min.js"></script>
@@ -3490,6 +3513,7 @@
       aEl.href = url; aEl.download = 'stateio_playdata.json'; aEl.style.display = 'none';
       document.body.appendChild(aEl); aEl.click(); aEl.remove();
       setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      showDlToast('stateio_playdata.json');
       ok = true;
     } catch(e){ console.error('[stateio] exportPlayData failed:', e); }
     if (exportBtn){ exportBtn.textContent = ok ? ('✓ saved '+n+' games') : '⚠ export failed'; setTimeout(refreshExportBtn, 2000); }
@@ -4014,6 +4038,26 @@
   if (shopBtn) shopBtn.onclick = ()=>{ buildShop(); shopPanel.classList.remove('gone'); };
   if (shopClose) shopClose.onclick = ()=> shopPanel.classList.add('gone');
 
+  // ---- download toast ----
+  const dlToast = document.getElementById('dlToast');
+  const dlToastFile = document.getElementById('dlToastFile');
+  const dlToastClose = document.getElementById('dlToastClose');
+  let _dlTimer = null;
+  function showDlToast(filename) {
+    if (!dlToast) return;
+    if (_dlTimer) clearTimeout(_dlTimer);
+    dlToastFile.textContent = filename;
+    dlToast.classList.remove('gone');
+    requestAnimationFrame(() => requestAnimationFrame(() => dlToast.classList.add('show')));
+    _dlTimer = setTimeout(hideDlToast, 5000);
+  }
+  function hideDlToast() {
+    if (!dlToast) return;
+    dlToast.classList.remove('show');
+    setTimeout(() => dlToast.classList.add('gone'), 250);
+  }
+  if (dlToastClose) dlToastClose.onclick = hideDlToast;
+
   // ---- export / import shop save data (coins, perks) ----
   const PERK_KEYS = ['coins','extraStates','startTroops','preUpgraded','startCapital','boomStart','investor','airdrops','colorUnlocked','color'];
   const shopExportBtn = document.getElementById('shopExportBtn');
@@ -4027,6 +4071,7 @@
     a.href = url; a.download = 'stateio-save.json';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showDlToast('stateio-save.json');
   };
   if (shopImportBtn) shopImportBtn.onclick = () => {
     const input = document.createElement('input');
