@@ -7,43 +7,6 @@ troop simulation, and the trained reinforcement-learning AI — lives in that on
 self-contained HTML file. The editable source is mirrored at
 [`src/web/index.html`](src/web/index.html).
 
-## Per-team top bar
-
-The top strength bar used to lump every enemy into one red segment (blue = you, red = all AIs,
-grey = neutral). It now renders **one segment per team in that team's own colour** (you, then
-each AI colour, then neutral). `updateBar()` tallies troops per owner and rebuilds the segment
-DOM only when the set of live owners changes (e.g. a team is eliminated); otherwise it just
-nudges widths.
-
-## Mobile tap fix & Airdrop arm-then-tap
-
-- **Mobile tap selection bug (root cause).** `gameMove()` flagged the gesture as a *drag* on
-  **any** pointer movement, so a finger tap's few px of jitter made `gameUp()` clear the
-  selection. On a phone, tapping your own state therefore never selected it — leaving the
-  **Airdrop** and **Upgrade** buttons greyed out and tap-then-tap sending unreliable. Fixed with
-  a **12px tap dead-zone** (`TAP_SLOP`): the gesture only becomes a drag once the pointer leaves
-  that radius (`downCss` recorded in `gameDown`). Synthetic test clicks have zero jitter, which is
-  why this slipped past earlier automated runs.
-- **Airdrop is now arm-then-tap.** Instead of "select a state, then press a greyed-out button,"
-  tap **🪂 Airdrop** to *arm* it (it highlights and reads "🪂 Tap a state…"), then tap one of your
-  states to drop +25 troops there and spend a charge. No hidden select-first step. (`airdropArmed`,
-  handled in `gameUp`/`refreshHud`.)
-
-## Scenario back button & orb-shape perk
-
-- **Fixed "← Back" on menu screens.** The in-game `❮` arrow only helps once a match is
-  running; on the Scenario setup screen in landscape on mobile the page scrolls and the mode
-  tabs scroll out of view, leaving no way back. A `position:fixed` **← Back** button
-  (`#menuBack`, z-index above the overlay) now shows on any non-default menu screen and returns
-  to the vs-Computer menu — it stays put no matter how far the panel scrolls. Visibility is
-  driven by `updateMenuBack()` on every overlay show/hide and `setMode()` change.
-- **Orb-shape perk (replaces the old colour perk).** The cosmetic team-colour option is gone;
-  the shop now sells an **orb shape**: Circle (default), Triangle, Jet (F-22), Bomber, Diamond.
-  Your own orbs (`t.owner===myOwner`) render in the chosen silhouette, rotated to point at their
-  target; everyone else's stay circles. It's a purely local cosmetic, so it works in every mode
-  with no networking changes. See `ORB_SHAPES`, `drawOrbShape()` (also used for the shop's canvas
-  previews), and `PERK.orbShape`/`orbUnlocked`.
-
 ## Cap upgrades, special tiles & a coin shop
 
 Three linked single-player systems (all gated to `netMode === null`, so multiplayer and
@@ -123,9 +86,10 @@ The implementation is entirely within `assets/web/index.html` (search for
 ## Rebuilding the APK
 
 The repo ships the rebuilt, signed artifact as
-`State.io_v1.4-impossible.apk` (the Easy→Impossible difficulty rework, the
-off-thread Web-Worker planner, and the plain-language "what the AI is thinking"
-explanations in the AI-brain / planner overlay). The earlier
+`State.io_v1.5-shop.apk` — it bundles everything: the cap upgrades / special
+tiles / coin shop above, the Scenario Builder, the Easy→Impossible difficulty
+rework, the off-thread Web-Worker planner, and the plain-language "what the AI
+is thinking" explanations in the AI-brain / planner overlay. The earlier
 `State.io_v1.3-scenarios.apk` and the original `State.io_v1.2.apk` are kept for
 reference.
 
@@ -163,3 +127,19 @@ produces an equivalent artifact.
 required — a v1 (JAR) signature alone would be rejected on install by modern
 Android. The committed APK is signed with a throwaway debug key; re-sign with
 your own release key before distributing.
+
+## Samsung Game Launcher / Game Mode
+
+The binary `AndroidManifest.xml` sets `android:appCategory="game"` (resource id
+`0x01010545`, encoded as a typed `TYPE_INT_DEC` enum with value `0` =
+`CATEGORY_GAME`). This is the signal Samsung's Game Launcher / Game Booster (and
+Android's own game-mode interventions) use to auto-detect the app as a game, so
+it shows up under Game Launcher and benefits from performance/no-interruption
+modes without the user adding it manually.
+
+The patched binary manifest lives at `build/AndroidManifest.xml`. To reproduce
+the patch from an unmodified manifest: decode with `pyaxml`, add the
+`android:appCategory` attribute to `<application>`, then fix its `Res_value` to
+`dataType=0x10` (TYPE_INT_DEC), `data=0`, raw value none. `build/repack.py`
+swaps this manifest plus the current web assets into the previous signed APK;
+then sign per the steps above.

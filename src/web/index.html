@@ -21,13 +21,6 @@
     color: #3a4654; font-size: 30px; font-weight: 800; line-height: 1; user-select: none;
   }
   #back:active { transform: scale(.9); }
-  /* Fixed Back button for non-default menu screens — stays put even when the panel scrolls
-     (e.g. the Scenario builder in landscape on mobile, where the mode tabs scroll off-screen). */
-  #menuBack { position: fixed; top: 12px; left: 12px; z-index: 11; pointer-events: auto; cursor: pointer;
-    background: rgba(16,23,37,.92); color: #cdd9ea; border: 1px solid #2a3850; border-radius: 9px;
-    padding: 8px 14px; font-weight: 800; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
-  #menuBack:hover { border-color: #46a6ef; color: #fff; }
-  #menuBack:active { transform: scale(.94); }
   #zoom { position: fixed; right: 14px; bottom: 14px; z-index: 6; display: flex; flex-direction: column; gap: 8px; }
   #zoom button {
     width: 44px; height: 44px; border-radius: 11px; border: none; cursor: pointer;
@@ -176,7 +169,7 @@
   #upgradeBtn { font-size: 14px !important; }
   #upgradeBtn:not(:disabled) { background: #f5c84a; color: #3a2c00; }
   #airdropBtn { font-size: 14px !important; background: #8fd6a6; color: #143421; }
-  #airdropBtn.armed { background: #f5a623; color: #fff; box-shadow: 0 0 0 3px rgba(245,166,35,.4); }
+  #airdropBtn.armed { background: #2fae5b; color: #fff; box-shadow: 0 0 0 3px rgba(47,174,91,.45), 0 1px 5px rgba(0,0,0,.28); }
   .coinline { color: #ffd479; font-weight: 800; font-size: 16px; opacity: .95; margin-top: -6px; }
   #shopPanel { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 20;
     width: min(460px, 94vw); max-height: 86vh; overflow-y: auto; pointer-events: auto;
@@ -200,15 +193,53 @@
   .scn-preset.on { background: #46a6ef; border-color: #46a6ef; color: #fff; }
   #speed button:disabled { opacity: .5; cursor: default; }
   #scnBar > div { height: 100%; }
+  /* ---- on-map scenario editor ---- */
+  #scnEditBar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 22;
+    display: none; flex-direction: column; gap: 8px; align-items: center; pointer-events: auto;
+    width: min(580px, 96vw); background: rgba(16,23,37,.96); border: 1px solid #2a3850;
+    border-radius: 14px; padding: 12px 14px; box-shadow: 0 8px 40px rgba(0,0,0,.55); }
+  body.scn-editing #scnEditBar { display: flex; }
+  body.scn-editing #back, body.scn-editing #topbar, body.scn-editing #speed,
+  body.scn-editing #nnpanel { display: none !important; }
+  #scnEditBar .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; }
+  .scn-pal { pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 6px;
+    border: 2px solid rgba(255,255,255,.18); background: rgba(255,255,255,.07); color: #dfe9f4;
+    border-radius: 9px; padding: 5px 9px; font-size: 12px; font-weight: 700; }
+  .scn-pal .dot { width: 14px; height: 14px; border-radius: 4px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.22); }
+  .scn-pal.on { border-color: #fff; background: rgba(255,255,255,.16); }
+  #scnEditBar .tnum { min-width: 46px; text-align: center; font-size: 16px; font-weight: 800; color: #eaf1fb; }
+  #scnEditBar .mini, #scnEditBar .tpre { pointer-events: auto; cursor: pointer; border: none; border-radius: 8px;
+    background: rgba(255,255,255,.16); color: #eaf1fb; font-weight: 800; font-size: 14px; padding: 5px 11px; }
+  #scnEditBar .tpre { font-size: 12px; padding: 5px 9px; }
+  #scnEditBar .lbl { font-size: 12px; color: #9aa6b4; font-weight: 700; }
+  #scnEditBar .sel { font-size: 12px; color: #9fd9b0; font-weight: 700; min-height: 16px; text-align: center; }
+  #scnEditBar .go { background: #38c46f; color: #06210f; }
+  #scnEditBar .ghost { background: rgba(255,255,255,.1); color: #cfe0f0; }
+  #scnEditBtn { background: rgba(70,166,239,.16); border: 1px solid #46a6ef; }
+  /* ---- adaptive-AI read-out ---- */
+  #adaptHud { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); z-index: 6;
+    background: rgba(16,23,37,.82); border: 1px solid #46a6ef; color: #cfe6ff;
+    border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 700;
+    pointer-events: none; white-space: nowrap; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+  /* ---- name entry modal ---- */
+  #namePanel { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 30;
+    width: min(380px, 92vw); pointer-events: auto; text-align: center;
+    background: rgba(16,23,37,.98); border: 1px solid #2a3850; border-radius: 14px; padding: 22px 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.6); }
+  #namePanel.gone { display: none; }
+  #pnameInput { width: 100%; box-sizing: border-box; background: #16233b; color: #fff;
+    border: 1px solid #2a3850; border-radius: 9px; padding: 11px 12px; font-size: 16px; text-align: center; }
+  #pnameInput:focus { outline: none; border-color: #46a6ef; }
+  #playerNameDisp { color: #8fd6ff; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="back">&#10094;</div>
-<button id="menuBack" style="display:none">&#8592; Back</button>
 <div id="topbar"><div id="bar"></div></div>
+<div id="adaptHud" style="display:none"></div>
 <div id="zoom"><button id="zoomIn" title="Zoom in">+</button><button id="zoomOut" title="Zoom out">&minus;</button></div>
-<div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="upgradeBtn" title="Upgrade the selected state's troop cap" style="display:none">⬆ Upgrade</button><button id="airdropBtn" title="Drop reinforcements onto the selected state" style="display:none">🪂 Airdrop</button><button id="nnBtn" title="Show the Master AI's neural network">AI brain</button></div>
+<div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="upgradeBtn" title="Upgrade the selected state's troop cap" style="display:none">⬆ Upgrade</button><button id="airdropBtn" title="Drop reinforcements onto the selected state" style="display:none">🪂 Airdrop</button><button id="nnBtn" title="Show the Grandmaster AI's neural network">AI brain</button></div>
 <div id="nnpanel">
   <div id="nntabs">
     <button class="nntab on" data-viz="brain">AI Brain</button>
@@ -228,14 +259,11 @@
     <div class="mode" data-mode="join">Join Online</div>
   </div>
 
-  <div class="who">Playing as
-    <select id="playerName">
-      <option>Anthony</option>
-      <option>Chris</option>
-      <option>Melissa</option>
-    </select>
+  <div class="who">Playing as <b id="playerNameDisp">Player</b>
+    <button class="mini2" id="changeNameBtn" title="Change your name">✎</button>
     <button class="mini2" id="lbBtn">🏆 Leaderboard</button>
     <button class="mini2" id="shopBtn">🪙 Shop</button>
+    <button class="mini2" id="exportBtn" title="Export your recorded play data">⬇ Data</button>
   </div>
   <p class="coinline" id="coinLine" style="display:none"></p>
 
@@ -247,7 +275,14 @@
       Send more than the target holds to capture it. States grow troops over time.<br>
       Conquer every active state to win.
     </p>
+    <div class="seltitle">Difficulty</div>
+    <div class="levels" id="diffModeRow">
+      <div class="lvl" id="modeManual">Manual pick</div>
+      <div class="lvl" id="modeAuto">Auto-adjust</div>
+    </div>
+    <p class="hint" id="diffModeHint" style="margin:2px 0 6px"></p>
     <div class="levels" id="levels"></div>
+    <p class="hint" id="autoLevelHint" style="display:none;margin:4px 0 0"></p>
     <button class="btn" id="startBtn" disabled>Loading map…</button>
     <p class="hint">Drag from a state you own to a neighbor — or tap your state, then tap a target.</p>
   </div>
@@ -304,8 +339,9 @@
       <button class="scn-preset on" id="scnUpgrades">Cap upgrades: On</button>
       <button class="scn-preset on" id="scnTiles">Special tiles: On</button>
     </div>
+    <button class="btn" id="scnEditBtn" style="margin-bottom:8px">🗺️ Edit on map — set troops per state</button>
     <button class="btn" id="scnStartBtn" disabled>Loading map…</button>
-    <p class="hint">Set every team to <b>AI</b> to sit back and watch the AIs fight it out.</p>
+    <p class="hint">Quick start uses the shares above. <b>Edit on map</b> lets you see the board and paint each state's owner &amp; troop count yourself.</p>
   </div>
 
   <p class="hint"><a id="watchLink" href="watch.html" target="_blank" style="color:#9fd9b0;pointer-events:auto">Open spectator view ↗</a></p>
@@ -321,7 +357,40 @@
   <h2 class="lbh">🪙 Shop <span id="shopCoins"></span></h2>
   <p class="hint" style="margin:-8px 0 12px">Earn coins by finishing solo games. Perks apply in <b>vs Computer</b> only — not Scenario or online.</p>
   <div id="shopBody"></div>
-  <button class="btn" id="shopClose" style="margin-top:14px">Close</button>
+  <div style="display:flex;gap:8px;margin-top:14px">
+    <button class="btn" id="shopExportBtn" style="flex:1;font-size:13px">⬇ Export Save</button>
+    <button class="btn" id="shopImportBtn" style="flex:1;font-size:13px">⬆ Import Save</button>
+  </div>
+  <button class="btn" id="shopClose" style="margin-top:8px">Close</button>
+</div>
+
+<div id="namePanel" class="gone">
+  <h2 class="lbh">What's your name?</h2>
+  <p class="hint" style="margin:-6px 0 14px">It labels your games so the AI can learn how <i>you</i> play. You can change it any time.</p>
+  <input id="pnameInput" type="text" maxlength="16" placeholder="Enter a name" autocomplete="off" />
+  <button class="btn" id="pnameSave" style="margin-top:14px">Save</button>
+</div>
+
+<!-- on-map scenario editor toolbar (shown only while editing a scenario on the map) -->
+<div id="scnEditBar">
+  <div class="row" id="scnPalette"></div>
+  <div class="row">
+    <span class="lbl">Troops</span>
+    <button class="mini" id="scnTMinus">−</button>
+    <span class="tnum" id="scnTNum">25</span>
+    <button class="mini" id="scnTPlus">+</button>
+    <button class="tpre" data-t="1">1</button>
+    <button class="tpre" data-t="25">25</button>
+    <button class="tpre" data-t="50">50</button>
+    <button class="tpre" data-t="100">100</button>
+    <button class="tpre" data-t="250">Max</button>
+  </div>
+  <div class="sel" id="scnSel">Tap a state to paint it.</div>
+  <div class="row">
+    <button class="mini ghost" id="scnClear">Clear all</button>
+    <button class="mini ghost" id="scnEditBack">◀ Back</button>
+    <button class="mini go" id="scnEditStart">Start ▶</button>
+  </div>
 </div>
 
 <script src="d3.min.js"></script>
@@ -384,7 +453,10 @@
     fortress: { grow:1.0,  capBonus:40, glyph:'🛡', defense:0.75 },  // absorbs 25% of incoming attacks
   };
   function capOf(s){
-    const base = (s.owner===PLAYER) ? PLAYER_CAP[s.level||0] : MAX_TROOPS;
+    // player states cap by their upgrade tier; AI states use the level's aiCap (hard tiers stack
+    // higher so shop upgrades can't out-muscle them); neutrals never grow so their cap is moot.
+    const base = (s.owner===PLAYER) ? PLAYER_CAP[s.level||0]
+               : (s.owner>=2 ? (cfg.aiCap || MAX_TROOPS) : MAX_TROOPS);
     const bonus = s.type ? (TILE[s.type].capBonus||0) : 0;
     return base + bonus;
   }
@@ -410,42 +482,28 @@
     boomStart:    lsGet('boomStart') === '1',
     investor:     lsGet('investor') === '1',
     airdrops:     +lsGet('airdrops') || 0,           // consumable charges
-    orbUnlocked:  lsGet('orbUnlocked') === '1',      // bought the right to reshape your orbs
-    orbShape:     lsGet('orbShape') || '',           // '' = classic circle; else an ORB_SHAPES id
+    colorUnlocked:lsGet('colorUnlocked') === '1',    // bought the right to recolour
+    color:        lsGet('color') || '',              // hex override for the player's colour
   };
   const savePerk = k => lsSet(k, PERK[k]);
+  // Migrate: old 'orbUnlocked' key (main v1.4) → colorUnlocked so paid users don't lose it
+  if (!PERK.colorUnlocked && lsGet('orbUnlocked') === '1') {
+    PERK.colorUnlocked = true; savePerk('colorUnlocked');
+  }
 
-  // ---- cosmetic orb shapes (the player's own projectiles). Unit-space polygons point +x
-  // (toward the orb's target); they're rotated to the orb heading and scaled by its radius. ----
-  const ORB_SHAPES = [
-    { id:'',        name:'Circle' },
-    { id:'triangle',name:'Triangle', poly:[[1.5,0],[-1,1.05],[-1,-1.05]] },
-    { id:'diamond', name:'Diamond',  poly:[[1.35,0],[0,1.1],[-1.35,0],[0,-1.1]] },
-    { id:'jet',     name:'Jet (F-22)', poly:[
-        [1.9,0],[0.55,0.18],[0.2,0.2],[-0.35,1.15],[-0.7,1.15],[-0.35,0.22],
-        [-1.0,0.5],[-1.35,0.46],[-1.05,0.12],[-1.4,0],
-        [-1.05,-0.12],[-1.35,-0.46],[-1.0,-0.5],[-0.35,-0.22],[-0.7,-1.15],[-0.35,-1.15],[0.2,-0.2],[0.55,-0.18] ] },
-    { id:'bomber',  name:'Bomber',   poly:[
-        [1.5,0],[0.1,0.28],[-0.65,1.5],[-1.0,1.42],[-0.55,0.32],[-1.25,0.3],[-1.15,0],
-        [-1.25,-0.3],[-0.55,-0.32],[-1.0,-1.42],[-0.65,-1.5],[0.1,-0.28] ] },
+  // cosmetic player-colour palette (light, dark). The classic blue is the default/first entry.
+  const SHOP_COLORS = [
+    { hex:'#46a6ef', dark:'#2c7fc4', name:'Blue' },
+    { hex:'#ef5b52', dark:'#c43d36', name:'Red' },
+    { hex:'#38c46f', dark:'#27975a', name:'Green' },
+    { hex:'#9b6cf0', dark:'#7549c4', name:'Purple' },
+    { hex:'#f1a13a', dark:'#c47d24', name:'Amber' },
+    { hex:'#e36ec9', dark:'#b94fa1', name:'Pink' },
   ];
-  const ORB_POLY = Object.fromEntries(ORB_SHAPES.filter(s=>s.poly).map(s=>[s.id, s.poly]));
-  // draw an oriented orb shape on ctx `c`. Falls back to the classic dark-halo circle for ''/unknown.
-  function drawOrbShape(c, shape, x, y, r, ang, fill, dark, k){
-    const poly = ORB_POLY[shape];
-    if (!poly){
-      c.fillStyle=dark; c.beginPath(); c.arc(x,y,r+2*k,0,Math.PI*2); c.fill();
-      c.fillStyle=fill; c.beginPath(); c.arc(x,y,r,0,Math.PI*2); c.fill();
-      return;
-    }
-    c.save();
-    c.translate(x,y); c.rotate(ang); c.scale(r,r);
-    c.beginPath(); c.moveTo(poly[0][0],poly[0][1]);
-    for (let i=1;i<poly.length;i++) c.lineTo(poly[i][0],poly[i][1]);
-    c.closePath();
-    c.restore();
-    c.fillStyle=fill; c.fill();
-    c.lineWidth=2.4*k; c.lineJoin='round'; c.strokeStyle=dark; c.stroke();
+  function applyPlayerColor(){
+    const c = PERK.color ? SHOP_COLORS.find(x=>x.hex===PERK.color) : null;
+    COLORS[PLAYER] = c ? c.hex : '#46a6ef';
+    DARK[PLAYER]   = c ? c.dark : '#2c7fc4';
   }
 
   const LEVELS = [
@@ -453,18 +511,27 @@
     { name:'Easy',   enemies:1, aiSpeed:2.6, aiAggro:0.30, neutralMin:5,  neutralMax:18, growRate:1.7, playerStart:45, enemyStart:22, enemyGrow:0.65 },
     { name:'Medium', enemies:2, aiSpeed:1.4, aiAggro:0.70, neutralMin:10, neutralMax:34, growRate:1.2, playerStart:35, enemyStart:30, enemyGrow:0.9  },
     { name:'Hard',   enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:36, enemyGrow:1.0  },
-    // Master: the trained reinforcement-learning policy wrapped in a shallow-rollout PLANNER that
-    // simulates each candidate move several seconds into the future and picks the best projected
-    // board. Master plays fair: enemies start with the SAME unit count as the player (30) and the
-    // same growth rate (1.0×). No economic handicap — the difficulty comes purely from the planner.
-    { name:'Master', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, plan:true },
-    // Impossible: the SAME trained net + planner, but "trained really long" — searched far harder
-    // on every move. It runs an order of magnitude more simulations, looks much further ahead
-    // (longer horizon at a finer time step), widens its move fan-out, and is given a much larger
-    // thinking budget. It also fields an extra enemy that grows a touch faster. The result reads
-    // the board many seconds ahead and punishes almost any mistake. This is the top tier.
-    { name:'Impossible', enemies:4, aiSpeed:0.7, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:28, enemyStart:34, enemyGrow:1.1, rl:true, plan:true,
-      sims:60000, horizon:24.0, planDt:0.3, mctsK:9, tbudget:4000, workerSims:16000, workerMs:500 },
+    // Grandmaster: the trained RL policy net playing on INSTINCT. It scores every move with the
+    // neural net and plays the best one immediately — NO planner lookahead, NO coordinated salvos.
+    // Smart per-move (threat-aware target selection), fast and reactive, but it doesn't think ahead
+    // or gang up — that's Impossible's job. A genuinely different, lighter brain one notch below it.
+    // `hunt` (0..1) = how willing the AI is to attack YOU before the neutral land is gone.
+    { name:'Grandmaster', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, hunt:0.6 },
+    // Impossible: a PURE-INTELLIGENCE 1v1 duel — you vs the SAME net wrapped in the full MCTS PLANNER
+    // (lookahead + value net + rollouts) and coordinated multi-state salvos. The whole point: it wins
+    // on DECISIONS ALONE, with ZERO stat advantages. Perfectly symmetric — equal start (22 each), equal
+    // growth (enemyGrow 1.0), human-fair reaction cadence (aiSpeed 0.85, same as Hard), and the same
+    // MAX_TROOPS cap you have. No rope-a-dope, no CRUSH ramp, no rubber-band comeback, no cornered-fight
+    // bonus, no faster economy. The ONLY thing it gets is think time (the planner budget below) — i.e.
+    // it out-thinks you, it doesn't out-cheat you. If it beats you here, it genuinely outplayed you.
+    { name:'Impossible', enemies:1, aiSpeed:0.85, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true,
+      planDt:0.3, mctsK:9, tbudget:4000, workerMs:350, hunt:0.7 },
+    // Adaptive: a fair 1v1 on the raw trained net (instinct, no planner) whose ONLY edge is that it
+    // LEARNS YOU. An on-device opponent model fits P(your move | board) online as you play and the
+    // AI best-responds — pouncing on the state you're about to empty, racing you to land you're about
+    // to grab — gated by its confidence, so it plays safe when unsure or when you switch styles. It
+    // remembers you across sessions. Symmetric stats; the intelligence is in reading the human.
+    { name:'Adaptive', enemies:1, aiSpeed:0.85, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, adapt:true, hunt:0.7 },
   ];
   let levelIdx = 0;
 
@@ -493,10 +560,8 @@
   let fps = 0, fpsFrames = 0, fpsT = 0;        // rendered frames-per-second
   let nnVizT = 0;                              // throttle clock for the per-frame NN viz recompute
   let lastTime = 0, selected = null, dragPos = null, pointerDown = false;
+  let airArmed = false;   // 🪂 Airdrop is "armed": the next tap on one of your states drops reinforcements there
   let selSet = [], moved = false;   // states chosen for a joint (combined) attack while dragging
-  let downCss = null;               // press point (CSS px) for the tap-vs-drag dead-zone
-  const TAP_SLOP = 12;              // px the pointer may wander and still count as a tap (not a drag)
-  let airdropArmed = false;         // Reinforcement-Airdrop "armed" state (tap a state to drop)
   let aiTimers = {};
   // ---- scenario mode ----
   // A "scenario" is a hand-authored board: the player pre-sets how much of the map each team
@@ -508,7 +573,7 @@
   // by a tiny floor) instead of ~once per second, so it reacts and stacks coordinated waves
   // far more aggressively. Set FAST_AI=false to restore the classic per-difficulty cadence.
   const FAST_AI = true;
-  // NOTE: the planner tiers (lv.plan — Master & Impossible) are already naturally rate-limited — each
+  // NOTE: the planner tiers (lv.plan — Grandmaster & Impossible) are already naturally rate-limited — each
   // decision is an off-thread MCTS (Web Worker, or a server round-trip) that runs for up to
   // mcts.tbudget ms, and planPending allows only one request in flight per enemy. So we keep the
   // small cooldown for ALL tiers; adding an extra throttle here previously starved the planner.
@@ -572,13 +637,13 @@
       console.error(err);
     });
 
-  // ---- load trained reinforcement-learning policy (for Master difficulty) ----
+  // ---- load trained reinforcement-learning policy (for Grandmaster difficulty) ----
   let rlPolicy = null;          // { feat_norm, num_features, noop_bias, layers:[{W,b,act}] }
   let rlDiag = Math.SQRT2;       // distance normalizer (set from map bounds in buildGeo)
   fetch('rl_policy.json')
     .then(r => r.ok ? r.json() : null)
     .then(p => { if (p) rlPolicy = p; })
-    .catch(() => { /* Master falls back to heuristic AI if policy missing */ });
+    .catch(() => { /* Grandmaster falls back to heuristic AI if policy missing */ });
 
   // forward pass through the exported MLP: feats[F] -> scalar logit.
   // If `capture` is passed, it is filled with [input, ...each layer's activations] for the NN viz.
@@ -599,13 +664,47 @@
     return x[0];
   }
 
-  // ---- neural-network visualizer state ----
+  // ---- learned VALUE network (planner leaf evaluation) ----
+  // valueScore: run the value MLP (rlPolicy.value) over a board-feature vector -> expected result
+  // in [-1,1]. valueFeatsSnap: the 12 owner-relative board features. BOTH the feature order here
+  // and the worker copy MUST match tools/train_value.py vfeats_from() exactly.
+  function valueScore(feats){
+    if (!rlPolicy || !rlPolicy.value) return null;
+    let x = feats;
+    for (const layer of rlPolicy.value.layers){
+      const out = new Array(layer.b.length);
+      for (let o=0;o<layer.b.length;o++){ let acc=layer.b[o]; const row=layer.W[o];
+        for (let i=0;i<row.length;i++) acc+=row[i]*x[i];
+        out[o]=Math.tanh(acc); }
+      x = out;
+    }
+    return x[0];
+  }
+  function valueFeatsSnap(s, owner){
+    const CAPV=MAX_TROOPS; let allT=0, neu=0, ownS=0, ownT=0, bigEnemy=0;
+    const cntS={}, cntT={};
+    for (let i=0;i<s.n;i++){ const o=s.owner[i], tr=s.troops[i];
+      if (o===NEUTRAL){ neu++; continue; }
+      allT+=tr; cntS[o]=(cntS[o]||0)+1; cntT[o]=(cntT[o]||0)+tr;
+      if (o===owner){ ownS++; ownT+=tr; } else if (tr>bigEnemy) bigEnemy=tr; }
+    let ifOwn=0, ifAll=0; const alive={}; for (const o in cntS) alive[o]=1;
+    for (let a=0;a<s.armies.length;a++){ const ar=s.armies[a]; if (ar.owner===NEUTRAL) continue;
+      ifAll+=ar.count; alive[ar.owner]=1; if (ar.owner===owner) ifOwn+=ar.count; }
+    let maxES=0, maxET=0;
+    for (const o in cntS){ if (+o===owner) continue; if (cntS[o]>maxES) maxES=cntS[o]; if (cntT[o]>maxET) maxET=cntT[o]; }
+    const N=s.n, aT=Math.max(1,allT), ownAvg=ownT/Math.max(1,ownS);
+    return [ ownS/N, ownT/aT, maxES/N, maxET/aT, (ownS-maxES)/N, (ownT-maxET)/aT,
+             neu/N, Object.keys(alive).length/5, ownAvg/CAPV, bigEnemy/CAPV, ownT/(N*CAPV), (2*ifOwn-ifAll)/aT ];
+  }
   let showNN = false;       // toggle
   let vizMode = 'brain';    // which overlay view: 'brain' (neural net) | 'planner' (rollout tree)
-  let planViz = null;       // last planner decision (Master/Impossible), for the overlay
+  let planViz = null;       // last planner decision (Grandmaster/Impossible), for the overlay
   let planVizDirty = false;
   let planPending = {};     // owner -> true while a server /api/plan request is in flight
-  const SERVER_SIMS = 2500; // planner simulations per decision for Master (run on the server); Impossible runs far more
+  let planEpoch = 0;        // bumped on every (re)start so stale worker replies from a past game are dropped
+  let VALUE_BLEND = 0.5;    // planner leaf eval = (1-w)*heuristic + w*valueNet. Tuned via the self-play arena.
+  // (planner simulation counts are no longer capped — the search is bounded by a thinking window;
+  //  see planParams / NO_ITER_CAP.)
   let matchTrack = null;    // accumulates the local player's move stats this game (for their profile)
   let rlViz = null;         // { acts:[...], src, tgt, owner, score } from the last RL decision
   let rlVizDirty = false;   // redraw only when activations change
@@ -729,6 +828,56 @@
   }
   buildLevelButtons();
 
+  // ---- difficulty mode: manual pick vs auto-adjust (chosen on first startup) ----
+  let diffMode  = lsGet('diffMode') || '';                                     // '' (unchosen), 'manual', 'auto'
+  let autoLevel = Math.max(0, Math.min(LEVELS.length-1, +lsGet('autoLevel')||0));
+  let autoWin   = +lsGet('autoWin')||0, autoLoss = +lsGet('autoLoss')||0;
+  let autoLevelChange = '';                                                    // message shown on the end screen
+  const AUTO_STEP = 2;                                                         // win/lose this many in a row to move a level
+  const modeManualEl = document.getElementById('modeManual');
+  const modeAutoEl   = document.getElementById('modeAuto');
+  const diffModeHint = document.getElementById('diffModeHint');
+  const autoLevelHint= document.getElementById('autoLevelHint');
+  function applyDiffMode(){
+    const auto = diffMode==='auto', manual = diffMode==='manual';
+    modeManualEl.classList.toggle('active', manual);
+    modeAutoEl.classList.toggle('active', auto);
+    if (!diffMode){                                                            // first startup — make them choose
+      diffModeHint.textContent = '👋 First time — how should difficulty work? Tap one above.';
+      diffModeHint.style.color = '#ffd479';
+      levelsEl.style.display = 'none'; autoLevelHint.style.display = 'none';
+      startBtn.style.display = 'none';
+      return;
+    }
+    diffModeHint.style.color = ''; startBtn.style.display = '';
+    if (auto){
+      levelIdx = autoLevel;
+      diffModeHint.textContent = 'Auto-adjust: win '+AUTO_STEP+' in a row to move up a level, lose '+AUTO_STEP+' to move down.';
+      levelsEl.style.display = 'none';
+      autoLevelHint.style.display = '';
+      autoLevelHint.innerHTML = 'Now playing <b>'+LEVELS[autoLevel].name+'</b>'+
+        (autoWin?' · '+autoWin+'-win streak':'') + (autoLoss?' · '+autoLoss+'-loss streak':'') +
+        (autoLevelChange?'<br><b style="color:#ffd479">'+autoLevelChange+'</b>':'');
+    } else {
+      diffModeHint.textContent = 'Manual: pick your difficulty below.';
+      levelsEl.style.display = ''; autoLevelHint.style.display = 'none';
+      buildLevelButtons();
+    }
+  }
+  modeManualEl.onclick = () => { diffMode='manual'; lsSet('diffMode','manual'); applyDiffMode(); };
+  modeAutoEl.onclick   = () => { diffMode='auto';   lsSet('diffMode','auto');   applyDiffMode(); };
+  // after each finished solo game, nudge the auto level by win/loss streak (called from recordResult)
+  function autoAdjust(won){
+    if (diffMode!=='auto') return;
+    const before = autoLevel;
+    if (won){ autoWin++; autoLoss=0; if (autoWin>=AUTO_STEP && autoLevel<LEVELS.length-1){ autoLevel++; autoWin=0; } }
+    else    { autoLoss++; autoWin=0; if (autoLoss>=AUTO_STEP && autoLevel>0){ autoLevel--; autoLoss=0; } }
+    lsSet('autoLevel',autoLevel); lsSet('autoWin',autoWin); lsSet('autoLoss',autoLoss);
+    autoLevelChange = autoLevel>before ? '↑ You’re on a roll — difficulty raised to '+LEVELS[autoLevel].name+'!'
+                    : autoLevel<before ? '↓ Eased off — difficulty lowered to '+LEVELS[autoLevel].name+'.' : '';
+  }
+  applyDiffMode();
+
   function buildRegionButtons() {
     for (const el of [document.getElementById('regions'), document.getElementById('hostRegions')]) {
       if (!el) continue;
@@ -762,9 +911,12 @@
   }
 
   let cfg = LEVELS[0];
+  let aiSnow = 0;   // cached humanSnowball() for the current tick (computed once per update)
   function growRateFor(owner) {
     if (owner === PLAYER) return cfg.growRate;
-    if (owner >= 2) return cfg.growRate * cfg.enemyGrow;
+    // Catch-up: enemies grow faster the further the HUMAN runs ahead of a fair share — this is what
+    // lets Impossible answer a shop-boosted economy without an unfair head start in an even game.
+    if (owner >= 2) return cfg.growRate * cfg.enemyGrow * (1 + (cfg.rubber || 0) * aiSnow);
     return 0;
   }
 
@@ -795,7 +947,7 @@
   }
   // coins earned for finishing a solo game (called from recordResult, which only runs in solo).
   function awardCoins(won){
-    const mult = {Easy:1, Medium:1.4, Hard:1.8, Master:2.4, Grandmaster:3}[LEVELS[levelIdx].name] || 1;
+    const mult = {Easy:1, Medium:1.4, Hard:1.8, Grandmaster:2.4, Impossible:3.2}[LEVELS[levelIdx].name] || 1;
     let c = Math.round(50*mult) + (won ? 40 : 0);
     if (PERK.investor) c = Math.round(c*1.25);
     PERK.coins += c; savePerk('coins'); lastCoinAward = c;
@@ -804,17 +956,21 @@
   function newGame() {
     if (!ready) return;
     scenarioMode = false; scenarioObserver = false;
+    if (!netMode && diffMode==='auto') levelIdx = autoLevel;   // auto mode picks the level
+    autoLevelChange = '';
     const lv = LEVELS[levelIdx];
     cfg = lv;
-    troops = []; selected=null; dragPos=null; aiTimers={}; planPending={}; resetCam();
-    matchTrack = { attacks:0, early:0, earlyEnemy:0, sumWeak:0, sumSrc:0, sumDist:0 };
+    troops = []; selected=null; dragPos=null; airArmed=false; aiTimers={}; planPending={}; planEpoch++; resetCam();
+    startGameLog();
+    OppModel.load(playerName);                          // load this player's learned opponent model
     if (netMode!=='host') myOwner = PLAYER;
     if (!netMode && regionIdx!==0){ regionIdx=0; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default map
     buildGeo();
 
     // Cap upgrades, special tiles & shop perks are single-player only (off in netplay → no desync).
     upgradesOn = tilesOn = !netMode;
-    boomUntil = 0; airdropArmed = false;
+    boomUntil = 0;
+    if (!netMode) applyPlayerColor(); else { COLORS[PLAYER]='#46a6ef'; DARK[PLAYER]='#2c7fc4'; }
 
     for (const s of states) {
       s.owner = NEUTRAL;
@@ -845,7 +1001,7 @@
 
     running = true;
     gameTick = 0; gameElapsed = 0; nnHist.length = 0;
-    overlay.classList.add('hidden'); updateMenuBack();
+    overlay.classList.add('hidden');
     lastTime = performance.now();
     requestAnimationFrame(loop);
   }
@@ -867,8 +1023,8 @@
     lastCoinAward = 0;
     recordResult(won);
     showCoinLine();
+    applyDiffMode();                                   // refresh the auto-difficulty readout / level-change message
     if (shopBtn) shopBtn.textContent = '🪙 Shop ('+PERK.coins+')';
-    updateMenuBack();
   }
   // end-screen "+N 🪙 · total" line (only meaningful after a solo game)
   function showCoinLine(){
@@ -880,7 +1036,7 @@
   function toMenu() {
     running = false;
     scenarioMode = false; scenarioObserver = false;
-    upgradesOn = tilesOn = false; boomUntil = 0; airdropArmed = false;
+    upgradesOn = tilesOn = false; boomUntil = 0;
     if (NET.es) { NET.es.close(); NET.es = null; }
     netMode = null; myOwner = PLAYER; mpEnemies = null;
     nnBtn.classList.remove('gone');
@@ -888,7 +1044,7 @@
     introText.style.display = '';
     resultText.textContent = '';
     const cl = document.getElementById('coinLine'); if (cl) cl.style.display = 'none';
-    refreshHud(); updateMenuBack();
+    refreshHud();
     startBtn.textContent = ready ? 'Play' : 'Loading map…';
   }
   backEl.addEventListener('click', toMenu);
@@ -940,18 +1096,187 @@
     if (netMode==='guest') { api('/api/action?room='+NET.room, { cid:NET.cid, from:from.id, to:to.id, denom }); return; }
     sendTroops(from, to, denom);
   }
-  // observe the local human's move to learn their style (folded into their profile at game end)
+  // ---- rich play-data recorder -------------------------------------------------------------
+  // We capture WAY more than the old 5-scalar profile: the full board state at the moment of every
+  // human decision plus the exact action taken (the gold data for a P(move|board) opponent model),
+  // a periodic full-board trajectory sample, and an expanded behavioural profile. Everything is
+  // POSTed to /api/record AND accumulated locally so it survives offline and can be exported for
+  // training. Storage is IndexedDB (NOT localStorage, which caps at ~5MB) with a 500MB soft cap.
+  const PLAYLOG_CAP_BYTES = 500*1024*1024;   // 500 MB soft cap; oldest games are trimmed first
+  let snapClock = 0;                         // throttle for periodic full-board snapshots
+  function startGameLog(){
+    matchTrack = { attacks:0, early:0, earlyEnemy:0, sumWeak:0, sumSrc:0, sumDist:0, sumTgtT:0,
+      reinforce:0, joint:0, fracAll:0, fracHalf:0, fracQuarter:0, atkNeutral:0, atkEnemy:0,
+      header:null, moves:[], snaps:[] };
+    snapClock = 0;
+  }
+  function ensureHeader(){
+    if (!matchTrack || matchTrack.header) return;
+    const ids=[], names=[], cx=[], cy=[];
+    for (const s of states){ ids.push(s.id); names.push(s.name); cx.push(Math.round(s.cx)); cy.push(Math.round(s.cy)); }
+    matchTrack.header = { region: REGIONS[regionIdx] && REGIONS[regionIdx].name, level: LEVELS[levelIdx] && LEVELS[levelIdx].name,
+      n: states.length, ids, names, cx, cy, rlDiag: Math.round(rlDiag||1) };
+  }
+  // a compact dynamic snapshot of the whole board (positions/ids live once in the header)
+  function boardSnapshot(){
+    const own=[], tr=[], lv=[], ty=[];
+    for (const s of states){ own.push(s.owner); tr.push(Math.round(s.troops)); lv.push(s.level||0); ty.push(s.type||0); }
+    return { t:Math.round(gameElapsed*10)/10, own, tr, lv, ty };
+  }
+  // observe the local human's move to learn their style (full board context + the action taken)
   function trackPlayerMove(from, to) {
     if (!matchTrack || from.owner!==myOwner) return;
+    ensureHeader();
     const cands = states.filter(s => s.owner!==myOwner);
     const stronger = cands.filter(s => s.troops > to.troops).length;
     const weak = cands.length ? stronger/cands.length : 0.5;   // 1 = chose the weakest available target
+    const denom = currentSendDenom();
     matchTrack.attacks++;
     matchTrack.sumWeak += weak;
     matchTrack.sumSrc  += from.troops;
+    matchTrack.sumTgtT += to.troops;
     matchTrack.sumDist += Math.hypot(to.cx-from.cx, to.cy-from.cy);
+    if (to.owner===myOwner) matchTrack.reinforce++; else if (to.owner===NEUTRAL) matchTrack.atkNeutral++; else matchTrack.atkEnemy++;
+    if (selSet && selSet.length>1) matchTrack.joint++;
+    if (denom===1) matchTrack.fracAll++; else if (denom===2) matchTrack.fracHalf++; else matchTrack.fracQuarter++;
     if (gameElapsed < 20) { matchTrack.early++; if (to.owner!==NEUTRAL) matchTrack.earlyEnemy++; }
+    // the gold data: full board state at the instant of decision + the action
+    const snap = boardSnapshot();
+    snap.act = { src:from.id, tgt:to.id, frac:denom, srcT:Math.round(from.troops), tgtT:Math.round(to.troops),
+                 tgtOwner:to.owner, dist:Math.round(Math.hypot(to.cx-from.cx, to.cy-from.cy)),
+                 joint:(selSet && selSet.length) || 1 };
+    matchTrack.moves.push(snap);
+    // feed the live opponent model one online learning step (board state is pre-move, so it's the
+    // decision context). Runs every game so it keeps learning you even when the AI isn't Adaptive.
+    OppModel.update(from, to);
   }
+  // ---- IndexedDB-backed archive (localStorage can't hold 500MB; it caps at ~5MB) -------------
+  const PLAYDB='statio_play', PLAYSTORE='games', OLD_LS_KEY='statio_games_v1';
+  let _pdb=null, _pCount=0, _pBytes=0;
+  const _idbReq = req => new Promise((res,rej)=>{ req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error); });
+  function playDBOpen(){
+    if (_pdb) return Promise.resolve(_pdb);
+    return new Promise((res,rej)=>{
+      let req; try { req=indexedDB.open(PLAYDB,1); } catch(e){ return rej(e); }
+      req.onupgradeneeded=()=>{ const db=req.result;
+        if(!db.objectStoreNames.contains(PLAYSTORE)){ const os=db.createObjectStore(PLAYSTORE,{keyPath:'k',autoIncrement:true}); os.createIndex('bytes','bytes'); } };
+      req.onsuccess=()=>{ _pdb=req.result; res(_pdb); };
+      req.onerror=()=>rej(req.error);
+    });
+  }
+  const _store = (db,mode) => db.transaction(PLAYSTORE,mode).objectStore(PLAYSTORE);
+  async function _recountStats(db){
+    _pCount = await _idbReq(_store(db,'readonly').count());
+    _pBytes = 0;   // sum the 'bytes' index via a key-cursor — no game blobs are deserialized
+    await new Promise(res=>{ const c=_store(db,'readonly').index('bytes').openKeyCursor();
+      c.onsuccess=()=>{ const cur=c.result; if(cur){ _pBytes+=cur.key||0; cur.continue(); } else res(); }; c.onerror=()=>res(); });
+  }
+  async function _trim(db){
+    while (_pBytes > PLAYLOG_CAP_BYTES){
+      const b = await new Promise(res=>{ const c=_store(db,'readwrite').openCursor();   // oldest (lowest key) first
+        c.onsuccess=()=>{ const cur=c.result; if(!cur){ res(null); return; } const by=cur.value.bytes||0; cur.delete(); res(by); }; c.onerror=()=>res(null); });
+      if (b==null) break; _pBytes-=b; _pCount=Math.max(0,_pCount-1);
+    }
+  }
+  // persist a finished game's full log into IndexedDB (trim oldest-first past the 500MB cap)
+  async function savePlayLog(g){
+    try{
+      if (typeof indexedDB==='undefined'){ _saveLS(g); return; }   // graceful fallback
+      const db=await playDBOpen();
+      const json=JSON.stringify(g); const rec={ ts:g.ts||0, bytes:json.length, game:g };
+      await _idbReq(_store(db,'readwrite').add(rec));
+      _pCount++; _pBytes+=rec.bytes;
+      await _trim(db);
+      if (typeof refreshExportBtn==='function') refreshExportBtn();
+    }catch(e){}
+  }
+  function playLogCount(){ return _pCount; }
+  function playLogBytes(){ return _pBytes; }
+  window.exportPlayData = async function(){
+    try{ const db=await playDBOpen(); const all=[];
+      await new Promise(res=>{ const c=_store(db,'readonly').openCursor();   // chronological
+        c.onsuccess=()=>{ const cur=c.result; if(cur){ all.push(cur.value.game); cur.continue(); } else res(); }; c.onerror=()=>res(); });
+      return JSON.stringify(all);
+    }catch(e){ return '[]'; }
+  };
+  window.clearPlayData = async function(){
+    try{ const db=await playDBOpen(); await _idbReq(_store(db,'readwrite').clear()); _pCount=0; _pBytes=0; }catch(e){}
+    if (typeof refreshExportBtn==='function') refreshExportBtn();
+  };
+  // tiny localStorage fallback, only used if IndexedDB is entirely unavailable
+  function _saveLS(g){ try{ let a=JSON.parse(localStorage.getItem(OLD_LS_KEY)||'[]'); a.push(g); let s=JSON.stringify(a);
+    while(s.length>4000000&&a.length>1){a.shift();s=JSON.stringify(a);} localStorage.setItem(OLD_LS_KEY,s); _pCount=a.length; }catch(e){} }
+  // open the DB, compute stats, and migrate any old localStorage archive into IndexedDB once
+  async function playInit(){
+    try{
+      if (typeof indexedDB==='undefined'){ try{ _pCount=JSON.parse(localStorage.getItem(OLD_LS_KEY)||'[]').length; }catch(e){} if(typeof refreshExportBtn==='function')refreshExportBtn(); return; }
+      const db=await playDBOpen();
+      await _recountStats(db);
+      const old=localStorage.getItem(OLD_LS_KEY);
+      if (old){ try{ for(const g of (JSON.parse(old)||[])){ const json=JSON.stringify(g);
+        await _idbReq(_store(db,'readwrite').add({ts:g.ts||0,bytes:json.length,game:g})); _pCount++; _pBytes+=json.length; } }catch(e){}
+        try{ localStorage.removeItem(OLD_LS_KEY); }catch(e){} await _trim(db); }
+      if (typeof refreshExportBtn==='function') refreshExportBtn();
+    }catch(e){}
+  }
+
+  // ---- live opponent model: learns P(your move | board) on-device, in real time ----------------
+  // A tiny conditional-logit over move features, trained ONLINE (one gradient step per human move)
+  // and persisted per player. The Adaptive AI queries predict() to best-respond, gated by a rolling
+  // confidence so it plays safe when unsure or when you switch styles (defeats deliberate poisoning).
+  // Features per candidate human move mirror tools/parse_play_data.py so the offline + online models
+  // are the same shape (a bigger net can drop into score()/update() later without changing callers).
+  const OppModel = {
+    D: 7, W: null, lr: 0.08, conf: 0, hits: [], who: null,
+    feat(st, tt, dist, isNeu){ return [ st/50, tt/50, (st-tt)/50, dist/(rlDiag||1), isNeu?1:0, st>tt?1:0, 1 ]; },
+    ensure(){ if (!this.W) this.W = new Array(this.D).fill(0); },
+    cands(human){                                  // every legal move: owned source (>1) x any non-owned target
+      const srcs=[], out=[];
+      for (const s of states) if (s.owner===human && s.troops>1) srcs.push(s);
+      for (const s of srcs) for (const t of states){
+        if (t===s || t.owner===human) continue;
+        out.push({ s, t, f: this.feat(s.troops, t.troops, Math.hypot(s.cx-t.cx, s.cy-t.cy), t.owner===NEUTRAL) });
+      }
+      return out;
+    },
+    score(f){ let z=0; for (let i=0;i<this.D;i++) z+=this.W[i]*f[i]; return z; },
+    probs(cl){ let m=-1e9; for (const c of cl){ c.z=this.score(c.f); if(c.z>m)m=c.z; }
+      let s=0; for (const c of cl){ c.p=Math.exp(c.z-m); s+=c.p; } for (const c of cl) c.p/=(s||1); return cl; },
+    load(name){
+      this.ensure(); this.who=name; this.conf=0; this.hits=[];
+      try { const j=JSON.parse(localStorage.getItem('oppmodel_'+name)||'null');
+        if (j && Array.isArray(j.W) && j.W.length===this.D){ this.W=j.W.slice(); } } catch(e){}
+    },
+    save(){ try { localStorage.setItem('oppmodel_'+(this.who||playerName||'Player'), JSON.stringify({W:this.W})); } catch(e){} },
+    update(from, to){                              // one online gradient step toward the move you made
+      if (!from || !to) return;
+      this.ensure();
+      const cl=this.cands(from.owner); if (cl.length<2) return;
+      this.probs(cl);
+      let ci=-1, top=0, tp=-1;
+      for (let i=0;i<cl.length;i++){ if (cl[i].s===from && cl[i].t===to) ci=i; if (cl[i].p>tp){ tp=cl[i].p; top=i; } }
+      if (ci<0) return;
+      const Ef=new Array(this.D).fill(0);          // E_p[features] under the current model
+      for (const c of cl) for (let i=0;i<this.D;i++) Ef[i]+=c.p*c.f[i];
+      for (let i=0;i<this.D;i++) this.W[i] += this.lr*(cl[ci].f[i]-Ef[i]);   // w += lr*(f_chosen - E_p[f])
+      this.hits.push(top===ci?1:0); if (this.hits.length>12) this.hits.shift();
+      const acc=this.hits.reduce((a,b)=>a+b,0)/this.hits.length;
+      this.conf = acc * Math.min(1, this.hits.length/5);   // ramp confidence in over the first few moves
+    },
+    // where is the human likely to act next? per-state P(used as source / "about to empty") and
+    // P(targeted). Returns conf<=0 (empty) until the model has a real read — so the AI plays safe.
+    predict(human){
+      this.ensure();
+      const soft={}, threat={};
+      if (this.conf<=0) return { soft, threat, conf:0 };
+      const cl=this.cands(human); if (!cl.length) return { soft, threat, conf:this.conf };
+      this.probs(cl);
+      let best=null;
+      for (const c of cl){ soft[c.s.id]=(soft[c.s.id]||0)+c.p; threat[c.t.id]=(threat[c.t.id]||0)+c.p;
+        if (!best || c.p>best.p) best=c; }
+      return { soft, threat, conf:this.conf, topSrc:best&&best.s, topTgt:best&&best.t };
+    }
+  };
 
   function arrive(t) {
     const to = states.find(s => s.id===t.targetId);
@@ -974,6 +1299,54 @@
   // no-op, applying the gameplay biases. Returns { bestSrc, bestTgt, noop, cands } without
   // committing anything. `collect` => also gather the full candidate list (for the viz).
   // Feature order MUST match train_rl.py features(): see C:\Users\antho\stateio\train_rl.py.
+
+  // ---- Impossible's "rope-a-dope" + comeback aggression ----
+  // humanSnowball(): how far the HUMAN is pulling ahead of a fair share of the board, 0..1.
+  // 0 = at/below an even split (one of N equal players); 1 = at/above DOUBLE a fair share (running
+  // away with it — usually a shop-boosted economy or a turtle hoard). This is the signal that the
+  // "let them think they're winning" rope is being ABUSED and must be dropped.
+  function humanSnowball(){
+    const owners = new Set(); let plyS = 0, totS = 0, plyT = 0, allT = 0;
+    for (const s of states){ if (s.owner!==NEUTRAL){ owners.add(s.owner); totS++; allT += s.troops;
+      if (s.owner===PLAYER){ plyS++; plyT += s.troops; } } }
+    if (!totS || !owners.has(PLAYER)) return 0;
+    const fair = 1/owners.size;
+    // take the WORSE (for the AI) of two leads: territory AND troop-mass. The mass term is what
+    // catches a turtle/airdrop hoarder who holds few states but a giant stack — the AI starts
+    // hunting (and growing to catch up) while they hoard, instead of waiting to be struck.
+    const terr = (plyS/totS - fair) / Math.max(1e-6, fair);
+    const mass = allT>0 ? (plyT/allT - fair) / Math.max(1e-6, fair) : 0;
+    return Math.max(0, Math.min(1, Math.max(terr, mass)));
+  }
+  // aiHunt(): the EFFECTIVE hunt for the current moment. Normally just lv.hunt. On a `rope` tier
+  // (Impossible) it's time-phased: for the first ropeT seconds it ramps up from a low floor (the
+  // AI plays timid — grabs neutral land, leaves you alone, so you feel ahead), then past the rope
+  // window it ramps PAST lv.hunt into `crush` (it turns on you and presses hard) — "let you think
+  // you're winning, then crush you". BUT the rope is a trap for an EVEN game: the moment the human
+  // snowballs (shop economy, turtling), aiHunt abandons the timid phase and hunts immediately, so
+  // a strong opening can no longer be parlayed into a safe runaway lead.
+  function aiHunt(){
+    const lv = LEVELS[levelIdx], base = lv.hunt || 0;
+    if (!lv.rope) return base;
+    const R = lv.ropeT || 35, t = gameElapsed, lo = 0.12, peak = lv.crush || 1.6;
+    let H = t < R ? lo + (base - lo) * (t / R)
+                  : base + (peak - base) * Math.min(1, (t - R) / R);
+    const snow = aiSnow;
+    if (snow > 0) H = Math.max(H, (lv.huntFloor || 0.6) + snow * (lv.leadGain || 1.0));
+    return H;
+  }
+  // despBias(): extra aggression for a CORNERED enemy (small share of the board). Grows as the AI
+  // is squeezed toward elimination, so it fights back harder instead of turtling to death — you
+  // can't just grind one enemy down to nothing on Impossible.
+  function despBias(ownFrac){
+    const lv = LEVELS[levelIdx];
+    return lv.desp ? lv.desp * Math.max(0, 0.28 - ownFrac) : 0;
+  }
+  // aiInfight(): how much the enemies still bother fighting EACH OTHER. Normally 1. On the rope tier,
+  // as the human snowballs the enemies call an unspoken truce (down toward 0.25) and pile onto the
+  // leader instead — coordinated focus-fire is a big part of what makes a lead on Impossible unsafe.
+  function aiInfight(){ return LEVELS[levelIdx].rope ? (1 - 0.75*aiSnow) : 1; }
+
   function rlEvaluate(owner, collect) {
     const FN = rlPolicy.feat_norm || 50;
     const total = states.length;
@@ -990,6 +1363,9 @@
     const rivalsLeft   = states.some(s=>s.owner>=2 && s.owner!==owner);
     const endgame = !neutralsLeft && !rivalsLeft;   // only this AI and the player are left
     const playerStates = states.filter(s=>s.owner===PLAYER);
+    // Adaptive AI: ask the live opponent model where the human is about to act, and best-respond.
+    // Returns conf<=0 (no effect) until it has a confident read — so low-confidence play stays safe.
+    const adaptPred = (LEVELS[levelIdx].adapt && playerStates.length) ? OppModel.predict(myOwner) : null;
     const distToPlayer = tg => {
       let m = Infinity;
       for (const p of playerStates) { const d=Math.hypot(tg.cx-p.cx, tg.cy-p.cy); if (d<m) m=d; }
@@ -998,10 +1374,18 @@
     // In the endgame, stop turtling: lower the bar to act so the AI keeps striking the
     // player from any state strong enough to win, while its other states keep growing
     // (it does both at once instead of stacking one huge army first).
-    const noopEff = endgame ? noop - 1 : noop;
+    // a cornered enemy stops sitting idle (lower the no-op bar) so it keeps swinging back.
+    const cornered = (LEVELS[levelIdx].desp || 0) > 0 && ownFrac < 0.22;
+    const noopEff = (endgame ? noop - 1 : noop) - (cornered ? 1.5 : 0);
     let bestScore = noopEff;
     let bestSrc=null, bestTgt=null;
     const cands = collect ? [] : null;
+    // threat-awareness globals (must match the 12-feature builder in tools/train_rl.py)
+    let myTot=0, allTot=0, maxEnemy=0, bigState=null;
+    for (const s of states){ if (s.owner!==NEUTRAL){ allTot+=s.troops;
+      if (s.owner===owner) myTot+=s.troops;
+      else if (s.troops>maxEnemy){ maxEnemy=s.troops; bigState=s; } } }
+    const myShare = allTot>0 ? myTot/allTot : 0, myAvg = myTot/Math.max(1, ownCount);
     for (const src of srcs) {
       for (const tg of states) {
         if (tg===src) continue;
@@ -1016,19 +1400,37 @@
           (tg.owner!==NEUTRAL && tg.owner!==owner) ? 1 : 0,
           st>tt ? 1 : 0,
           ownFrac,
+          maxEnemy/FN,                 // biggest enemy stack (a massing turtle)
+          myShare,                     // my share of all troops on the board
+          myAvg/FN,                    // my avg troops/state (low = spread thin)
+          tg===bigState ? 1 : 0,       // is this target the biggest threat?
         ];
         const raw = rlScore(feats);
         let score = raw, bias = 0;
         if (tg.owner===NEUTRAL) {
           if (playerStates.length) bias = Math.max(0, 1.2 - distToPlayer(tg)/rlDiag); // ring around player first
         }
-        else if (tg.owner>=2 && tg.owner!==owner) bias = 1.5;          // fight rival AIs
+        else if (tg.owner>=2 && tg.owner!==owner) bias = 1.5 * aiInfight();   // fight rival AIs (truce when human leads)
         else if (tg.owner===PLAYER) {
-          if (!endgame) bias = -6;                                     // wait until land & rivals are gone
-          else bias = (st>tt ? 3 : -4);                               // endgame: strike whenever a state can win; keep growing otherwise
+          if (endgame) bias = (st>tt ? 3 : -4);                        // endgame: strike whenever a state can win
+          else {
+            // pre-endgame: classic tiers wait (-6); hard tiers HUNT — press a winnable state and
+            // pile on if the human is out-growing us (so turtling no longer goes unpunished).
+            const hunt = aiHunt();
+            const plyFrac = playerStates.length/total, lead = Math.max(0, Math.min(1, plyFrac-ownFrac));
+            bias = (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5) + lead*10) + despBias(ownFrac);
+          }
         }
         if (tg.type==='capital' || tg.type==='factory') bias += 1.2;   // value high-growth tiles
         else if (tg.type==='fortress') bias += 0.5;
+        // Adaptive best-response (gated by the model's confidence in its read of you):
+        //  • pounce on a state you're predicted to EMPTY next — it'll be thin when our orb lands
+        //  • race you to neutral land you're predicted to grab
+        if (adaptPred && adaptPred.conf>0){
+          const w = 2.4 * adaptPred.conf;
+          if (tg.owner===PLAYER)        bias += w * (adaptPred.soft[tg.id]   || 0);
+          else if (tg.owner===NEUTRAL)  bias += w * 0.7 * (adaptPred.threat[tg.id] || 0);
+        }
         score += bias;
         if (cands) cands.push({ src, tg, score, raw, bias, feats });
         if (score>bestScore){ bestScore=score; bestSrc=src; bestTgt=tg; }
@@ -1145,7 +1547,7 @@
     return false;
   }
 
-  // ---- Master/Impossible: shallow-rollout PLANNER (built on the same trained net) ----
+  // ---- Grandmaster/Impossible: shallow-rollout PLANNER (built on the same trained net) ----
   // Self-contained forward simulation over a lightweight snapshot; never mutates live state.
   // Planner travel-time estimates use the same per-map ORB_SPEED as live orbs.
   function takeSnapshot() {
@@ -1199,18 +1601,26 @@
       if (o===NEUTRAL) neutralsLeft=true; else if (o>=2 && o!==owner) rivalsLeft=true;
       if (o===PLAYER) playerIdx.push(i); }
     const endgame = !neutralsLeft && !rivalsLeft;
-    const noopEff = endgame ? noop-1 : noop;
+    const cornered = (LEVELS[levelIdx].desp || 0) > 0 && ownFrac < 0.22;
+    const noopEff = (endgame ? noop-1 : noop) - (cornered ? 1.5 : 0);
+    let myTot=0, allTot=0, maxEnemy=0, bigIdx=-1;
+    for (let i=0;i<snap.n;i++){ const oo=snap.owner[i], tr=snap.troops[i];
+      if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
+    const myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
     const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(snap.cx[ti]-snap.cx[p], snap.cy[ti]-snap.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
     let best=noopEff, bs=null, bt=null;
     for (const si of srcs){ const st=snap.troops[si];
       for (let ti=0; ti<snap.n; ti++){ if (ti===si || snap.owner[ti]===owner) continue;
         const tt=snap.troops[ti];
         const feats=[ st/FN, tt/FN, (st-tt)/FN, Math.hypot(snap.cx[ti]-snap.cx[si], snap.cy[ti]-snap.cy[si])/rlDiag,
-                      snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ];
+                      snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+                      maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ];
         let score=rlScore(feats);
         if (snap.owner[ti]===NEUTRAL){ if (playerIdx.length) score += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
-        else if (snap.owner[ti]>=2 && snap.owner[ti]!==owner) score += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
-        else if (snap.owner[ti]===PLAYER) score += endgame ? (st>tt?3:-4) : -6;
+        else if (snap.owner[ti]>=2 && snap.owner[ti]!==owner) score += 1.0 * aiInfight();   // infighting (truce when human leads)
+        else if (snap.owner[ti]===PLAYER){ if (endgame) score += (st>tt?3:-4);
+          else { const hunt=aiHunt(), lead=Math.max(0,Math.min(1,playerIdx.length/snap.n-ownFrac));
+                 score += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10) + despBias(ownFrac); } }
         if (score>best){ best=score; bs=si; bt=ti; }
       }
     }
@@ -1267,29 +1677,30 @@
     if (cap) cap.board = snap.owner.slice();
     return snapPhi(snap, owner);
   }
-  // Planner decision (Master/Impossible): rank candidates with the net, roll each one out, commit the best future.
+  // Planner decision (Grandmaster/Impossible): rank candidates with the net, roll each one out, commit the best future.
   // `prior` blends a little of the net's own score back in so a single noisy rollout can't pick a silly move.
-  const PLAN = { horizon:11.0, dt:0.4 };   // plan further ahead (11s) at finer time resolution (0.4s)
+  const PLAN = { dt:0.4 };   // simulation time-step (resolution, not a limit). Impossible refines it.
   const MCTS = { tbudget:10, maxIter:400, cPuct:1.3, K:5 };  // AlphaGo-style PUCT search; K=5 widens the move fan-out
-  // (tbudget/maxIter here are only the local in-browser FALLBACK; the real server search is sized below)
-  const SERVER_TBUDGET = 450;   // ms the SERVER MCTS may think per move (Master); Impossible raises this
-  // Effective planner strength for the active difficulty. Master uses the defaults above; the
-  // Impossible tier overrides these (see LEVELS) so it searches an order of magnitude longer and
-  // deeper — more sims, a longer horizon at a finer step, a wider fan-out, and a bigger time budget.
+  // (tbudget/maxIter here are ONLY the tiny synchronous in-page FALLBACK, which must stay bounded
+  // because it runs on the main thread. The real off-thread search below has no such caps.)
+  const SERVER_TBUDGET = 450;   // ms the SERVER MCTS may think per move (Grandmaster); Impossible raises this
+  // The planner has NO fixed limit on simulation count or search depth. Instead the search runs for
+  // a per-move *thinking window* (wall-clock ms) and does as many simulations, as deep, as the
+  // device manages in that window — so a fast phone explores far more than a slow one. These two
+  // sentinels mean "don't cap": depth is bounded only by terminal boards (someone wins) + a huge
+  // safety cap, and iterations are bounded only by the clock.
+  const NO_HORIZON = 1e9, NO_ITER_CAP = 1e9, DEPTH_CAP = 4000;
   function planParams(){
     const lv = LEVELS[levelIdx] || {};
     return {
-      horizon: lv.horizon ?? PLAN.horizon,
+      horizon: NO_HORIZON,            // unbounded — depth follows hardware (think time) + terminal states
       dt:      lv.planDt  ?? PLAN.dt,
       K:       lv.mctsK   ?? MCTS.K,
-      // server budget (heavy MCTS off-thread on a real backend)
-      sims:    lv.sims    ?? SERVER_SIMS,
-      tbudget: lv.tbudget ?? SERVER_TBUDGET,
-      // in-browser Web Worker budget — off the main thread, so the search can run far longer
-      // than the synchronous fallback's 10ms without ever freezing the game. Wall-clock bound
-      // (workerMs) is what actually limits a phone; workerSims caps a fast desktop.
-      workerSims: lv.workerSims ?? 4000,
-      workerMs:   lv.workerMs   ?? 200,
+      // off-thread Web Worker thinking window (ms). This is the ONLY governor: more device speed
+      // ⇒ more simulations and deeper trees in the same window.
+      workerMs:  lv.workerMs ?? 250,
+      // server thinking window (ms) if a /api/plan backend is used instead of the worker.
+      serverMs:  lv.tbudget  ?? SERVER_TBUDGET,
     };
   }
 
@@ -1301,7 +1712,10 @@
     if (mv){ snapSend(s, mv[0], mv[1]); events.push({ t:parentTime, o:owner, from:planName(mv[0]), to:planName(mv[1]) }); }
     const cad = LEVELS[levelIdx].aiSpeed, half = cad/2;
     snapAdvance(s, half);
-    for (const o of snapOwners(s)){ if (o===owner) continue; const m=snapHeuristic(s,o);
+    for (const o of snapOwners(s)){ if (o===owner) continue;
+      // model the HUMAN with the net (snapGreedy treats all others as rivals when o===PLAYER, since
+      // it can't target its own states), rivals with the cheap heuristic.
+      const m = (o===PLAYER) ? snapGreedy(s,o) : snapHeuristic(s,o);
       if (m){ snapSend(s, m[0], m[1]); events.push({ t:parentTime+half, o, from:planName(m[0]), to:planName(m[1]) }); } }
     snapAdvance(s, half);
     return { snap:s, time:parentTime+cad, events };
@@ -1317,7 +1731,10 @@
     const strength=o=>(cnt[o]||0)+(mass[o]||0)/30;
     const mine=strength(owner);
     let best=0; for (const o in cnt){ const k=+o; if (k!==owner) best=Math.max(best,strength(k)); }
-    return Math.tanh(0.22*(mine-best));
+    const heur=Math.tanh(0.22*(mine-best));
+    // blend the hand heuristic with the LEARNED value net (predicts the actual game outcome)
+    const v = valueScore(valueFeatsSnap(s, owner));
+    return v==null ? heur : (1-VALUE_BLEND)*heur + VALUE_BLEND*v;
   }
   // score all candidate moves on a snapshot with the net + biases (mirrors snapGreedy), then
   // soft-max the top K (+ no-op) into policy priors for PUCT.
@@ -1330,19 +1747,27 @@
     for (let i=0;i<s.n;i++){ const o=s.owner[i]; if (o===NEUTRAL) neutralsLeft=true; else if (o>=2&&o!==owner) rivalsLeft=true; if (o===PLAYER) playerIdx.push(i); }
     const endgame=!neutralsLeft && !rivalsLeft, noop=rlPolicy.noop_bias||0;
     if (srcs.length>3) srcs = srcs.sort((a,b)=>s.troops[b]-s.troops[a]).slice(0,3);
+    let myTot=0, allTot=0, maxEnemy=0, bigIdx=-1;
+    for (let i=0;i<s.n;i++){ const oo=s.owner[i], tr=s.troops[i];
+      if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
+    const myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
     const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(s.cx[ti]-s.cx[p], s.cy[ti]-s.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
     const list=[];
     for (const si of srcs){ const st=s.troops[si];
       for (let ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; const tt=s.troops[ti];
         let sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/rlDiag,
-                         s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ]);
+                         s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+                         maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
         if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
-        else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;   // partial infighting (orig 1.5, cooperative 0.4)
-        else if (s.owner[ti]===PLAYER) sc += endgame ? (st>tt?3:-4) : -6;
+        else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0 * aiInfight();   // infighting (truce when human leads)
+        else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
+          else { const hunt=aiHunt(), lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
+                 sc += (1-hunt)*(-6) + hunt*((st>tt?1.0:-1.5)+lead*10) + despBias(ownFrac); } }
         list.push({ mv:[si,ti], score:sc });
       }
     }
-    list.push({ mv:null, score: endgame ? noop-1 : noop });   // no-op option
+    const cornered = (LEVELS[levelIdx].desp || 0) > 0 && ownFrac < 0.22;
+    list.push({ mv:null, score: (endgame ? noop-1 : noop) - (cornered ? 1.5 : 0) });   // no-op option
     list.sort((a,b)=>b.score-a.score);
     const top = list.slice(0, planParams().K+1);
     const mx = Math.max(...top.map(c=>c.score)); let sum=0; for (const c of top) sum+=Math.exp(c.score-mx);
@@ -1354,18 +1779,26 @@
       if (q+u>bv){ bv=q+u; best=c; } }
     return best;
   }
+  // a board is terminal once only one owner survives (in states + in-flight armies): the game is
+  // decided, so there's nothing deeper to search down that line.
+  function isTerminal(s){ let o=-1;
+    for (let i=0;i<s.n;i++){ const w=s.owner[i]; if (w!==NEUTRAL){ if (o<0) o=w; else if (w!==o) return false; } }
+    for (const a of s.armies){ if (a.owner!==NEUTRAL){ if (o<0) o=a.owner; else if (a.owner!==o) return false; } }
+    return true;
+  }
   function mctsIter(root, owner){
     const horizon = planParams().horizon;
     let node=root; const path=[node];
-    while (node.untried && node.untried.length===0 && node.children.length>0 && node.time<horizon){
+    // descend; stop at a decided board or the safety depth cap (no fixed horizon)
+    while (node.untried && node.untried.length===0 && node.children.length>0 && !node.terminal && node.time<horizon && path.length<DEPTH_CAP){
       node = bestPUCT(node); path.push(node);
     }
-    if (node.time<horizon){
+    if (!node.terminal && node.time<horizon && path.length<DEPTH_CAP){
       if (node.untried===null) node.untried = computeUntried(node.snap, owner);
       if (node.untried.length>0){
         const pick = node.untried.shift();
         const adv = mctsAdvance(node.snap, owner, pick.mv, node.time);
-        const child = { snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events };
+        const child = { snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events, terminal:isTerminal(adv.snap) };
         node.children.push(child); path.push(child); node=child;
       }
     }
@@ -1391,8 +1824,9 @@
     const pp = planParams(), worker = mode==='worker';
     return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
+      hunt:aiHunt(), desp:lv.desp||0, infight:aiInfight(), valueBlend:VALUE_BLEND,
       horizon:pp.horizon, dt:pp.dt, ownerId:owner, wantViz: showNN && vizMode==='planner',
-      humans, mcts:{ tbudget: worker?pp.workerMs:pp.tbudget, maxIter: worker?pp.workerSims:pp.sims, cPuct:MCTS.cPuct, K:pp.K } };
+      humans, mcts:{ tbudget: worker?pp.workerMs:pp.serverMs, maxIter: NO_ITER_CAP, cPuct:MCTS.cPuct, K:pp.K } };
   }
   // The planner runs the heavy MCTS OFF the main thread. Preference order:
   //   1. a Web Worker (default — no server needed; lets Impossible search ~50× longer than the
@@ -1400,42 +1834,79 @@
   //   2. a /api/plan server (if a worker can't be built but a backend exists), and
   //   3. the tiny synchronous in-page MCTS as a last resort.
   function planMove(owner){
-    if (ensurePlanWorker()) { planWorkerMove(owner); return; }
+    if (ensurePlanWorkers()) { planWorkerMove(owner); return; }
     plannerMoveServer(owner);
   }
 
-  // ---- off-thread planner: a Web Worker running the same MCTS over a board snapshot ----
-  // null = not built yet · false = unavailable/disabled · Worker = ready.
-  let planWorker = null, planWorkerOK = false, planReqSeq = 0;
+  // ---- off-thread planner: a POOL of Web Workers running the MCTS over a board snapshot ----
+  // One worker per CPU core (up to 8): each enemy gets a GROUP of workers (2 when the machine has
+  // the cores to spare), so on the hard tiers every AI plans HARD and CONCURRENTLY. When an enemy
+  // owns 2 workers they run independent searches and the main thread MERGES their root-move visit
+  // counts (root parallelization) — roughly doubling the effective simulation budget at the SAME
+  // think-time. null = not built yet · false = unavailable/disabled · [Worker,…] = ready.
+  let planWorkers = null, planReqSeq = 0;
   const planJobs = {};   // request id -> owner awaiting a move
-  function ensurePlanWorker(){
-    if (planWorkerOK) return true;
-    if (planWorker !== null) return false;            // already tried and failed
-    if (!rlPolicy || typeof Worker === 'undefined'){ planWorker = false; return false; }
+  const planAgg = {};    // owner -> { remaining, tally:{moveKey:{move,visits}}, viz, vizIters } while a worker GROUP runs
+  // Which workers plan for this enemy. With enough cores each enemy gets a 2-worker group (its
+  // searches are merged); on a smaller machine it falls back to a single dedicated worker.
+  function workersFor(owner){
+    const P = planWorkers.length;
+    const E = Math.max(1, (LEVELS[levelIdx].enemies) || 1);
+    const per = Math.max(1, Math.min(2, Math.floor(P / E)));
+    const base = ((owner - 2) * per) % P, g = [];
+    for (let i=0;i<per;i++) g.push(planWorkers[((base + i) % P + P) % P]);
+    return g;
+  }
+  function ensurePlanWorkers(){
+    if (Array.isArray(planWorkers)) return true;
+    if (planWorkers === false) return false;          // already tried and failed
+    if (!rlPolicy || typeof Worker === 'undefined'){ planWorkers = false; return false; }
     try {
       const src = '(' + planWorkerMain.toString() + ')()';
       const url = URL.createObjectURL(new Blob([src], { type:'application/javascript' }));
-      planWorker = new Worker(url);
-      planWorker.onmessage = onPlanWorkerMsg;
-      planWorker.onerror = () => { planWorkerOK = false; planWorker = false; planPending = {}; };
-      planWorker.postMessage({ type:'init', policy: rlPolicy });
-      planWorkerOK = true;
-    } catch(e){ planWorker = false; planWorkerOK = false; }
-    return planWorkerOK;
+      const n = Math.max(1, Math.min(8, navigator.hardwareConcurrency || 4));
+      planWorkers = [];
+      for (let i=0;i<n;i++){
+        const w = new Worker(url);
+        w.onmessage = onPlanWorkerMsg;
+        w.onerror = () => { planWorkers = false; planPending = {}; };
+        w.postMessage({ type:'init', policy: rlPolicy });
+        planWorkers.push(w);
+      }
+    } catch(e){ planWorkers = false; }
+    return Array.isArray(planWorkers);
   }
   function planWorkerMove(owner){
     if (planPending[owner]) return;                   // already thinking about this enemy
     planPending[owner] = true;
-    const id = ++planReqSeq; planJobs[id] = owner;
-    planWorker.postMessage({ type:'plan', id, req: buildPlanRequest(owner, 'worker') });
+    const group = workersFor(owner);                  // 1 or 2 workers, depending on the machine
+    planAgg[owner] = { remaining: group.length, tally: {}, viz: null, vizIters: -1, totalIters: 0 };
+    const req = buildPlanRequest(owner, 'worker');    // same board to every worker in the group
+    const epoch = planEpoch;
+    for (const w of group){ const id = ++planReqSeq; planJobs[id] = { owner, epoch }; w.postMessage({ type:'plan', id, req }); }
   }
   function onPlanWorkerMsg(e){
     const m = e.data; if (!m || m.type !== 'plan') return;
-    const owner = planJobs[m.id]; delete planJobs[m.id];
-    if (owner != null) planPending[owner] = false;
+    const job = planJobs[m.id]; delete planJobs[m.id];
+    if (!job || job.epoch !== planEpoch) return;      // stale reply from a previous game — drop it
+    const owner = job.owner;
+    const agg = planAgg[owner];
+    if (!agg) return;                                 // stale (group already resolved / aborted)
+    // merge this worker's root-move visit counts into the group tally
+    if (m.roots) for (const r of m.roots){ const key = r.move ? r.move[0]+'>'+r.move[1] : 'noop';
+      const cur = agg.tally[key] || (agg.tally[key] = { move: r.move, visits: 0 }); cur.visits += r.visits; }
+    agg.totalIters += (m.iters||0);
+    if (m.viz && (m.iters||0) > agg.vizIters){ agg.viz = m.viz; agg.vizIters = m.iters||0; }
+    if (--agg.remaining > 0) return;                  // wait for the rest of the group
+    delete planAgg[owner]; planPending[owner] = false;
     if (!running) return;
-    if (m.viz && showNN && vizMode==='planner'){ planViz = m.viz; planVizDirty = true; }
-    if (m.move){ const s=states[m.move[0]], t=states[m.move[1]];
+    if (agg.viz && showNN && vizMode==='planner'){ agg.viz.iters = agg.totalIters;   // show COMBINED sims/move
+      planViz = agg.viz; planVizDirty = true; }
+    // commit the root move with the most COMBINED visits across the group (no-op wins => do nothing)
+    let bestMove = null, bestV = -1, noopV = -1;
+    for (const k in agg.tally){ const c = agg.tally[k];
+      if (k === 'noop'){ noopV = c.visits; } else if (c.visits > bestV){ bestV = c.visits; bestMove = c.move; } }
+    if (bestMove && bestV > noopV){ const s=states[bestMove[0]], t=states[bestMove[1]];
       // same guards as the server path: ignore a stale/relocated source, and don't let it
       // instantly flee a freshly-threatened state (wait out REACT_DELAY).
       if (s && t && s!==t && s.owner===owner && !freshThreat(s)) sendTroops(s, t); }
@@ -1444,12 +1915,13 @@
   // Self-contained MCTS worker. Stringified via .toString() and run in a Blob Worker, so it must
   // not reference anything from the outer closure — every dependency arrives in the message. It is
   // a faithful port of the in-page planner (rlScore / snapStep / computeUntried / mctsIter …),
-  // sized by req.mcts (maxIter + tbudget). Posts back { move, viz }.
+  // run for req.mcts.tbudget ms with no iteration/depth cap. Posts back { move, viz }.
   function planWorkerMain(){
     'use strict';
     var NEUTRAL=0, PLAYER=1, MAX_TROOPS=150;
     var POL=null;                                   // trained policy (set on init)
-    var GR=1, EG=1, DIAG=1, ORB=70, HOR=11, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, names=[];
+    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, INF=1, VBLEND=0.5, names=[];
+    var DEPTH_CAP=4000;   // safety only — real depth is bounded by think time + terminal boards
     var now = (self.performance && self.performance.now) ? function(){ return self.performance.now(); } : function(){ return Date.now(); };
     function rand(a,b){ return a + Math.random()*(b-a); }
     function nm(i){ return names[i] || ('#'+i); }
@@ -1495,26 +1967,84 @@
         if (sc>best){ best=sc; bt=ti; } }
       return bt<0 ? null : [si,bt];
     }
+    // Net-quality opponent model: the best move the TRAINED net would pick for `owner` (no hunt
+    // bias — from this seat everyone else is just a rival). Used to model the HUMAN inside the
+    // search so the planner anticipates STRONG play instead of assuming a dumb greedy human.
+    function snapGreedyNet(s, owner){
+      var FN=POL.feat_norm||50, ownCount=0;
+      for (var i=0;i<s.n;i++) if (s.owner[i]===owner) ownCount++;
+      if (!ownCount) return null;
+      var ownFrac=ownCount/s.n, srcs=[];
+      for (i=0;i<s.n;i++) if (s.owner[i]===owner && s.troops[i]>=5) srcs.push(i);
+      if (!srcs.length) return null;
+      if (srcs.length>2) srcs=srcs.sort(function(a,b){ return s.troops[b]-s.troops[a]; }).slice(0,2);
+      var myTot=0, allTot=0, maxEnemy=0, bigIdx=-1;
+      for (i=0;i<s.n;i++){ var oo=s.owner[i], tr=s.troops[i];
+        if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
+      var myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
+      var best=POL.noop_bias||0, bs=-1, bt=-1;
+      for (var q=0;q<srcs.length;q++){ var si=srcs[q], st=s.troops[si];
+        for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; var tt=s.troops[ti];
+          var sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/DIAG,
+            s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+            maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
+          sc += (s.owner[ti]===NEUTRAL) ? 0.3 : 0.8;     // mild "keep engaging" bias (no player-hunt)
+          if (sc>best){ best=sc; bs=si; bt=ti; } } }
+      return bs<0 ? null : [bs,bt];
+    }
     function mctsAdvance(parentSnap, owner, mv, parentTime){
       var s=cloneSnap(parentSnap), events=[];
       if (mv){ snapSend(s, mv[0], mv[1]); events.push({ t:parentTime, o:owner, from:nm(mv[0]), to:nm(mv[1]) }); }
       var cad=AISP, half=cad/2;
       snapAdvance(s, half);
       var os=snapOwners(s);
-      for (var k=0;k<os.length;k++){ var o=os[k]; if (o===owner) continue; var m=snapHeuristic(s,o);
+      for (var k=0;k<os.length;k++){ var o=os[k]; if (o===owner) continue;
+        // model the HUMAN with the net (anticipate strong play); rivals stay on the cheap heuristic
+        var m=(o===PLAYER)?snapGreedyNet(s,o):snapHeuristic(s,o);
         if (m){ snapSend(s, m[0], m[1]); events.push({ t:parentTime+half, o:o, from:nm(m[0]), to:nm(m[1]) }); } }
       snapAdvance(s, half);
       return { snap:s, time:parentTime+cad, events:events };
     }
+    // learned value net (mirror of the main thread; POL.value set on init). Feature order MUST
+    // match tools/train_value.py vfeats_from() exactly.
+    function valueScore(feats){
+      if (!POL.value) return null;
+      var x=feats;
+      for (var l=0;l<POL.value.layers.length;l++){ var layer=POL.value.layers[l], out=new Array(layer.b.length);
+        for (var o=0;o<layer.b.length;o++){ var acc=layer.b[o], row=layer.W[o];
+          for (var i=0;i<row.length;i++) acc+=row[i]*x[i];
+          out[o]=Math.tanh(acc); }
+        x=out; }
+      return x[0];
+    }
+    function valueFeatsSnap(s, owner){
+      var CAPV=MAX_TROOPS, allT=0, neu=0, ownS=0, ownT=0, bigEnemy=0, cntS={}, cntT={}, i;
+      for (i=0;i<s.n;i++){ var o=s.owner[i], tr=s.troops[i];
+        if (o===NEUTRAL){ neu++; continue; }
+        allT+=tr; cntS[o]=(cntS[o]||0)+1; cntT[o]=(cntT[o]||0)+tr;
+        if (o===owner){ ownS++; ownT+=tr; } else if (tr>bigEnemy) bigEnemy=tr; }
+      var ifOwn=0, ifAll=0, alive={}; for (var q in cntS) alive[q]=1;
+      for (var a=0;a<s.armies.length;a++){ var ar=s.armies[a]; if (ar.owner===NEUTRAL) continue;
+        ifAll+=ar.count; alive[ar.owner]=1; if (ar.owner===owner) ifOwn+=ar.count; }
+      var maxES=0, maxET=0;
+      for (var o2 in cntS){ if (+o2===owner) continue; if (cntS[o2]>maxES) maxES=cntS[o2]; if (cntT[o2]>maxET) maxET=cntT[o2]; }
+      var N=s.n, aT=Math.max(1,allT), ownAvg=ownT/Math.max(1,ownS);
+      return [ ownS/N, ownT/aT, maxES/N, maxET/aT, (ownS-maxES)/N, (ownT-maxET)/aT,
+               neu/N, Object.keys(alive).length/5, ownAvg/CAPV, bigEnemy/CAPV, ownT/(N*CAPV), (2*ifOwn-ifAll)/aT ];
+    }
     function nodeVal(s, owner){
       var cnt={}, mass={};
       for (var i=0;i<s.n;i++){ var o=s.owner[i]; if (o!==NEUTRAL){ cnt[o]=(cnt[o]||0)+1; mass[o]=(mass[o]||0)+s.troops[i]; } }
+      // count troops in flight toward their owner's mass — a big incoming wave is real strength
+      for (var a=0;a<s.armies.length;a++){ var ar=s.armies[a]; if (ar.owner!==NEUTRAL) mass[ar.owner]=(mass[ar.owner]||0)+ar.count; }
       var myStates=cnt[owner]||0; if (myStates===0) return -1;
       if (Object.keys(cnt).length===1) return 1;
       function strength(o){ return (cnt[o]||0)+(mass[o]||0)/30; }
       var mine=strength(owner), best=0;
       for (var o2 in cnt){ var k=+o2; if (k!==owner) best=Math.max(best,strength(k)); }
-      return Math.tanh(0.22*(mine-best));
+      var heur=Math.tanh(0.22*(mine-best));
+      var v=valueScore(valueFeatsSnap(s, owner));   // blend hand heuristic with the learned value net
+      return v==null ? heur : (1-VBLEND)*heur + VBLEND*v;
     }
     function computeUntried(s, owner){
       var FN=POL.feat_norm||50, ownCount=0;
@@ -1525,17 +2055,25 @@
       for (i=0;i<s.n;i++){ var o=s.owner[i]; if (o===NEUTRAL) neutralsLeft=true; else if (o>=2&&o!==owner) rivalsLeft=true; if (o===PLAYER) playerIdx.push(i); }
       var endgame=!neutralsLeft && !rivalsLeft, noop=POL.noop_bias||0;
       if (srcs.length>3) srcs=srcs.sort(function(a,b){ return s.troops[b]-s.troops[a]; }).slice(0,3);
+      var myTot=0, allTot=0, maxEnemy=0, bigIdx=-1;
+      for (i=0;i<s.n;i++){ var oo=s.owner[i], tr=s.troops[i];
+        if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
+      var myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
       function dToPlayer(ti){ var m=Infinity; for (var p=0;p<playerIdx.length;p++){ var d=Math.hypot(s.cx[ti]-s.cx[playerIdx[p]], s.cy[ti]-s.cy[playerIdx[p]]); if (d<m) m=d; } return m===Infinity?9999:m; }
       var list=[];
       for (var q=0;q<srcs.length;q++){ var si=srcs[q], st=s.troops[si];
         for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; var tt=s.troops[ti];
           var sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/DIAG,
-            s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac ]);
+            s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+            maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
           if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/DIAG); }
-          else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0;
-          else if (s.owner[ti]===PLAYER) sc += endgame ? (st>tt?3:-4) : -6;
+          else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0 * INF;
+          else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
+            else { var lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
+                   sc += (1-HUNT)*(-6) + HUNT*((st>tt?1.0:-1.5)+lead*10) + (DESP>0?DESP*Math.max(0,0.28-ownFrac):0); } }
           list.push({ mv:[si,ti], score:sc }); } }
-      list.push({ mv:null, score: endgame ? noop-1 : noop });
+      var cornered = DESP>0 && ownFrac<0.22;
+      list.push({ mv:null, score: (endgame ? noop-1 : noop) - (cornered?1.5:0) });
       list.sort(function(a,b){ return b.score-a.score; });
       var top=list.slice(0, K+1), mx=-Infinity;
       for (i=0;i<top.length;i++) if (top[i].score>mx) mx=top[i].score;
@@ -1548,13 +2086,18 @@
         if (qv+u>bv){ bv=qv+u; best=c; } }
       return best;
     }
+    function isTerminal(s){ var o=-1, i;
+      for (i=0;i<s.n;i++){ var w=s.owner[i]; if (w!==NEUTRAL){ if (o<0) o=w; else if (w!==o) return false; } }
+      for (i=0;i<s.armies.length;i++){ var aw=s.armies[i].owner; if (aw!==NEUTRAL){ if (o<0) o=aw; else if (aw!==o) return false; } }
+      return true;
+    }
     function mctsIter(root, owner){
       var node=root, path=[node];
-      while (node.untried && node.untried.length===0 && node.children.length>0 && node.time<HOR){ node=bestPUCT(node); path.push(node); }
-      if (node.time<HOR){
+      while (node.untried && node.untried.length===0 && node.children.length>0 && !node.terminal && node.time<HOR && path.length<DEPTH_CAP){ node=bestPUCT(node); path.push(node); }
+      if (!node.terminal && node.time<HOR && path.length<DEPTH_CAP){
         if (node.untried===null) node.untried=computeUntried(node.snap, owner);
         if (node.untried.length>0){ var pick=node.untried.shift(), adv=mctsAdvance(node.snap, owner, pick.mv, node.time);
-          var child={ snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events };
+          var child={ snap:adv.snap, time:adv.time, N:0, W:0, children:[], untried:null, move:pick.mv, prior:pick.prior, events:adv.events, terminal:isTerminal(adv.snap) };
           node.children.push(child); path.push(child); node=child; } }
       var v=nodeVal(node.snap, owner);
       for (var i=0;i<path.length;i++){ path[i].N++; path[i].W+=v; }
@@ -1574,24 +2117,32 @@
     function plan(req){
       GR=req.growRate; EG=req.enemyGrow; DIAG=req.rlDiag||1; ORB=req.orbSpeed||70;
       HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
-      CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5;
-      var maxIter=(req.mcts&&req.mcts.maxIter)||400, tbudget=(req.mcts&&req.mcts.tbudget)||10, owner=req.ownerId;
+      CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0; DESP=req.desp||0; INF=(req.infight==null?1:req.infight); VBLEND=(req.valueBlend==null?0.5:req.valueBlend);
+      var tbudget=(req.mcts&&req.mcts.tbudget)||250, owner=req.ownerId;
       var base={ n:req.n, cx:req.cx, cy:req.cy, owner:req.owner.slice(), troops:req.troops.slice(),
         armies:(req.armies||[]).map(function(a){ return { owner:a.owner, count:a.count, ti:a.ti, t:0, ttotal:a.ttotal }; }) };
-      var root={ snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[] };
+      var root={ snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[], terminal:isTerminal(base) };
+      if (root.terminal) return { move:null, viz: req.wantViz ? buildViz(root, null, 0, owner) : null };
+      // NO simulation/depth cap — run as many iterations as the device manages within the
+      // thinking window. Faster hardware ⇒ more simulations and a deeper tree.
       var t0=now(), iter=0;
-      while (iter<maxIter && now()-t0 < tbudget){ mctsIter(root, owner); iter++; }
+      while (now()-t0 < tbudget){ mctsIter(root, owner); iter++; }
       var bestChild=null;
       for (var i=0;i<root.children.length;i++) if (!bestChild || root.children[i].N>bestChild.N) bestChild=root.children[i];
       var move=(bestChild && bestChild.move) ? bestChild.move : null;
       var viz=req.wantViz ? buildViz(root, bestChild, iter, owner) : null;
-      return { move:move, viz:viz };
+      // root-move visit counts, so the main thread can MERGE several workers' independent searches
+      // (root parallelization): each worker explores a different random tree; summing visits per
+      // root move across them is like one search with the combined simulation budget.
+      var roots=[];
+      for (var r=0;r<root.children.length;r++) roots.push({ move:root.children[r].move, visits:root.children[r].N });
+      return { move:move, viz:viz, roots:roots, iters:iter };
     }
     self.onmessage = function(e){
       var m=e.data; if (!m) return;
       if (m.type==='init'){ POL=m.policy; return; }
-      if (m.type==='plan'){ if (!POL){ self.postMessage({ type:'plan', id:m.id, move:null, viz:null }); return; }
-        var out=plan(m.req); self.postMessage({ type:'plan', id:m.id, move:out.move, viz:out.viz }); }
+      if (m.type==='plan'){ if (!POL){ self.postMessage({ type:'plan', id:m.id, move:null, viz:null, roots:[], iters:0 }); return; }
+        var out=plan(m.req); self.postMessage({ type:'plan', id:m.id, move:out.move, viz:out.viz, roots:out.roots, iters:out.iters }); }
     };
   }
 
@@ -1617,7 +2168,9 @@
     const ev = rlEvaluate(owner, true);
     if (showNN && vizMode==='brain') rlSetViz(owner, ev);   // keep the AI-brain panel live
     const base = takeSnapshot();
-    const root = { snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[] };
+    const root = { snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[], terminal:isTerminal(base) };
+    // NOTE: this synchronous fallback runs on the main thread, so it MUST stay tightly bounded
+    // (MCTS.maxIter / MCTS.tbudget). The unbounded, hardware-driven search lives in the worker.
     const t0 = performance.now(); let iter=0;
     while (iter<MCTS.maxIter && performance.now()-t0 < MCTS.tbudget){ mctsIter(root, owner); iter++; }
     let bestChild=null; for (const c of root.children) if (!bestChild || c.N>bestChild.N) bestChild=c;   // most-visited
@@ -1636,11 +2189,11 @@
     const line=[]; let node=root;
     while (node.children.length){ let nx=null; for (const c of node.children) if (!nx||c.N>nx.N) nx=c;
       for (const e of nx.events) if (line.length<16) line.push(e); node=nx; }
-    // extend the PV to the full horizon with a greedy tail so the imagined line reaches the horizon
+    // extend the PV with a short greedy tail (fixed ~10s) so the imagined line reads a little ahead
     const pp = planParams();
-    if (node.time < pp.horizon){ const cap={}; planRollout(node.snap, owner, null, pp.horizon-node.time, pp.dt, cap);
+    if (!node.terminal){ const cap={}; planRollout(node.snap, owner, null, 10, pp.dt, cap);
       for (const e of (cap.events||[])) if (line.length<22) line.push({ t:node.time+e.t, o:e.o, from:e.from, to:e.to }); }
-    planViz = { owner, horizon:pp.horizon, n:root.children.length, iters, cands, line };
+    planViz = { owner, n:root.children.length, iters, cands, line };
     planVizDirty = true;
   }
 
@@ -1697,9 +2250,9 @@
       if (aiTimers[owner]>0) return;
       aiTimers[owner]=aiCooldown(lv);
 
-      // Coordinated multi-state salvo (only the trained tiers): overwhelm a turtled wall that
-      // no single state can crack. Pre-empts the single-move logic when it fires.
-      if ((lv.rl || lv.plan) && coordinatedAssault(owner)) return;
+      // Coordinated multi-state salvo (PLANNER tier only — Impossible): overwhelm a turtled wall that
+      // no single state can crack. Grandmaster plays on raw instinct (no salvo), so this is plan-gated.
+      if (lv.plan && coordinatedAssault(owner)) return;
 
       if (lv.plan && rlPolicy) { planMove(owner); return; }   // off-thread MCTS (Web Worker, else server, else sync)
       if (useRL) { rlMove(owner); return; }
@@ -1745,6 +2298,10 @@
 
   function update(dt) {
     gameTick++; gameElapsed += dt;
+    // periodic full-board trajectory sample (~every 1.5s) — captures the whole game evolution,
+    // not just the human's move instants, for value/dynamics training. Capped to bound size.
+    if (matchTrack){ snapClock += dt; if (snapClock >= 1.5){ snapClock = 0; ensureHeader(); if (matchTrack.snaps.length < 800) matchTrack.snaps.push(boardSnapshot()); } }
+    aiSnow = humanSnowball();   // once per tick: drives enemy catch-up growth + anti-snowball hunt
     updateThreats();
     for (const s of states) {
       const cap = capOf(s);
@@ -1848,10 +2405,8 @@
     const tk = zk();
     for (const t of troops) {
       const r = t.r*tk;
-      // only YOUR orbs take the chosen shape; everyone else's stay classic circles
-      const shape = (t.owner===myOwner) ? PERK.orbShape : '';
-      const ang = Math.atan2(t.ty-t.y, t.tx-t.x);
-      drawOrbShape(ctx, shape, t.x, t.y, r, ang, COLORS[t.owner], DARK[t.owner], tk);
+      ctx.fillStyle=DARK[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r+2*tk,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=COLORS[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r,0,Math.PI*2); ctx.fill();
       if (t.count>1){ ctx.fillStyle='#fff'; ctx.font='bold '+(t.r*tk)+'px Segoe UI, sans-serif';
         ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(t.count, t.x, t.y+1*tk); }
     }
@@ -1917,7 +2472,7 @@
     nnCanvas.style.width = NN_W+'px'; nnCanvas.style.height = NN_H+'px';
     nnctx.scale(d, d);
   })();
-  const FEAT_LABELS = ['src','tgt','src−tgt','dist','neutral?','enemy?','stronger?','own%'];
+  const FEAT_LABELS = ['src','tgt','src−tgt','dist','neutral?','enemy?','stronger?','own%','maxFoe','army%','myAvg','threat?'];
   const LAYER_NAMES = ['hidden 1','hidden 2','output'];
   let nnWeightStats = null;
   function actColor(v, scale, minA){
@@ -1965,10 +2520,10 @@
 
     // ===== header =====
     nnctx.fillStyle='#e7edf3'; nnctx.font='bold 13px Segoe UI, sans-serif';
-    nnctx.fillText('Master AI · policy network', pad, Y);
+    nnctx.fillText('Grandmaster AI · policy network', pad, Y);
     if (!rlPolicy || !LEVELS[levelIdx]?.rl){
       Y+=22; nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
-      nnctx.fillText('Play the Master difficulty', pad, Y); Y+=16;
+      nnctx.fillText('Play the Grandmaster difficulty', pad, Y); Y+=16;
       nnctx.fillText('to watch the AI think.', pad, Y); return;
     }
     if (!nnWeightStats) nnWeightStats = computeWeightStats();
@@ -2176,45 +2731,149 @@
     for (const p of paras){ for (const ln of p){ nnctx.fillText(ln, pad+3, ty); ty+=lh; } ty+=gap; }
     return Y + boxH + 10;
   }
-  // Turn the planner's chosen move into a few sentences of plain-language reasoning.
+  // Deterministic phrasing variety: a tiny string hash seeds a stable picker, so a given decision
+  // always reads the same (no per-frame flicker) but DIFFERENT decisions get different wording —
+  // that's what stops every summary sounding identical.
+  function nnHash(s){ let h=2166136261; s=String(s); for (let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+  function nnVary(seed){ return (arr, slot) => arr[(seed + (slot||0)*0x9E3779B1>>>0) % arr.length]; }
+  function phaseWord(neu,total){ const f=neu/Math.max(1,total); return f>0.45?'land-grab':(f>0.12?'mid-game':'endgame'); }
+
+  // Turn the planner's chosen move into several sentences of plain-language reasoning, with detail
+  // (territory, troops, projected swing, search effort, alternatives) and decision-keyed variety.
   function plannerStory(){
     const v = planViz; if (!v || !v.cands || !v.cands.length) return [];
     const byVisits = v.cands.slice().sort((a,b)=>b.visits-a.visits);
     const chosen = v.cands.find(c=>c.chosen) || byVisits[0];
-    if (!chosen || chosen.type==='noop' || !chosen.from || chosen.from==='—' || !chosen.to || chosen.to==='—')
-      return ["I'm holding back this turn — every attack I simulated left me worse off, so I'd rather let my troops build up and wait for a cleaner opening."];
+    const owner = v.owner;
+    // live board context
+    const byName = {}; let ownNow=0, youNow=0, neuNow=0, rivNow=0, myTroops=0;
+    for (const s of states){ byName[s.name]=s;
+      if (s.owner===owner){ ownNow++; myTroops+=s.troops; }
+      else if (s.owner===PLAYER) youNow++; else if (s.owner===NEUTRAL) neuNow++; else rivNow++; }
+    const phase = phaseWord(neuNow, states.length);
     const lines = [];
-    const byName = {}; for (const s of states) byName[s.name] = s;
+
+    if (!chosen || chosen.type==='noop' || !chosen.from || chosen.from==='—' || !chosen.to || chosen.to==='—'){
+      const pk = nnVary(nnHash('wait'+ownNow+youNow+neuNow+v.iters));
+      lines.push(pk([
+        'I’m holding this turn on purpose. Every attack I rolled out left me weaker, so I’d rather bank troops and strike once you over-extend.',
+        'No move pays off right now — across '+(v.iters||0).toLocaleString()+' simulated futures, sitting still beat all of them — so I’m stockpiling.',
+        'I’m waiting. In a tight '+phase+' board like this, whoever attacks first into a stalemate usually loses, so I’ll let my troops build.'
+      ],0));
+      lines.push(pk([
+        'Right now I hold '+ownNow+(ownNow===1?' state':' states')+' with about '+Math.round(myTroops)+' troops massed; the moment you commit, I’ll punish the gap you leave.',
+        'It’s '+ownNow+' mine to your '+youNow+(neuNow?', with '+neuNow+' still neutral':'')+' — I don’t want to trade my army into a wall for nothing.'
+      ],1));
+      return lines;
+    }
+
     const src = byName[chosen.from], tgt = byName[chosen.to];
-    lines.push('I’m attacking '+chosen.to+' from '+chosen.from+'.');
-    if (chosen.type==='neutral')      lines.push(chosen.to+' is unclaimed, so taking it grows my territory without starting a fight I don’t need yet.');
-    else if (chosen.type==='player')  lines.push(chosen.to+' is YOUR state — I’m pushing straight at you to slow you down before you snowball.');
-    else                              lines.push(chosen.to+' belongs to a rival AI — I’d rather spend troops weakening them than trading blows with you.');
+    let ownProj=0; if (chosen.board){ for (const o of chosen.board) if (o===owner) ownProj++; }
+    const pk = nnVary(nnHash(chosen.from+'>'+chosen.to+'#'+owner));
+
+    lines.push(pk([
+      'I’m sending troops from '+chosen.from+' into '+chosen.to+'.',
+      'My move this turn: attack '+chosen.to+', launched from '+chosen.from+'.',
+      chosen.from+' has the troops to spare, so I’m driving it into '+chosen.to+'.'
+    ],0));
+
+    if (chosen.type==='neutral') lines.push(pk([
+      chosen.to+' is unclaimed — cheap territory, and every state I own grows my troops faster, so I want it before anyone else reaches it.',
+      'Grabbing neutral '+chosen.to+' expands me without firing the first shot at a real rival — exactly the kind of free ground a '+phase+' board rewards.',
+      chosen.to+' is sitting empty right on my path; taking it now is the efficient play before the map fills up.'
+    ],1));
+    else if (chosen.type==='player') lines.push(pk([
+      chosen.to+' is YOURS, and you’re the one I’m most worried about — hitting you directly slows you down before you snowball out of reach.',
+      'You own '+chosen.to+'. With '+youNow+' states to my '+ownNow+', I can’t let you keep growing, so that’s where my punch lands.',
+      'I’m going straight at your '+chosen.to+'; trading territory with the leader is worth it to keep you in check.'
+    ],1));
+    else lines.push(pk([
+      chosen.to+' belongs to a rival AI — better they bleed troops there than me, and it stops them pulling ahead.',
+      'I’d rather grind down a rival at '+chosen.to+' than spend my army on you while the board is still '+phase+'.',
+      'Taking '+chosen.to+' off another AI keeps any one opponent from running away with it.'
+    ],1));
+
     if (src && tgt){
       const sT=Math.round(src.troops), tT=Math.round(tgt.troops);
-      if (src.troops > tgt.troops) lines.push('I’ve got more troops staged there ('+sT+' vs '+tT+'), so I expect to take it and still hold the line.');
-      else                          lines.push('It’s defended ('+sT+' of mine vs '+tT+'), but the futures I rolled out say the follow-up still pays off.');
+      if (src.troops > tgt.troops) lines.push(pk([
+        'I’ve got the numbers there ('+sT+' vs '+tT+'), so I expect a clean capture that still leaves a garrison behind.',
+        'With '+sT+' against '+tT+', this should land without overspending — a safe take, not a coin-flip.',
+        'It’s a '+sT+'-to-'+tT+' edge in my favour, so the math is on my side here.'
+      ],2));
+      else lines.push(pk([
+        'It’s defended ('+sT+' of mine vs '+tT+'), but the futures I rolled out say the follow-up wins the exchange, so I’ll spend the troops.',
+        'I’m behind head-on, '+sT+' to '+tT+' — risky on paper, yet every strong line I found runs through this move.',
+        'Even though '+tT+' defend it against my '+sT+', the lookahead rates the position after it higher than playing safe.'
+      ],2));
     }
+
+    if (chosen.board && ownProj>ownNow) lines.push(pk([
+      'Played out, this line takes me from '+ownNow+' to '+ownProj+' states — that’s the momentum I’m chasing.',
+      'By the end of the future I imagined, I’m holding '+ownProj+' states (up from '+ownNow+').'
+    ],3));
+    else if (chosen.board) lines.push(pk([
+      'It doesn’t net new ground this instant — it’s a positioning move that sets up the captures a few turns later.',
+      'The territory swing comes on the follow-ups; this move buys the board position I need first.'
+    ],3));
+
     const share = v.iters ? Math.round(100*chosen.visits/Math.max(1,v.iters)) : 0;
-    const mood = chosen.value>=0.3 ? 'confident' : (chosen.value>=0 ? 'cautiously optimistic' : 'taking a calculated risk');
-    lines.push('I imagined about '+(v.iters||0).toLocaleString()+' ways the next '+Math.round(v.horizon)+'s could go and spent '+share+'% of that thinking on this move — I’m '+mood+' (projected score '+(chosen.value>=0?'+':'')+chosen.value.toFixed(2)+').');
+    const mood = chosen.value>=0.4 ? 'strongly' : (chosen.value>=0.1 ? 'fairly' : (chosen.value>=-0.1 ? 'cautiously' : 'reluctantly'));
+    lines.push(pk([
+      'I ran '+(v.iters||0).toLocaleString()+' rollouts as deep as my device could manage, each played to a decided board; '+share+'% backed this move and I '+mood+' favour it (projected score '+(chosen.value>=0?'+':'')+chosen.value.toFixed(2)+').',
+      'Across '+(v.iters||0).toLocaleString()+' simulated games I spent '+share+'% of my search here — there’s no fixed limit, just however much my hardware fits in the think window — and I '+mood+' back it (value '+(chosen.value>=0?'+':'')+chosen.value.toFixed(2)+').'
+    ],4));
+
     const alt = byVisits.find(c=>c!==chosen && c.type!=='noop' && c.from && c.from!=='—');
-    if (alt) lines.push('My next-best idea was '+alt.to+', but this line projected a stronger board so I went with it.');
+    if (alt) lines.push(pk([
+      'My next-best idea was '+alt.to+' ('+alt.visits.toLocaleString()+' visits vs '+chosen.visits.toLocaleString()+'), but this line projected a stronger board.',
+      'I nearly went for '+alt.to+' instead; it just fell short in the rollouts.'
+    ],5));
+    else lines.push(pk([
+      'Nothing else came close — even doing nothing scored clearly worse than acting now.',
+      'The alternatives all trailed waiting, so this move stood out on its own.'
+    ],5));
     return lines;
   }
-  // Same idea for the single-step policy net (the "AI Brain" tab).
+
+  // Same idea for the single-step policy net (the "AI Brain" tab) — varied + a little more detail.
   function brainStory(v){
     if (!v) return [];
     const c = v.candidates && v.candidates[0];
-    if (v.waiting || !c) return ['Right now no attack scores better than simply sitting still and letting my troops grow, so the net votes to wait.'];
+    const ctx = v.ctx || {};
+    if (v.waiting || !c){
+      const pk = nnVary(nnHash('bwait'+(ctx.ownC||0)+(ctx.plyC||0)));
+      return [pk([
+        'Right now no attack scores better than sitting still and letting my troops grow, so the net votes to wait.',
+        'The net can’t find a move that beats holding position — every option scored below just banking troops — so it waits.'
+      ],0)];
+    }
+    const pk = nnVary(nnHash(c.from+'>'+c.to+'#'+v.owner));
     const lines = [];
-    if (c.type==='PLAYER')      lines.push('The net wants your state '+c.to+' — hitting you directly keeps you from running away with the game.');
-    else if (c.type==='rival')  lines.push('The net is going after a rival AI’s '+c.to+' instead of spending troops on you.');
-    else                        lines.push('The net wants to grab '+c.to+' — it’s unclaimed, so it’s cheap land that speeds up my growth.');
-    if (c.delta>=0) lines.push('I have the edge there ('+c.srcT+' vs '+c.tgtT+'), so it rates the attack as winnable.');
-    else            lines.push('It’s contested ('+c.srcT+' vs '+c.tgtT+') — a gamble, but the net still scores it above doing nothing.');
+    if (c.type==='PLAYER') lines.push(pk([
+      'The net wants your state '+c.to+' — hitting the leader directly keeps you from running away with the game.',
+      'It’s pointing me at your '+c.to+'; you’re the threat, so that’s where the score says to push.'
+    ],0));
+    else if (c.type==='rival') lines.push(pk([
+      'The net is going after a rival AI’s '+c.to+' instead of spending troops on you.',
+      'It prefers to chip at a rival’s '+c.to+' — weakening another AI is worth more than poking at you right now.'
+    ],0));
+    else lines.push(pk([
+      'The net wants to grab '+c.to+' — it’s unclaimed, so it’s cheap land that speeds up my growth.',
+      'Neutral '+c.to+' is the pick: free territory now is worth more than a risky fight.'
+    ],0));
+    lines.push(pk(
+      c.delta>=0 ? [
+        'I hold the edge there ('+c.srcT+' vs '+c.tgtT+'), and it’s '+Math.round(c.dist)+'px away, so the net rates the attack as winnable.',
+        'With '+c.srcT+' against '+c.tgtT+' just '+Math.round(c.dist)+'px off, the numbers favour the strike.'
+      ] : [
+        'It’s contested ('+c.srcT+' vs '+c.tgtT+') — a gamble, but the net still scores it above doing nothing.',
+        'I’m outnumbered there ('+c.srcT+' vs '+c.tgtT+'), yet the net values the position enough to take the risk.'
+      ], 1));
     const sure = c.prob>=0.6 ? 'very sure' : (c.prob>=0.35 ? 'fairly sure' : 'a bit torn');
-    lines.push('It weighed '+v.numMoves+' possible move'+(v.numMoves===1?'':'s')+' and is '+sure+' about this one ('+Math.round(c.prob*100)+'% of its vote); '+v.beatNoop+' beat just waiting.');
+    lines.push(pk([
+      'It weighed '+v.numMoves+' possible move'+(v.numMoves===1?'':'s')+' and is '+sure+' about this one ('+Math.round(c.prob*100)+'% of its vote); '+v.beatNoop+' beat just waiting.',
+      'Out of '+v.numMoves+' option'+(v.numMoves===1?'':'s')+' it’s '+sure+', giving this '+Math.round(c.prob*100)+'% of the vote, with '+v.beatNoop+' scoring above a pass.'
+    ],2));
     return lines;
   }
 
@@ -2227,18 +2886,18 @@
     nnctx.fillText('Rollout Planner', pad, Y); Y+=20;
     if (!LEVELS[levelIdx]?.plan){
       nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
-      nnctx.fillText('Play Master or Impossible', pad, Y); Y+=16;
+      nnctx.fillText('Play Grandmaster or Impossible', pad, Y); Y+=16;
       nnctx.fillText('to watch the AI plan ahead.', pad, Y); return;
     }
     nnctx.fillStyle='#7c8794'; nnctx.font='10px Segoe UI, sans-serif';
-    nnctx.fillText('MCTS · explores move sequences up to '+planParams().horizon+'s ahead', pad, Y); Y+=18;
+    nnctx.fillText('MCTS · no sim/depth cap — runs as hard as your device can', pad, Y); Y+=18;
     if (!planViz){ nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
       nnctx.fillText('Waiting for the AI to plan…', pad, Y); return; }
     // controlling-enemy swatch
     nnctx.fillStyle=(COLORS[planViz.owner]||'#ef5b52'); nnctx.beginPath(); nnctx.arc(PW-20,18,6,0,Math.PI*2); nnctx.fill();
     nnctx.fillStyle='#9aa6b4'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.textAlign='right';
     nnctx.fillText('enemy '+(planViz.owner-1), PW-30, 13); nnctx.textAlign='left';
-    nnctx.fillStyle='#909cab'; nnctx.fillText(planViz.iters+' simulations · '+planViz.n+' root moves', pad, Y); Y+=18;
+    nnctx.fillStyle='#909cab'; nnctx.fillText((planViz.iters||0).toLocaleString()+' simulations on your device · '+planViz.n+' root moves', pad, Y); Y+=18;
 
     // ===== plain-language explanation of the chosen move (before the raw stats below) =====
     const story = plannerStory();
@@ -2281,7 +2940,7 @@
       Y+=rowH;
     }
     nnctx.fillStyle='#6b7682'; nnctx.font='9px Segoe UI, sans-serif'; nnctx.textAlign='left';
-    nnctx.fillText('each mini-map = projected board after the '+planViz.horizon+'s lookahead', pad, Y+4);
+    nnctx.fillText('each mini-map = projected board at the end of that imagined line', pad, Y+4);
     Y+=16;
 
     // ===== imagined line: the multi-step future the AI simulated for its chosen move =====
@@ -2307,35 +2966,34 @@
     }
   }
 
-  // Build the 3 bar segments ONCE; afterwards we only nudge their widths. The old code
-  // wiped and re-created DOM nodes every frame, forcing a layout reflow per animation
-  // frame — the main cause of the orb stutter on mobile. Now the DOM is touched only when
-  // a width actually changes (rounded to 0.1%), so most frames do zero layout work.
-  // One segment PER TEAM (in that owner's colour) + a neutral segment, instead of lumping every
-  // enemy into one red bar. The segment DOM is only rebuilt when the set of live owners changes
-  // (e.g. a team is eliminated); otherwise we just nudge widths.
-  let barSegs = null;     // { [owner]: div, neutral: div }
-  let barKey = '';        // signature of the current owner set
-  let barLast = {};       // last width string per segment key
+  // Build the share bar with ONE segment per team (in that team's own colour) plus a grey
+  // neutral remainder — rather than lumping every enemy into a single red segment. The set of
+  // segments is rebuilt only when the line-up of owners changes (a team is wiped out / appears);
+  // on every other frame we just nudge widths (rounded to 0.1%), so most frames do no layout work.
+  let barSegs = null, barSig = null, barLast = [];
   function updateBar() {
-    const tot = {}; let neutral = 0, total = 0;
+    // tally troops by owner (live states + in-flight orbs)
+    const tally = {}; let neutral = 0;
     for (const s of states) {
-      const v = s.troops + 1; total += v;
-      if (s.owner===NEUTRAL) neutral += v; else tot[s.owner] = (tot[s.owner]||0) + v;
+      const v = s.troops + 1;
+      if (s.owner===NEUTRAL) neutral += v; else tally[s.owner] = (tally[s.owner]||0) + v;
     }
-    for (const t of troops){ if (t.owner!==NEUTRAL){ tot[t.owner] = (tot[t.owner]||0) + t.count; total += t.count; } }
+    for (const t of troops){ if (t.owner!==NEUTRAL) tally[t.owner] = (tally[t.owner]||0) + t.count; }
+    // segment order: YOU first, then enemies by colour id; the grey neutral remainder always last
+    const owners = Object.keys(tally).map(Number).sort((a,b)=> a===PLAYER?-1 : b===PLAYER?1 : a-b);
+    const segKeys = owners.concat([NEUTRAL]);     // NEUTRAL (0) marks the grey remainder
+    const sig = segKeys.join(',');
+    if (sig!==barSig || !barSegs || !barSegs.length || barSegs[0].parentNode!==barEl){
+      barEl.innerHTML='';
+      barSegs = segKeys.map(o => { const d=document.createElement('div');
+        d.style.background = o===NEUTRAL ? '#b7bdc4' : (COLORS[o]||'#888'); barEl.appendChild(d); return d; });
+      barSig = sig; barLast = segKeys.map(()=> '');
+    }
+    let total = neutral; for (const o of owners) total += tally[o];
     total = total || 1;
-    const owners = Object.keys(tot).map(Number).sort((a,b)=>a-b);   // PLAYER (1) first, then 2,3,4…
-    const key = owners.join(',');
-    if (barKey!==key || !barSegs || barEl.childElementCount!==owners.length+1) {
-      barEl.innerHTML=''; barSegs={}; barLast={};
-      const mk = c => { const d=document.createElement('div'); d.style.background=c; barEl.appendChild(d); return d; };
-      for (const o of owners) barSegs[o] = mk(COLORS[o] || '#888');
-      barSegs.neutral = mk('#b7bdc4');
-      barKey = key;
-    }
-    for (const o of owners){ const w=(tot[o]/total*100).toFixed(1)+'%'; if (barLast[o]!==w){ barSegs[o].style.width=w; barLast[o]=w; } }
-    const nw=(neutral/total*100).toFixed(1)+'%'; if (barLast.neutral!==nw){ barSegs.neutral.style.width=nw; barLast.neutral=nw; }
+    const vals = owners.map(o=>tally[o]).concat([neutral]);
+    for (let i=0;i<barSegs.length;i++){ const w=(vals[i]/total*100).toFixed(1)+'%';
+      if (w!==barLast[i]){ barSegs[i].style.width=w; barLast[i]=w; } }   // touch DOM only on change
   }
 
   function loop(now) {
@@ -2398,24 +3056,30 @@
   // Drag from one of your states, sweep over your OTHER states to add them, then
   // release on a target so the whole group attacks together (joint attack).
   function gameDown(cssPt){
+    if (scnEdit){ scnPainting = scnEditPaintAt(cssPt); return; }
     if (!running) return;
-    pointerDown=true; moved=false; downCss=cssPt;
     const pos=screenToWorld(cssPt); const s=stateAt(pos);
+    // 🪂 Airdrop armed: this tap drops reinforcements on the tapped state (if it's yours), then disarms.
+    if (airArmed){
+      airArmed=false;
+      if (s && s.owner===myOwner && PERK.airdrops>0 && !netMode){
+        s.troops += 25; s.pulse = 1.2; PERK.airdrops--; savePerk('airdrops');
+      }
+      refreshHud(); return;
+    }
+    pointerDown=true; moved=false;
     if (s && s.owner===myOwner){ selSet=[s]; dragPos=pos; selected=null; }
-    else { selSet=[]; airdropArmed=false; if (selected){ if (s) issueMove(selected,s); selected=null; } }
+    else { selSet=[]; if (selected){ if (s) issueMove(selected,s); selected=null; } }
   }
   function gameMove(cssPt){
+    if (scnEdit){ if (scnPainting) scnEditPaintAt(cssPt); return; }
     if (!running||!pointerDown||!selSet.length) return;
-    if (!moved){
-      const dx=cssPt.x-downCss.x, dy=cssPt.y-downCss.y;
-      if (dx*dx+dy*dy < TAP_SLOP*TAP_SLOP) return;   // within the tap dead-zone — ignore finger jitter
-      moved=true;
-    }
-    dragPos=screenToWorld(cssPt);
+    dragPos=screenToWorld(cssPt); moved=true;
     const over=stateAt(dragPos);
     if (over && over.owner===myOwner && !selSet.includes(over)) selSet.push(over);  // add to joint attack
   }
   function gameUp(){
+    if (scnEdit){ scnPainting=false; return; }
     if (!running) return; pointerDown=false;
     if (selSet.length){
       const target = dragPos ? stateAt(dragPos) : null;
@@ -2423,15 +3087,8 @@
         if (target) for (const s of selSet) if (s!==target) issueMove(s, target);
         selSet=[]; selected=null;
       } else {
-        // a tap (no drag) on one of your states. If an airdrop is armed, drop on it;
-        // otherwise keep it selected for tap-then-tap sending / the Upgrade button.
-        const s = selSet[0];
-        if (airdropArmed && s.owner===myOwner && PERK.airdrops>0){
-          s.troops += 25; s.pulse = 1.2; PERK.airdrops--; savePerk('airdrops'); airdropArmed=false; refreshHud();
-        } else {
-          selected = s;
-        }
-        selSet=[];
+        // a tap (no drag) on a single state -> keep it selected for tap-then-tap
+        selected = selSet[0]; selSet=[];
       }
     }
     dragPos=null;
@@ -2493,7 +3150,7 @@
   document.getElementById('zoomIn').addEventListener('click', ()=>zoomAt(W/2,H/2,1.3));
   document.getElementById('zoomOut').addEventListener('click', ()=>zoomAt(W/2,H/2,1/1.3));
   const speedBtn = document.getElementById('speedBtn');
-  const SPEEDS = [0.5,1,2,3,5,10];   // 0.5× = slow-motion, handy for watching the AI think
+  const SPEEDS = [0.25,0.5,1,2,3,5,10];   // 0.25×/0.5× = slow-motion, handy for watching the AI think
   speedBtn.addEventListener('click', ()=>{
     const idx = SPEEDS.indexOf(gameSpeed);
     gameSpeed = SPEEDS[(idx<0 ? 1 : idx+1) % SPEEDS.length];
@@ -2573,7 +3230,6 @@
   // ---- mode tabs ----
   modesEl.addEventListener('click', e => { const m = e.target.dataset.mode; if (m) setMode(m); });
   function setMode(m){
-    curMode = m;
     [...modesEl.children].forEach(c => c.classList.toggle('active', c.dataset.mode===m));
     soloPanel.classList.toggle('gone', m!=='solo');
     hostPanel.classList.toggle('gone', m!=='host');
@@ -2581,17 +3237,7 @@
     const scnP = document.getElementById('scenarioPanel'); if (scnP) scnP.classList.toggle('gone', m!=='scenario');
     if (m==='solo' || m==='scenario'){ if (NET.es){ NET.es.close(); NET.es=null; } if (NET.p2p && window.P2P) P2P.close(); netMode=null; mpEnemies=null; myOwner=PLAYER; }
     if (m==='scenario') renderScn();
-    updateMenuBack();
   }
-  // Fixed "← Back" for non-default menu screens (returns to the vs-Computer menu). Visible only
-  // while the menu overlay is up and we're not already on the default screen.
-  let curMode = 'solo';
-  const menuBackEl = document.getElementById('menuBack');
-  function updateMenuBack(){
-    if (!menuBackEl) return;
-    menuBackEl.style.display = (curMode!=='solo' && !overlay.classList.contains('hidden')) ? '' : 'none';
-  }
-  if (menuBackEl) menuBackEl.onclick = ()=> setMode('solo');
 
   // ---- generic SSE stream ----
   function openStream(role, name){
@@ -2622,7 +3268,7 @@
   function netFatal(msg){
     if (NET.es){ NET.es.close(); NET.es=null; }
     if (NET.p2p && window.P2P) P2P.close();
-    running=false; netMode=null; overlay.classList.remove('hidden'); updateMenuBack();
+    running=false; netMode=null; overlay.classList.remove('hidden');
     joinStatus.textContent = msg||'Disconnected'; joinBtn.disabled=false;
     hostCreateBtn.classList.remove('gone'); hostLobby.classList.add('gone'); hostCreateBtn.disabled=!ready;
   }
@@ -2710,7 +3356,7 @@
     if (ready){ buildStatesForRegion(); buildGeo(); }   // match the host's map before rendering snapshots
     for (const s of states){ s.owner=NEUTRAL; s.troops=0; s.pulse=0; }
     nnBtn.classList.add('gone');                 // guests can't open the host's AI panel
-    running = true; overlay.classList.add('hidden'); updateMenuBack();
+    running = true; overlay.classList.add('hidden');
     lastTime = performance.now(); requestAnimationFrame(loop);
   }
 
@@ -2803,30 +3449,82 @@
   }
 
   // ---- player identity + leaderboard ----
-  let playerName = 'Anthony';
-  try { const sv = localStorage.getItem('statio_player'); if (sv) playerName = sv; } catch(e){}
-  const playerSel = document.getElementById('playerName');
-  if (playerSel){ playerSel.value = playerName;
-    playerSel.onchange = () => { playerName = playerSel.value; try { localStorage.setItem('statio_player', playerName); } catch(e){} }; }
+  // Name is chosen once at startup (no more fixed dropdown) and persisted; changeable via the ✎ button.
+  let playerName = '';
+  try { playerName = localStorage.getItem('statio_player') || ''; } catch(e){}
+  const nameDisp = document.getElementById('playerNameDisp');
+  const namePanel = document.getElementById('namePanel');
+  const pnameInput = document.getElementById('pnameInput');
+  function setPlayerName(n){ n = (n||'').trim().slice(0,16) || 'Player'; playerName = n;
+    try { localStorage.setItem('statio_player', n); } catch(e){}
+    if (nameDisp) nameDisp.textContent = n; }
+  function openNameModal(){ if (!namePanel) return;
+    pnameInput.value = (playerName && playerName!=='Player') ? playerName : '';
+    namePanel.classList.remove('gone'); setTimeout(()=>{ try{ pnameInput.focus(); }catch(e){} }, 30); }
+  function closeNameModal(){ if (namePanel) namePanel.classList.add('gone'); }
+  function saveNameFromInput(){ const v = (pnameInput.value||'').trim(); if (!v){ try{pnameInput.focus();}catch(e){} return; } setPlayerName(v); closeNameModal(); }
+  const pnameSaveBtn = document.getElementById('pnameSave');
+  if (pnameSaveBtn) pnameSaveBtn.addEventListener('click', saveNameFromInput);
+  if (pnameInput) pnameInput.addEventListener('keydown', e=>{ if (e.key==='Enter') saveNameFromInput(); });
+  const changeNameBtn = document.getElementById('changeNameBtn');
+  if (changeNameBtn) changeNameBtn.addEventListener('click', openNameModal);
+  // first launch: no stored name -> ask for one; otherwise just show it
+  if (playerName){ setPlayerName(playerName); } else { if (nameDisp) nameDisp.textContent='Player'; openNameModal(); }
+  // ---- export recorded play data ----
+  const exportBtn = document.getElementById('exportBtn');
+  function refreshExportBtn(){ if (!exportBtn) return; const mb=(typeof playLogBytes==='function'?playLogBytes():0)/1048576;
+    exportBtn.textContent = '⬇ Data ('+playLogCount()+(mb>=0.1?', '+mb.toFixed(mb>=10?0:1)+'MB':'')+')'; }
+  async function exportPlayDataUI(){
+    if (exportBtn) exportBtn.textContent = '… exporting';
+    let ok = false;
+    try {
+      const data = await window.exportPlayData();
+      const blob = new Blob([data], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const aEl = document.createElement('a');
+      aEl.href = url; aEl.download = 'stateio_playdata.json'; aEl.style.display = 'none';
+      document.body.appendChild(aEl); aEl.click(); aEl.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      ok = true;
+    } catch(e){}
+    if (exportBtn){ const n=playLogCount(); exportBtn.textContent = ok ? ('✓ saved '+n+' games') : '⚠ save failed'; setTimeout(refreshExportBtn, 1600); }
+  }
+  if (exportBtn) exportBtn.addEventListener('click', exportPlayDataUI);
+  playInit();   // open IndexedDB, compute stats, migrate any old localStorage archive
   function recordResult(won){
     if (scenarioMode) { matchTrack = null; lastCoinAward = 0; return; }   // scenarios aren't ranked or paid
     awardCoins(won);                                   // solo only — coins for finishing the game
+    autoAdjust(won);                                   // auto-difficulty: move up/down by streak
     let profile = null;
     const a = matchTrack;
     // Easy games count on the leaderboard but don't shape the profile (stomping a weak AI
     // with a growth handicap isn't representative of real play).
     if (a && a.attacks >= 3 && LEVELS[levelIdx].name !== 'Easy'){
       const clamp = x => Math.max(0, Math.min(1, x));
-      const mins = Math.max(0.2, gameElapsed/60);
+      const mins = Math.max(0.2, gameElapsed/60), atk = a.attacks;
       profile = {
-        aggression:     clamp((a.attacks/mins)/30),       // attacks per minute, ~30 = very aggressive
+        aggression:     clamp((atk/mins)/30),             // attacks per minute, ~30 = very aggressive
         earlyAggro:     a.early ? a.earlyEnemy/a.early : 0.5,
-        targetWeakness: a.sumWeak/a.attacks,
-        armySize:       clamp((a.sumSrc/a.attacks)/120),
-        reach:          clamp((a.sumDist/a.attacks)/(rlDiag||1)),
+        targetWeakness: a.sumWeak/atk,                    // 1 = always picks the weakest target
+        armySize:       clamp((a.sumSrc/atk)/120),        // avg troops committed per attack
+        reach:          clamp((a.sumDist/atk)/(rlDiag||1)),// avg attack distance
+        avgTargetT:     a.sumTgtT/atk,                    // how defended the targets you pick are
+        reinforceRate:  a.reinforce/atk,                  // share of moves that reinforce your own land
+        jointRate:      a.joint/atk,                      // share of multi-source coordinated attacks
+        neutralBias:    (a.atkNeutral)/Math.max(1,a.atkNeutral+a.atkEnemy), // expand vs fight preference
+        fracAll:        a.fracAll/atk, fracHalf:a.fracHalf/atk, fracQuarter:a.fracQuarter/atk, // send-size habits
       };
     }
-    api('/api/record', { name: playerName, difficulty: LEVELS[levelIdx].name, won: !!won, profile }).catch(()=>{});
+    // full game log: header + expanded profile + every move's board context + trajectory samples
+    const gameLog = { v:1, name: playerName, ts: Date.now(), won: !!won,
+      difficulty: LEVELS[levelIdx].name, region: REGIONS[regionIdx] && REGIONS[regionIdx].name,
+      duration: Math.round(gameElapsed), outcome: won ? 'win' : 'loss',
+      header: a && a.header, profile, moves: (a && a.moves) || [], snaps: (a && a.snaps) || [],
+      finalBoard: a ? boardSnapshot() : null };
+    api('/api/record', gameLog).catch(()=>{});
+    savePlayLog(gameLog);
+    OppModel.save();                                    // persist what the opponent model learned this game
+    if (typeof refreshExportBtn==='function') refreshExportBtn();
     matchTrack = null;
   }
   const lbEsc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -2890,7 +3588,7 @@
     } else {
       h += `<div class="lbarch">${d.arch}</div><div class="lbdh">How the AI reads ${lbEsc(r.name)}</div>`+
         '<ul class="lblist">' + d.lines.map(l => `<li>${l}</li>`).join('') + '</ul>'+
-        `<p class="hint">Built from ${r.samples} game${r.samples===1?'':'s'} of play. The Master &amp; Impossible planners use this to predict and counter them.</p>`;
+        `<p class="hint">Built from ${r.samples} game${r.samples===1?'':'s'} of play. The Grandmaster &amp; Impossible planners use this to predict and counter them.</p>`;
     }
     const bd = r.byDiff || {}, diffs = Object.keys(bd);
     if (diffs.length){ h += '<div class="lbdh">By difficulty</div><table>';
@@ -2909,7 +3607,7 @@
   // the requested shares (e.g. 50 / 25 / 25) hold up visually as well as numerically.
   const COLOR_NAMES = { 1:'Blue', 2:'Red', 3:'Orange', 4:'Purple', 5:'Green', 6:'Pink', 7:'Cyan', 8:'Gold' };
   let scnRegionIdx = 0;          // which map
-  let scnLevelIdx = 3;           // which AI brain drives the AI teams (default: Master / planner)
+  let scnLevelIdx = 3;           // which AI brain drives the AI teams (default: Grandmaster / planner)
   let scnTeams = [ {ctrl:'you',share:50}, {ctrl:'ai',share:25}, {ctrl:'ai',share:25} ];  // the user's example
   const scnTeamsEl   = document.getElementById('scnTeams');
   const scnBarEl     = document.getElementById('scnBar');
@@ -3006,6 +3704,83 @@
     scnStartBtn.textContent = ready ? (youCount?'Start scenario':'Watch AIs battle') : 'Loading map…';
   }
 
+  // ---- on-map scenario editor: see the real map, paint owners, set per-state troops ----
+  let scnEdit=false, scnAuthored=false, scnPainting=false;
+  let scnBrushOwner=PLAYER, scnBrushTroops=25, scnSelState=null;
+  const SCN_TCAP=250;
+  // The brush palette: each distinct team owner offered by the current team setup, plus Neutral.
+  function scnBrushTeams(){
+    const owners=scnTeamOwners(), seen=new Set(), pal=[];
+    scnTeams.forEach((t,i)=>{ const o=owners[i]; if(seen.has(o))return; seen.add(o);
+      pal.push({owner:o, label: t.ctrl==='you'?'You':(COLOR_NAMES[o]||('AI '+o))}); });
+    pal.push({owner:NEUTRAL, label:'Neutral'});
+    return pal;
+  }
+  function buildScnPalette(){
+    const el=document.getElementById('scnPalette'); if(!el)return; el.innerHTML='';
+    scnBrushTeams().forEach(p=>{
+      const b=document.createElement('button'); b.className='scn-pal'+(p.owner===scnBrushOwner?' on':'');
+      const d=document.createElement('span'); d.className='dot'; d.style.background=COLORS[p.owner]||'#ccc';
+      const t=document.createElement('span'); t.textContent=p.label;
+      b.appendChild(d); b.appendChild(t);
+      b.onclick=()=>{ scnBrushOwner=p.owner; buildScnPalette(); };
+      el.appendChild(b);
+    });
+  }
+  // The troop stepper sets the brush value AND, when a state is selected, edits that state directly.
+  function scnSetTroops(v){
+    scnBrushTroops=Math.max(0,Math.min(SCN_TCAP, Math.round(v)));
+    const n=document.getElementById('scnTNum'); if(n) n.textContent=scnBrushTroops;
+    if(scnSelState){ scnSelState.troops=scnBrushTroops; renderScnEditor(); }
+  }
+  function scnEditStatus(){
+    const el=document.getElementById('scnSel'); if(!el)return;
+    if(scnSelState){ const o=scnSelState.owner;
+      el.textContent='Selected: '+scnSelState.name+' — '+(o===NEUTRAL?'Neutral':(o===PLAYER?'You':(COLOR_NAMES[o]||('AI '+o))))+' · '+scnSelState.troops+' troops  (− / + to fine-tune)'; }
+    else el.textContent='Pick a team + troop count, then tap states to paint them.';
+  }
+  function renderScnEditor(){ selected=scnSelState; render(); scnEditStatus(); }
+  function scnBlankBoard(){
+    const lv=LEVELS[scnLevelIdx];
+    for(const s of states){ s.owner=NEUTRAL; s._team=-1; s._seed=false; s.type=null; s.level=0; s.pulse=0; s.growAcc=0;
+      s.troops=Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
+    scnSelState=null;
+  }
+  function openScnEditor(){
+    if(!ready) return;
+    if (regionIdx !== scnRegionIdx){ regionIdx = scnRegionIdx; buildStatesForRegion(); buildRegionButtons(); }
+    buildGeo(); buildBackground(); clampOffset();
+    scnBlankBoard();
+    troops=[]; selected=null; selSet=[]; dragPos=null; resetCam();
+    scnBrushOwner = scnTeamOwners()[0] ?? PLAYER; scnBrushTroops=25;
+    const n=document.getElementById('scnTNum'); if(n) n.textContent=scnBrushTroops;
+    scnEdit=true; scnPainting=false; document.body.classList.add('scn-editing'); overlay.classList.add('hidden');
+    buildScnPalette(); renderScnEditor();
+  }
+  function closeScnEditor(){
+    scnEdit=false; scnPainting=false; document.body.classList.remove('scn-editing');
+    overlay.classList.remove('hidden'); selected=null;
+  }
+  function scnEditPaintAt(cssPt){
+    const s=stateAt(screenToWorld(cssPt)); if(!s) return false;
+    s.owner=scnBrushOwner; s.troops=scnBrushTroops; s._team=-1; s._seed=false;
+    scnSelState=s; renderScnEditor(); return true;
+  }
+  (function wireScnEditor(){
+    const on=(id,fn)=>{ const e=document.getElementById(id); if(e) e.addEventListener('click', fn); };
+    on('scnEditBtn', openScnEditor);
+    on('scnTMinus', ()=>scnSetTroops(scnBrushTroops-5));
+    on('scnTPlus',  ()=>scnSetTroops(scnBrushTroops+5));
+    document.querySelectorAll('#scnEditBar .tpre').forEach(b=> b.addEventListener('click', ()=>scnSetTroops(parseInt(b.dataset.t,10))));
+    on('scnClear', ()=>{ scnBlankBoard(); renderScnEditor(); });
+    on('scnEditBack', closeScnEditor);
+    on('scnEditStart', ()=>{
+      const owned = states.filter(s=>s.owner!==NEUTRAL).length;
+      if (owned===0){ const el=document.getElementById('scnSel'); if(el) el.textContent='Paint at least one state for a team before starting.'; return; }
+      scnAuthored=true; closeScnEditor(); startScenario();
+    });
+  })();
+
   // Grow each team's territory as a contiguous blob: seed teams far apart, then repeatedly hand the
   // neediest team (lowest owned/target ratio) the nearest still-unclaimed state to one it already
   // holds. Whatever is left over stays neutral. Marks seed states with _seed for the "capital" bonus.
@@ -3037,42 +3812,59 @@
     levelIdx = scnLevelIdx; const lv = LEVELS[levelIdx]; cfg = lv;
     if (regionIdx !== scnRegionIdx){ regionIdx = scnRegionIdx; buildStatesForRegion(); buildRegionButtons(); }
     buildGeo();
-    troops = []; selected=null; dragPos=null; selSet=[]; aiTimers={}; planPending={}; resetCam();
+    troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; aiTimers={}; planPending={}; planEpoch++; resetCam();
     matchTrack = null;
 
-    const N = states.length;
-    const owners = scnTeamOwners();
-    const counts = scnCounts(N);
-    const targets = owners.map((o,i) => ({ owner:o, count:counts[i] }));
-    const hasYou = scnTeams.some(t => t.ctrl==='you');
     myOwner = PLAYER;
-    scenarioMode = true; scenarioObserver = !hasYou;
-    // scenario rule toggles (shop perks never apply here)
-    upgradesOn = scnUpgradesOn; tilesOn = scnTilesOn; boomUntil = 0; airdropArmed = false;
+    scenarioMode = true;
+    // scenario rule toggles (shop perks never apply here; the cosmetic colour is harmless)
+    upgradesOn = scnUpgradesOn; tilesOn = scnTilesOn; boomUntil = 0;
+    applyPlayerColor();
 
-    allocateTerritory(targets);
-
-    // troops: a team's seed is its "capital" (full start strength); its other states hold a
-    // modest garrison; unclaimed land keeps the usual neutral spread.
-    for (const s of states){
-      s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null;
-      if (s.owner===NEUTRAL){ s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
-      else {
-        const base = s.owner===PLAYER ? lv.playerStart : lv.enemyStart;
-        s.troops = s._seed ? base : Math.max(6, Math.floor(rand(lv.neutralMin, Math.min(lv.neutralMax, base))));
+    let owners;
+    if (scnAuthored){
+      // The board was painted by hand in the on-map editor: states already carry their owner and
+      // troop count. Don't allocate or re-roll troops — launch exactly what the user laid out.
+      for (const s of states){ s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null; }
+      owners = [...new Set(states.filter(s => s.owner!==NEUTRAL).map(s => s.owner))];
+      scenarioObserver = !owners.includes(PLAYER);
+      if (tilesOn){
+        // each team's strongest state becomes its capital tile
+        const best = {};
+        for (const s of states){ if (s.owner===NEUTRAL) continue; if (!best[s.owner] || s.troops>best[s.owner].troops) best[s.owner]=s; }
+        const seeds = Object.values(best); for (const s of seeds){ s._seed=true; s.type='capital'; }
+        assignTiles(seeds);
+      }
+    } else {
+      const N = states.length;
+      owners = scnTeamOwners();
+      const counts = scnCounts(N);
+      const targets = owners.map((o,i) => ({ owner:o, count:counts[i] }));
+      scenarioObserver = !scnTeams.some(t => t.ctrl==='you');
+      allocateTerritory(targets);
+      // troops: a team's seed is its "capital" (full start strength); its other states hold a
+      // modest garrison; unclaimed land keeps the usual neutral spread.
+      for (const s of states){
+        s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null;
+        if (s.owner===NEUTRAL){ s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
+        else {
+          const base = s.owner===PLAYER ? lv.playerStart : lv.enemyStart;
+          s.troops = s._seed ? base : Math.max(6, Math.floor(rand(lv.neutralMin, Math.min(lv.neutralMax, base))));
+        }
+      }
+      if (tilesOn){
+        const seeds = states.filter(s => s._seed);
+        for (const s of seeds) s.type = 'capital';   // each team's capital is a Capital tile
+        assignTiles(seeds);                          // plus contested tiles on the neutral land
       }
     }
-    if (tilesOn){
-      const seeds = states.filter(s => s._seed);
-      for (const s of seeds) s.type = 'capital';   // each team's capital is a Capital tile
-      assignTiles(seeds);                          // plus contested tiles on the neutral land
-    }
+    scnAuthored = false;   // consume the one-shot flag
     // every AI colour is driven by the AI; the human (if any) holds PLAYER.
     slotControl = {};
-    for (const t of targets) if (t.owner>=2) slotControl[t.owner] = 'ai';
+    for (const o of owners) if (o>=2) slotControl[o] = 'ai';
 
     running = true; gameTick = 0; gameElapsed = 0; nnHist.length = 0;
-    overlay.classList.add('hidden'); updateMenuBack();
+    overlay.classList.add('hidden');
     introText.style.display = 'none';
     resultText.textContent = '';
     lastTime = performance.now();
@@ -3086,7 +3878,6 @@
     if (winner==null){ resultText.textContent='STALEMATE'; resultText.style.color='#cdd9ea'; }
     else if (winner===PLAYER && !scenarioObserver){ resultText.textContent='VICTORY!'; resultText.style.color='#38c46f'; }
     else { resultText.textContent=(COLOR_NAMES[winner]||('Team '+winner))+' wins!'; resultText.style.color=COLORS[winner]||'#fff'; }
-    updateMenuBack();
   }
 
   buildScnRegionButtons(); buildScnLevelButtons(); buildScnPresets(); renderScn();
@@ -3105,6 +3896,7 @@
   const upgradeBtn = document.getElementById('upgradeBtn');
   const airdropBtn = document.getElementById('airdropBtn');
   let hudUpg = null, hudAir = null;   // last-rendered keys (only touch the DOM on change)
+  const adaptHud = document.getElementById('adaptHud'); let _adaptHudT = 0;
   function refreshHud(){
     if (!upgradeBtn || !airdropBtn) return;
     // ⬆ Upgrade — visible when a player state is selected and can still be upgraded
@@ -3116,18 +3908,32 @@
     const uKey = uShow ? uLabel+(uDis?'·d':'') : '';
     if (uKey!==hudUpg){ hudUpg=uKey; upgradeBtn.style.display = uShow?'':'none';
       if (uShow){ upgradeBtn.textContent=uLabel; upgradeBtn.disabled=uDis; } }
-    // 🪂 Airdrop — visible in solo when you own charges. Tap to ARM, then tap one of your states.
+    // 🪂 Airdrop — visible in solo when you own charges. Tap to ARM, then tap a state to drop.
     const aShow = (!netMode && running && PERK.airdrops>0);
-    if (!aShow) airdropArmed = false;
-    const aKey = aShow ? PERK.airdrops+'/'+(airdropArmed?'A':'_') : '';
+    if (!aShow) airArmed = false;
+    const aKey = aShow ? PERK.airdrops+'/'+(airArmed?'A':'-') : '';
     if (aKey!==hudAir){ hudAir=aKey; airdropBtn.style.display = aShow?'':'none';
-      if (aShow){ airdropBtn.disabled=false; airdropBtn.classList.toggle('armed', airdropArmed);
-        airdropBtn.textContent = airdropArmed ? '🪂 Tap a state…' : ('🪂 Airdrop ('+PERK.airdrops+')'); } }
+      if (aShow){ airdropBtn.textContent = airArmed ? '🪂 Tap a state ('+PERK.airdrops+')' : '🪂 Airdrop ('+PERK.airdrops+')';
+                  airdropBtn.disabled=false; airdropBtn.classList.toggle('armed', airArmed); } }
+    // 🧠 Adaptive AI read-out: confidence in its model of you + what it expects you to do next
+    if (adaptHud){
+      const lvA = LEVELS[levelIdx];
+      if (lvA && lvA.adapt && running && !scenarioObserver){
+        const now = performance.now();
+        if (now - _adaptHudT > 300){
+          _adaptHudT = now;
+          const pr = OppModel.predict(myOwner); const pct = Math.round((pr.conf||0)*100);
+          adaptHud.textContent = pct<=0 ? '🧠 learning you…'
+            : '🧠 read '+pct+'%'+(pr.topTgt ? ' · expecting → '+pr.topTgt.name : '');
+        }
+        adaptHud.style.display='';
+      } else if (adaptHud.style.display!=='none'){ adaptHud.style.display='none'; }
+    }
   }
   if (upgradeBtn) upgradeBtn.addEventListener('click', ()=>{ if (tryUpgrade(selected)) refreshHud(); });
   if (airdropBtn) airdropBtn.addEventListener('click', ()=>{
     if (!running || netMode || PERK.airdrops<=0) return;
-    airdropArmed = !airdropArmed; refreshHud();    // arm/disarm; the next tap on your state drops +25
+    airArmed = !airArmed; refreshHud();   // arm/disarm; the actual drop happens on the next tap (gameDown)
   });
 
   // ============================ SHOP ============================
@@ -3181,29 +3987,64 @@
         btn.disabled = PERK.coins < cost; btn.onclick=()=> buyItem(item); }
       row.appendChild(btn); shopBody.appendChild(row);
     }
-    // cosmetic orb shape — your projectiles take the chosen silhouette, aimed at their target
+    // cosmetic colour
     const crow=document.createElement('div'); crow.className='shop-item';
-    const cic=document.createElement('div'); cic.className='shop-ic'; cic.textContent='🛩️'; crow.appendChild(cic);
+    const cic=document.createElement('div'); cic.className='shop-ic'; cic.textContent='🎨'; crow.appendChild(cic);
     const cmeta=document.createElement('div'); cmeta.className='shop-meta';
-    cmeta.innerHTML='<div class="shop-name">Orb shape</div><div class="shop-desc">'+
-      (PERK.orbUnlocked?'Tap a shape to set how your orbs look.':'Unlock the right to reshape your orbs.')+'</div>';
+    cmeta.innerHTML='<div class="shop-name">Player colour</div><div class="shop-desc">'+
+      (PERK.colorUnlocked?'Tap a swatch to set your colour.':'Unlock the right to recolour your team.')+'</div>';
     const sw=document.createElement('div'); sw.className='shop-colors';
-    ORB_SHAPES.forEach(s=>{ const cv=document.createElement('canvas'); cv.width=28; cv.height=28;
-      cv.className='shop-sw'+((PERK.orbShape===s.id)?' on':''); cv.title=s.name;
-      const cc=cv.getContext('2d');
-      drawOrbShape(cc, s.id, 14, 14, 8, 0, COLORS[PLAYER], DARK[PLAYER], 1);   // preview, pointing right
-      cv.onclick=()=>{ if(!PERK.orbUnlocked) return; PERK.orbShape=s.id; savePerk('orbShape'); buildShop(); };
-      sw.appendChild(cv); });
+    SHOP_COLORS.forEach(c=>{ const d=document.createElement('div');
+      d.className='shop-sw'+(((PERK.color||'#46a6ef')===c.hex)?' on':''); d.style.background=c.hex; d.title=c.name;
+      d.onclick=()=>{ if(!PERK.colorUnlocked) return; PERK.color = (c.hex==='#46a6ef'?'':c.hex); savePerk('color'); applyPlayerColor(); buildShop(); };
+      sw.appendChild(d); });
     cmeta.appendChild(sw); crow.appendChild(cmeta);
     const cbtn=document.createElement('button'); cbtn.className='shop-buy';
-    if (PERK.orbUnlocked){ cbtn.textContent='Unlocked'; cbtn.classList.add('owned'); cbtn.disabled=true; }
+    if (PERK.colorUnlocked){ cbtn.textContent='Unlocked'; cbtn.classList.add('owned'); cbtn.disabled=true; }
     else { cbtn.textContent='Unlock · 400 🪙'; cbtn.disabled = PERK.coins<400;
-      cbtn.onclick=()=>{ if(PERK.coins<400) return; PERK.coins-=400; savePerk('coins'); PERK.orbUnlocked=true; savePerk('orbUnlocked'); buildShop(); refreshShopBtn(); }; }
+      cbtn.onclick=()=>{ if(PERK.coins<400) return; PERK.coins-=400; savePerk('coins'); PERK.colorUnlocked=true; savePerk('colorUnlocked'); buildShop(); refreshShopBtn(); }; }
     crow.appendChild(cbtn); shopBody.appendChild(crow);
   }
   refreshShopBtn();
   if (shopBtn) shopBtn.onclick = ()=>{ buildShop(); shopPanel.classList.remove('gone'); };
   if (shopClose) shopClose.onclick = ()=> shopPanel.classList.add('gone');
+
+  // ---- export / import shop save data (coins, perks) ----
+  const PERK_KEYS = ['coins','extraStates','startTroops','preUpgraded','startCapital','boomStart','investor','airdrops','colorUnlocked','color'];
+  const shopExportBtn = document.getElementById('shopExportBtn');
+  const shopImportBtn = document.getElementById('shopImportBtn');
+  if (shopExportBtn) shopExportBtn.onclick = () => {
+    const data = { version: 2 };
+    for (const k of PERK_KEYS) data[k] = PERK[k];
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'stateio-save.json'; a.click();
+    URL.revokeObjectURL(url);
+  };
+  if (shopImportBtn) shopImportBtn.onclick = () => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.json,application/json';
+    input.onchange = e => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          // Accept both v1 (orbUnlocked/orbShape) and v2 (colorUnlocked/color) saves
+          if (data.orbUnlocked && !data.colorUnlocked) data.colorUnlocked = data.orbUnlocked;
+          for (const k of PERK_KEYS) {
+            if (k in data) { PERK[k] = data[k]; savePerk(k); }
+          }
+          if (typeof applyPlayerColor === 'function') applyPlayerColor();
+          buildShop(); refreshShopBtn();
+          alert('Save data restored!');
+        } catch(_) { alert('Could not read save file.'); }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
 
   setMode('solo');
 })();

@@ -1,0 +1,13 @@
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Training artifacts — candidate models written by the trainers. Only promoted
+# to src/web/rl_policy.json (and rebuilt into the APK) if they beat the baseline.
+tools/rl_policy_new.json
+tools/policy_big_new.json
+tools/policy_big*_new.json
+tools/policy_*_new.json
+tools/value_*_new.json
+tools/_*_net.json
+tools/value_*_new.json
