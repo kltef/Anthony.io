@@ -59,6 +59,24 @@ class AttnHop(nn.Module):
             agg[i] = w @ vi
         return torch.tanh(self.update(torch.cat([h, agg], dim=1)))
 
+    def forward_batched(self, h, adj_mask):
+        # Vectorized equivalent of forward() over a whole batch of boards at once — the training-time
+        # hot path (single-board forward() stays for inference and the no-forget screen).
+        #   h: (B, N, dim). adj_mask: (B, N, N) with adj_mask[b,i,j]=1 iff j is a neighbor of i (no
+        #   self-loop, matching adj which never contains i). Row i entirely 0 => node i has no
+        #   neighbors => its aggregate must be 0, exactly like forward()'s `if not nbrs: continue`.
+        Q, K, V = self.q(h), self.k(h), self.v(h)                     # (B, N, dim)
+        scores = torch.matmul(Q, K.transpose(1, 2)) / self.scale      # (B, N, N): scores[b,i,j]=qi·kj
+        neg = torch.finfo(scores.dtype).min
+        scores = scores.masked_fill(adj_mask == 0, neg)               # attend real neighbors only
+        w = torch.softmax(scores, dim=2)                              # (B, N, N) over j
+        # a fully-masked row (no neighbors) softmaxes to uniform, not 0 — zero those rows so their
+        # aggregate is 0, exactly matching the per-node loop's skip. (Delaunay boards never actually
+        # produce isolated nodes, but this keeps the two paths bit-for-bit equivalent regardless.)
+        has_nbr = (adj_mask.sum(dim=2, keepdim=True) > 0).to(w.dtype)  # (B, N, 1)
+        agg = torch.matmul(w, V) * has_nbr                            # (B, N, dim)
+        return torch.tanh(self.update(torch.cat([h, agg], dim=2)))
+
 
 class GNNPolicyNet(nn.Module):
     def __init__(self, node_feats=NODE_FEATS, embed_dim=24, hops=2, move_feats=MOVE_FEATS, head_dim=32):
@@ -85,6 +103,23 @@ class GNNPolicyNet(nn.Module):
         x = torch.cat([hs, ht, move_x], dim=1)
         z = torch.tanh(self.head1(x))
         return self.head2(z).squeeze(-1)
+
+    def node_embeddings_batched(self, node_x, adj_mask):
+        # node_x: (B, N, node_feats). adj_mask: (B, N, N). Returns (B, N, embed_dim).
+        h = torch.tanh(self.embed(node_x))
+        for layer in self.attn:
+            h = layer.forward_batched(h, adj_mask)
+        return h
+
+    def move_scores_batched(self, h, src_idx, tgt_idx, move_x):
+        # h: (B, N, embed_dim). src_idx/tgt_idx: (B, M) long. move_x: (B, M, move_feats). -> (B, M).
+        B = h.shape[0]
+        bidx = torch.arange(B, device=h.device).unsqueeze(1)         # (B, 1)
+        hs = h[bidx, src_idx]                                         # (B, M, embed_dim)
+        ht = h[bidx, tgt_idx]
+        x = torch.cat([hs, ht, move_x], dim=2)
+        z = torch.tanh(self.head1(x))
+        return self.head2(z).squeeze(-1)                             # (B, M)
 
 
 def to_json(net):

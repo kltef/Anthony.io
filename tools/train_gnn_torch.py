@@ -228,9 +228,11 @@ def load_dump(dump_path):
     return records
 
 
-# ---------------- distillation, one decision (one board) at a time ----------------
+# ---------------- distillation loss ----------------
+# decision_loss() scores one board at a time — kept as the reference implementation the batched path
+# is verified numerically identical to (see tools/test_gnn_batch_equiv.py). The training loop uses the
+# batched path below; this stays for that equivalence test and as readable documentation of the math.
 def decision_loss(net, rec, device):
-    N = len(rec['owner'])
     FN = G.FN
     h = board_embeddings(net, rec['owner'], rec['troops'], rec['adj'], rec['armies'], rec['mover'], device)
     scores = []
@@ -251,25 +253,84 @@ def decision_loss(net, rec, device):
     return -(target * logp).sum()
 
 
+def build_batch(records, device):
+    # Pack a list of records that ALL share the same board node-count N into dense tensors. Candidates
+    # are padded to the batch's max count and masked out in the loss, so per-decision softmax is
+    # reproduced exactly. Grouping by N (see train_round) guarantees the uniform-N precondition.
+    B = len(records)
+    N = len(records[0]['owner'])
+    FN = G.FN
+    node_x = torch.zeros(B, N, G.NODE_FEATS, dtype=torch.float32)
+    adj_mask = torch.zeros(B, N, N, dtype=torch.float32)
+    for b, r in enumerate(records):
+        inc_mine, inc_enemy = incoming_from_armies(r['armies'], N, r['mover'])
+        nf = G.node_features(r['owner'], r['troops'], r['adj'], inc_mine, inc_enemy, r['mover'])
+        node_x[b] = torch.tensor(nf, dtype=torch.float32)
+        for i, nbrs in enumerate(r['adj']):
+            for j in nbrs:
+                adj_mask[b, i, j] = 1.0
+    Mmax = max(len(r['moves']) for r in records)
+    src_idx = torch.zeros(B, Mmax, dtype=torch.long)
+    tgt_idx = torch.zeros(B, Mmax, dtype=torch.long)
+    move_x = torch.zeros(B, Mmax, G.MOVE_FEATS, dtype=torch.float32)
+    noop_mask = torch.zeros(B, Mmax, dtype=torch.float32)
+    valid_mask = torch.zeros(B, Mmax, dtype=torch.float32)
+    visits = torch.zeros(B, Mmax, dtype=torch.float32)
+    for b, r in enumerate(records):
+        for k, mv in enumerate(r['moves']):
+            valid_mask[b, k] = 1.0
+            visits[b, k] = r['visits'][k]
+            if mv is None:
+                noop_mask[b, k] = 1.0        # scored by noop_bias, not the move head (src/tgt stay 0 = dummy)
+                continue
+            si, ti = mv
+            src_idx[b, k] = si
+            tgt_idx[b, k] = ti
+            st, tt = r['troops'][si], r['troops'][ti]
+            dist = float(np.hypot(r['cx'][ti] - r['cx'][si], r['cy'][ti] - r['cy'][si])) / r['rlDiag']
+            move_x[b, k, 0] = (st - tt) / FN
+            move_x[b, k, 1] = dist
+            move_x[b, k, 2] = 1.0 if st > tt else 0.0
+    return tuple(t.to(device) for t in
+                 (node_x, adj_mask, src_idx, tgt_idx, move_x, noop_mask, valid_mask, visits))
+
+
+def batched_loss(net, batch):
+    # Mean cross-entropy over a batch of decisions — numerically identical to averaging decision_loss()
+    # over the same records (verified in tools/test_gnn_batch_equiv.py, forward AND gradients).
+    node_x, adj_mask, src_idx, tgt_idx, move_x, noop_mask, valid_mask, visits = batch
+    h = net.node_embeddings_batched(node_x, adj_mask)                       # (B, N, dim)
+    scores = net.move_scores_batched(h, src_idx, tgt_idx, move_x)           # (B, M)
+    scores = torch.where(noop_mask > 0, net.noop_bias.to(scores.dtype), scores)
+    scores = scores.masked_fill(valid_mask == 0, -1e9)                      # padded candidates -> ~0 weight
+    logp = F.log_softmax(scores, dim=1)
+    target = visits / visits.sum(dim=1, keepdim=True).clamp_min(1e-9)
+    return -(target * logp * valid_mask).sum(dim=1).mean()
+
+
 def train_round(best, buf, device, lr, batch_size, epochs, rng):
     cand = G.GNNPolicyNet(best.node_feats, best.embed_dim, best.hops, best.move_feats, best.head_dim).to(device)
     cand.load_state_dict(best.state_dict())
     opt = torch.optim.Adam(cand.parameters(), lr=lr)
+    # bucket by board node-count so every batch is uniform-N (arena is fixed N=16, so in practice one
+    # bucket — but this stays correct and loud, not silently wrong, if boards of mixed size ever appear)
+    by_n = {}
+    for j, r in enumerate(buf):
+        by_n.setdefault(len(r['owner']), []).append(j)
     total_loss, nsteps = 0.0, 0
     for _ in range(epochs):
-        perm = rng.permutation(len(buf))
-        for i in range(0, len(buf), batch_size):
-            idx = perm[i:i + batch_size]
-            opt.zero_grad()
-            batch_loss = torch.zeros((), device=device)
-            for j in idx:
-                batch_loss = batch_loss + decision_loss(cand, buf[j], device)
-            batch_loss = batch_loss / max(1, len(idx))
-            batch_loss.backward()
-            torch.nn.utils.clip_grad_norm_(cand.parameters(), 5.0)
-            opt.step()
-            total_loss += batch_loss.item()
-            nsteps += 1
+        for n_nodes, idxs in by_n.items():
+            order = rng.permutation(len(idxs))
+            for i in range(0, len(order), batch_size):
+                sel = [idxs[k] for k in order[i:i + batch_size]]
+                batch = build_batch([buf[j] for j in sel], device)
+                opt.zero_grad()
+                loss = batched_loss(cand, batch)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(cand.parameters(), 5.0)
+                opt.step()
+                total_loss += loss.item()
+                nsteps += 1
     return cand, total_loss / max(1, nsteps)
 
 
