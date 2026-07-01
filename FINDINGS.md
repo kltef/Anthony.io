@@ -73,6 +73,60 @@ the architecture**, not a tuning failure — the limit is set by:
 3. **Real-planner-in-the-loop self-improvement** (built here as `train_selfplay_planner.py`) — the
    correct loop; combine with (1)+(2) for gains the current 12-feature/64-wide design can't express.
 
+## Next: retraining for Risk-style adjacency movement (in progress)
+
+A new gameplay mechanic is being added: attacking a territory you don't own now requires the
+source to be directly adjacent (shares a border); reinforcing a territory you do own requires an
+unbroken chain of territories you also own (a real supply-line rule, via BFS over the adjacency
+graph). This is a **global replacement** of free-movement, not a mode toggle — and it invalidates
+the ceiling analysis above, which was proven optimal *for the old free-movement rules*. The legal
+move set shrinks and its distribution changes completely (e.g. "snipe the biggest threat clear
+across the map" is no longer legal), so the shipped net needs to be retrained against the new rules
+before the Pareto-frontier claim can be re-established.
+
+**Ship order**: the mechanic lands first with the *existing* nets simply filtered to legal moves
+(adjacent-for-attack, BFS-connected-for-reinforce) — expect locally sub-optimal play (e.g. sitting on
+a cornered stack with no legal target) until retrained, but never an illegal move. Retraining is a
+parallel track, built to run on a local GPU rather than executed as part of shipping the mechanic.
+
+**Retraining approach — SNES → PyTorch migration + real-planner visit-count distillation.** The
+existing policy trainer (`train_rl.py`) uses SNES, a gradient-free evolution strategy chosen because
+it parallelizes over CPU cores — it doesn't benefit from a GPU and can't take a differentiable
+auxiliary loss. The new plan:
+
+1. **Adjacency in the training environment.** `train_rl.py`'s `new_game()` places territories at
+   random 2D points with no graph at all; add a Delaunay triangulation (`scipy.spatial.Delaunay`) as
+   the synthetic analogue of "shares a border." Add a `legal_targets()` helper (direct neighbors for
+   attacks ∪ BFS-reachable-through-owned for reinforcement) — note the Python side previously had
+   **no reinforcement move type at all** (it only ever modeled "attack anywhere"), so this is a new
+   candidate class, not just a filter on existing ones. `selfplay_arena.js`'s synthetic board needs
+   the equivalent graph (a small hand-rolled Delaunay at its N=16 board size).
+2. **Reimplement the policy net in PyTorch** (`tools/policy_net_torch.py`), same `[12,32,32,1]`
+   architecture and `tanh`/linear activations as the existing numpy `forward()`, with `to_json`/
+   `from_json` preserving the `rl_policy.json` export schema byte-for-byte — the JS client only ever
+   reads that JSON, so the contract, not the training internals, is what has to match. First gate:
+   load the current shipped net through both the numpy and PyTorch implementations and confirm
+   identical outputs on random inputs.
+3. **Distill the real planner's search, not just its win/loss.** `selfplay_arena.js` already computes
+   full root visit-count distributions (`π(a) ∝ N(s,a)`) inside the MCTS gate — `makePlanner()`
+   currently discards everything except the chosen move. Add a `--dump-visits` capture path that
+   records each decision's `(candidate features, visit counts)` over the *exact* candidate set the
+   search considered (the same `K`+no-op list `computeUntried` builds), then train the policy net via
+   cross-entropy against the softmax of those visit counts — the standard AlphaZero policy-target
+   recipe, applied here for the first time (previous phases here only ever optimized win-rate,
+   evolution-strategy-style, never distilled the search's own move distribution).
+4. **Keep the no-regression arena gate as a separate, non-differentiable check** — reuse
+   `train_selfplay_planner.py`'s existing `planner_gate()` (40 games @ 50 ms/move, promote at
+   `wr ≥ 0.56`) purely as an evaluation step after each training round, decoupled from the gradient
+   step. Deliberately *not* blending a win-rate term into the training loss itself: mixing two
+   different objectives (search-imitation vs. game-outcome) behind one weight is the same
+   proxy-misalignment risk that sank Phase D above — keep them structurally separate instead.
+5. **Deliverable**: `tools/train_rl_torch.py`, a single entry point (self-play generation → PyTorch
+   training round → arena gate → export on promotion) meant to be run for a multi-hour session on a
+   local GPU. Loss weighting, buffer size, learning rate, and gate thresholds ship with reasonable
+   defaults but are explicitly left for empirical tuning during that run, the same way every existing
+   tool here was tuned against the arena rather than derived analytically.
+
 ## Tooling produced (in `tools/`)
 
 - `selfplay_arena.js` — headless real-planner arena (the measurement bedrock).
@@ -83,3 +137,5 @@ the architecture**, not a tuning failure — the limit is set by:
 - `train_distill_D.py` — value-net-bootstrapped stronger teacher (expert iteration).
 - `train_selfplay_loop.py` — autonomous self-improving loop (greedy gate).
 - `train_selfplay_planner.py` — autonomous self-improving loop with the real-planner gate.
+- `policy_net_torch.py` / `train_rl_torch.py` *(planned)* — PyTorch policy net + GPU training loop
+  distilling the real planner's visit-count distribution, for the adjacency-rules retrain above.

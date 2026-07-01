@@ -68,6 +68,47 @@ def init_from_baseline(path):
     return np.concatenate(parts)
 
 # ---------------- environment ----------------
+def delaunay_adjacency(pos):
+    # Brute-force Delaunay triangulation (N is tiny here — 18 points, ~800 candidate triangles — so an
+    # O(N^4) circumcircle sweep is trivial and avoids a scipy dependency). This is the synthetic
+    # analogue of "shares a border" for a random point set, mirroring the real game's TopoJSON-derived
+    # adjacency (index.html) and the arena's identical JS implementation (selfplay_arena.js).
+    N = len(pos); adj = [set() for _ in range(N)]
+    def orient(i,j,k):
+        return (pos[j,0]-pos[i,0])*(pos[k,1]-pos[i,1]) - (pos[j,1]-pos[i,1])*(pos[k,0]-pos[i,0])
+    def in_circum(i,j,k,d):   # assumes i,j,k CCW; True iff d lies inside their circumcircle
+        ax,ay = pos[i,0]-pos[d,0], pos[i,1]-pos[d,1]
+        bx,by = pos[j,0]-pos[d,0], pos[j,1]-pos[d,1]
+        gx,gy = pos[k,0]-pos[d,0], pos[k,1]-pos[d,1]
+        a2,b2,g2 = ax*ax+ay*ay, bx*bx+by*by, gx*gx+gy*gy
+        return ax*(by*g2-b2*gy) - ay*(bx*g2-b2*gx) + a2*(bx*gy-by*gx) > 1e-12
+    for i in range(N):
+        for j in range(i+1,N):
+            for k in range(j+1,N):
+                a,b,c = i,j,k
+                if orient(a,b,c) < 0: b,c = c,b
+                if abs(orient(a,b,c)) < 1e-12: continue   # collinear triple, skip
+                if any(in_circum(a,b,c,d) for d in range(N) if d not in (a,b,c)): continue
+                adj[a]|={b,c}; adj[b]|={a,c}; adj[c]|={a,b}
+    for i in range(N):   # defensive: guarantee no isolated node for degenerate point sets
+        if not adj[i]:
+            j = min((j for j in range(N) if j!=i), key=lambda j: math.hypot(pos[i,0]-pos[j,0],pos[i,1]-pos[j,1]))
+            adj[i].add(j); adj[j].add(i)
+    return [sorted(s) for s in adj]
+
+def legal_targets(g, si, owner):
+    # Risk-style legality: direct neighbors for attacks, BFS-reachable-through-owned for reinforcement
+    # — mirrors isLegalMove()/snapLegal() in index.html exactly. Returns a sorted int array.
+    adj = g['adj']; o = g['owner']
+    direct = [j for j in adj[si] if o[j] != owner]
+    reach = set(); frontier = [si]; seen = {si}
+    while frontier:
+        cur = frontier.pop()
+        for nb in adj[cur]:
+            if nb not in seen and o[nb] == owner:
+                seen.add(nb); frontier.append(nb); reach.add(nb)
+    return np.array(sorted(set(direct) | reach), dtype=np.int64)
+
 def new_game(N, P, rng):
     pos=rng.random((N,2)); mnx,mny=pos.min(0); mxx,mxy=pos.max(0)
     rlDiag=math.hypot(mxx-mnx,mxy-mny) or 1.0
@@ -78,7 +119,8 @@ def new_game(N, P, rng):
         for s in seeds: d=np.minimum(d,np.hypot(pos[:,0]-pos[s,0],pos[:,1]-pos[s,1]))
         seeds.append(int(np.argmax(d)))
     for pi,s in enumerate(seeds): owner[s]=pi+1; troops[s]=40.0
-    return dict(pos=pos,owner=owner,troops=troops,armies=[],rlDiag=rlDiag,ORB=rlDiag/8.0,N=N)
+    adj = delaunay_adjacency(pos)
+    return dict(pos=pos,owner=owner,troops=troops,armies=[],rlDiag=rlDiag,ORB=rlDiag/8.0,N=N,adj=adj)
 def step(g,dt):
     o=g['owner']; t=g['troops']; grow=(o>0)&(t<CAP)
     t[grow]=np.minimum(CAP,t[grow]+1.0*dt); still=[]
@@ -142,15 +184,20 @@ def feats16(g, si, owner, tgts, glob, inc):
         (st > g['troops'][tgts]+incEtg-incMtg).astype(np.float64),  # can I still win after in-flight resolves?
     ],axis=1)
     return np.concatenate([base, extra], axis=1)
+def direct_targets(g, si, owner):
+    # attack-only legal targets (direct border neighbors that aren't mine) — used by the scripted
+    # opponents below, which were never designed to reinforce and don't need to learn to now.
+    o=g['owner']
+    return np.array(sorted(j for j in g['adj'][si] if o[j]!=owner), dtype=np.int64)
 def choose(layers, noop, g, owner):
     o=g['owner']; t=g['troops']
     srcs=np.where((o==owner)&(t>=5))[0]
     if len(srcs)==0: return None
-    tgts=np.where(o!=owner)[0]
-    if len(tgts)==0: return None
     glob=globals_for(g, owner)
     best=noop; mv=None
     for si in srcs:
+        tgts=legal_targets(g, si, owner)
+        if len(tgts)==0: continue
         sc=forward(layers, feats12(g,si,owner,tgts,glob)); j=int(np.argmax(sc))
         if sc[j]>best: best=sc[j]; mv=(int(si),int(tgts[j]))
     return mv
@@ -158,11 +205,11 @@ def choose16(layers, noop, g, owner):   # 16-feature variant; monkeypatch onto `
     o=g['owner']; t=g['troops']
     srcs=np.where((o==owner)&(t>=5))[0]
     if len(srcs)==0: return None
-    tgts=np.where(o!=owner)[0]
-    if len(tgts)==0: return None
     glob=globals_for(g, owner); inc=incoming_for(g, owner)
     best=noop; mv=None
     for si in srcs:
+        tgts=legal_targets(g, si, owner)
+        if len(tgts)==0: continue
         sc=forward(layers, feats16(g,si,owner,tgts,glob,inc)); j=int(np.argmax(sc))
         if sc[j]>best: best=sc[j]; mv=(int(si),int(tgts[j]))
     return mv
@@ -170,7 +217,7 @@ def heuristic(g,owner):
     o=g['owner']; t=g['troops']; pos=g['pos']
     srcs=np.where((o==owner)&(t>=12))[0]
     if len(srcs)==0: return None
-    si=srcs[np.argmax(t[srcs])]; tgts=np.where(o!=owner)[0]
+    si=srcs[np.argmax(t[srcs])]; tgts=direct_targets(g,si,owner)
     if len(tgts)==0: return None
     st=t[si]; tt=t[tgts]; d=np.hypot(pos[tgts,0]-pos[si,0],pos[tgts,1]-pos[si,1])
     sc=-d*2.0-tt*1.1+np.where(o[tgts]==0,8,10)+np.where(st>tt,25,0)
@@ -179,7 +226,7 @@ def turtle(g,owner):
     o=g['owner']; t=g['troops']; pos=g['pos']
     srcs=np.where((o==owner)&(t>=80))[0]
     if len(srcs)==0: return None
-    si=srcs[np.argmax(t[srcs])]; st=t[si]; tgts=np.where(o!=owner)[0]
+    si=srcs[np.argmax(t[srcs])]; st=t[si]; tgts=direct_targets(g,si,owner)
     if len(tgts)==0: return None
     safe=tgts[t[tgts]<st*0.6]
     if len(safe)==0: return None
@@ -189,7 +236,7 @@ def rush(g,owner):
     o=g['owner']; t=g['troops']; pos=g['pos']
     srcs=np.where((o==owner)&(t>=8))[0]
     if len(srcs)==0: return None
-    si=srcs[np.argmax(t[srcs])]; st=t[si]; tgts=np.where(o!=owner)[0]
+    si=srcs[np.argmax(t[srcs])]; st=t[si]; tgts=direct_targets(g,si,owner)
     if len(tgts)==0: return None
     beat=tgts[t[tgts]<st]; pool=beat if len(beat) else tgts
     d=np.hypot(pos[pool,0]-pos[si,0],pos[pool,1]-pos[si,1])
@@ -204,13 +251,14 @@ def economist(g,owner):
         srcs=np.where((o==owner)&(t>=10))[0]
         if len(srcs)==0: return None
         si=srcs[np.argmax(t[srcs])]; st=t[si]
-        neu=np.where(o==0)[0]; neu=neu[t[neu]<st*0.7] if len(neu) else neu
+        neu=direct_targets(g,si,owner); neu=neu[o[neu]==0]
+        neu=neu[t[neu]<st*0.7] if len(neu) else neu
         if len(neu)==0: return None
         d=np.hypot(pos[neu,0]-pos[si,0],pos[neu,1]-pos[si,1])
         return (int(si),int(neu[int(np.argmin(d))]))
     srcs=np.where((o==owner)&(t>=70))[0]             # hoard to 70+ before committing
     if len(srcs)==0: return None
-    si=srcs[np.argmax(t[srcs])]; st=t[si]; tgts=np.where(o!=owner)[0]
+    si=srcs[np.argmax(t[srcs])]; st=t[si]; tgts=direct_targets(g,si,owner)
     if len(tgts)==0: return None
     safe=tgts[t[tgts]<st*0.5]                         # only attack when ~2x stronger
     if len(safe)==0: return None

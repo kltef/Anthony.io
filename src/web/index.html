@@ -480,9 +480,16 @@
   let regionIdx = 0;
   function buildStatesForRegion(){
     const r = REGIONS[regionIdx], set = r.list ? new Set(r.list) : null;
-    states = allFeatures
-      .filter(f => set ? set.has(f.properties.name) : !EXCLUDE.has(f.properties.name))
-      .map((f,i) => ({ id:i, name:f.properties.name, feature:f, owner:NEUTRAL, troops:0, growAcc:0, pulse:0, level:0, type:null }));
+    const idxs = allFeatures.map((f,i)=>i).filter(i => {
+      const nm = allFeatures[i].properties.name;
+      return set ? set.has(nm) : !EXCLUDE.has(nm);
+    });
+    states = idxs.map((fi,i) => ({ id:i, name:allFeatures[fi].properties.name, feature:allFeatures[fi],
+      owner:NEUTRAL, troops:0, growAcc:0, pulse:0, level:0, type:null }));
+    // border-adjacency graph, derived from the raw (arc-indexed) TopoJSON geometries — NOT the
+    // resolved GeoJSON `feature` objects above, which no longer carry shared-arc references.
+    const nbrIdx = topojson.neighbors(idxs.map(fi => allGeoms[fi]));
+    adjacency = states.map((s,i) => new Set(nbrIdx[i]));
   }
 
   const MAX_TROOPS = 150;
@@ -595,7 +602,9 @@
   // web app at its original fixed speed.
   const IS_NATIVE_APP = (typeof location !== 'undefined' && location.hostname === 'stateio.local');
   let allFeatures = [];     // every us state feature (for background)
+  let allGeoms = [];        // raw per-state TopoJSON geometries (arc-indexed, index-aligned with allFeatures) — used only to derive border adjacency
   let states = [];          // active playable states
+  let adjacency = [];       // adjacency[states[i].id] = Set of neighboring states[].id that share a border (Risk-style movement legality)
   let bgCanvas = null;      // cached static background
   let markR = 17;           // base node radius — recomputed per layout so icons fit on mobile
   let troops = [];
@@ -668,6 +677,7 @@
     .then(topo => {
       const fc = topojson.feature(topo, topo.objects.states);
       allFeatures = fc.features;
+      allGeoms = topo.objects.states.geometries;
       buildStatesForRegion();
       ready = true;
       startBtn.disabled = false;
@@ -1095,12 +1105,34 @@
   }
   backEl.addEventListener('click', toMenu);
 
+  // ---- Risk-style movement legality ----
+  // Attacking a state you don't own requires direct border adjacency. Reinforcing a state you DO
+  // own requires an unbroken chain of states you also own connecting `from` to `to` (a real
+  // supply-line rule, not just "you own both ends") — BFS over `adjacency` restricted to `mover`'s
+  // own territory. This is the single authoritative gate: sendTroops() below is the one choke point
+  // both the human UI and the AI's chosen-move execution funnel through.
+  function isLegalMove(from, to, mover) {
+    if (!from || !to || from === to) return false;
+    if (to.owner !== mover) return adjacency[from.id] && adjacency[from.id].has(to.id);
+    if (from.owner !== mover) return false;
+    const seen = new Set([from.id]), queue = [from.id];
+    while (queue.length) {
+      const cur = queue.shift();
+      if (cur === to.id) return true;
+      for (const nb of adjacency[cur]) {
+        if (!seen.has(nb) && states[nb].owner === mover) { seen.add(nb); queue.push(nb); }
+      }
+    }
+    return false;
+  }
+
   // ---- send troops ----
   // denom: 1 (or omitted) sends ALL; N sends ~1/N, leaving the remainder behind.
   // AI callers always omit denom, so AI behaviour is unchanged (still sends all).
   function sendTroops(from, to, denom) {
     if (!from || !to || from===to) return;
     if (from.owner===NEUTRAL) return;
+    if (!isLegalMove(from, to, from.owner)) return;   // Risk-style: attack must be adjacent, reinforce must be owned-connected
     denom = (denom && denom > 1) ? Math.floor(denom) : 1;
     const amount = denom > 1 ? Math.floor(from.troops / denom) : from.troops;
     if (amount < 1) return;
@@ -1609,7 +1641,22 @@
   }
   function cloneSnap(s) {
     return { n:s.n, cx:s.cx, cy:s.cy, owner:s.owner.slice(), troops:s.troops.slice(),
-             armies:s.armies.map(a=>({...a})), idToIdx:s.idToIdx };
+             armies:s.armies.map(a=>({...a})), idToIdx:s.idToIdx, adj:s.adj };   // adj is immutable per game, no slice needed
+  }
+  // struct-of-arrays counterpart of isLegalMove(), for snapshot-based (AI planner) board representations.
+  function snapLegal(snap, si, ti, owner) {
+    if (si === ti) return false;
+    if (snap.owner[ti] !== owner) return snap.adj[si].includes(ti);
+    if (snap.owner[si] !== owner) return false;
+    const seen = new Set([si]), queue = [si];
+    while (queue.length) {
+      const cur = queue.shift();
+      if (cur === ti) return true;
+      for (const nb of snap.adj[cur]) {
+        if (!seen.has(nb) && snap.owner[nb] === owner) { seen.add(nb); queue.push(nb); }
+      }
+    }
+    return false;
   }
   function snapStep(snap, dt) {
     for (let i=0;i<snap.n;i++)
@@ -1656,13 +1703,14 @@
     const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(snap.cx[ti]-snap.cx[p], snap.cy[ti]-snap.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
     let best=noopEff, bs=null, bt=null;
     for (const si of srcs){ const st=snap.troops[si];
-      for (let ti=0; ti<snap.n; ti++){ if (ti===si || snap.owner[ti]===owner) continue;
+      for (let ti=0; ti<snap.n; ti++){ if (ti===si || !snapLegal(snap,si,ti,owner)) continue;
         const tt=snap.troops[ti];
         const feats=[ st/FN, tt/FN, (st-tt)/FN, Math.hypot(snap.cx[ti]-snap.cx[si], snap.cy[ti]-snap.cy[si])/rlDiag,
                       snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
                       maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ];
         let score=rlScore(feats);
-        if (snap.owner[ti]===NEUTRAL){ if (playerIdx.length) score += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
+        if (snap.owner[ti]===owner) { /* reinforcement: no attack-biased adjustment, rlScore alone decides */ }
+        else if (snap.owner[ti]===NEUTRAL){ if (playerIdx.length) score += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
         else if (snap.owner[ti]>=2 && snap.owner[ti]!==owner) score += 1.0 * aiInfight();   // infighting (truce when human leads)
         else if (snap.owner[ti]===PLAYER){ if (endgame) score += (st>tt?3:-4);
           else { const hunt=aiHunt(), lead=Math.max(0,Math.min(1,playerIdx.length/snap.n-ownFrac));
@@ -1679,7 +1727,8 @@
     if (si<0 || s.troops[si]<12) return null;
     let neutralsLeft=false; for (let i=0;i<s.n;i++) if (s.owner[i]===NEUTRAL){ neutralsLeft=true; break; }
     const st=s.troops[si]; let bt=-1, best=-1e9;
-    for (let ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue;
+    // rivals stay attack-only (never reinforce) — same as before, just adjacency-gated now
+    for (let ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner || !snapLegal(s,si,ti,owner)) continue;
       const tt=s.troops[ti], d=Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si]);
       let sc = -d*0.02 - tt*1.1;
       if (s.owner[ti]===NEUTRAL) sc+=8; else if (s.owner[ti]>=2) sc+=10; else sc += neutralsLeft ? -50 : 8;  // rivals 10: partial infighting
@@ -1800,11 +1849,12 @@
     const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(s.cx[ti]-s.cx[p], s.cy[ti]-s.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
     const list=[];
     for (const si of srcs){ const st=s.troops[si];
-      for (let ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; const tt=s.troops[ti];
+      for (let ti=0; ti<s.n; ti++){ if (ti===si || !snapLegal(s,si,ti,owner)) continue; const tt=s.troops[ti];
         let sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/rlDiag,
                          s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
                          maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
-        if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
+        if (s.owner[ti]===owner) { /* reinforcement: no attack-biased adjustment, rlScore alone decides */ }
+        else if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/rlDiag); }
         else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0 * aiInfight();   // infighting (truce when human leads)
         else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
           else { const hunt=aiHunt(), lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
@@ -1868,7 +1918,8 @@
     const humans = {}; humans[myOwner] = playerName;
     for (const k in slotControl){ const sc=slotControl[k]; if (sc && sc!=='ai' && sc.name) humans[k]=sc.name; }
     const pp = planParams(), worker = mode==='worker';
-    return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies,
+    const adj = states.map(s => Array.from(adjacency[s.id] || []));   // Web Workers can't see the main-thread `adjacency` Set[]
+    return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies, adj,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
       hunt:aiHunt(), desp:lv.desp||0, infight:aiInfight(), valueBlend:VALUE_BLEND,
       horizon:pp.horizon, dt:pp.dt, ownerId:owner, wantViz: showNN && vizMode==='planner',
@@ -1981,8 +2032,21 @@
         x=out; }
       return x[0];
     }
-    function cloneSnap(s){ return { n:s.n, cx:s.cx, cy:s.cy, owner:s.owner.slice(), troops:s.troops.slice(),
+    function cloneSnap(s){ return { n:s.n, cx:s.cx, cy:s.cy, owner:s.owner.slice(), troops:s.troops.slice(), adj:s.adj,
       armies:s.armies.map(function(a){ return { owner:a.owner, count:a.count, ti:a.ti, t:a.t, ttotal:a.ttotal }; }) }; }
+    // struct-of-arrays counterpart of the main-thread isLegalMove() — kept in sync with it manually,
+    // since planWorkerMain is extracted via .toString() and can't reference outside-scope functions.
+    function snapLegal(snap, si, ti, owner){
+      if (si===ti) return false;
+      if (snap.owner[ti]!==owner) return snap.adj[si].indexOf(ti)>=0;
+      if (snap.owner[si]!==owner) return false;
+      var seen={}; seen[si]=true; var queue=[si];
+      while (queue.length){ var cur=queue.shift(); if (cur===ti) return true;
+        var nbrs=snap.adj[cur];
+        for (var k=0;k<nbrs.length;k++){ var nb=nbrs[k];
+          if (!seen[nb] && snap.owner[nb]===owner){ seen[nb]=true; queue.push(nb); } } }
+      return false;
+    }
     function snapStep(snap, dt){
       for (var i=0;i<snap.n;i++) if (snap.owner[i]!==NEUTRAL && snap.troops[i]<MAX_TROOPS)
         snap.troops[i]=Math.min(MAX_TROOPS, snap.troops[i]+growRateFor(snap.owner[i])*dt);
@@ -2005,7 +2069,8 @@
       if (si<0 || s.troops[si]<12) return null;
       var neutralsLeft=false; for (var j=0;j<s.n;j++) if (s.owner[j]===NEUTRAL){ neutralsLeft=true; break; }
       var st=s.troops[si], bt=-1, best=-1e9;
-      for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue;
+      // rivals stay attack-only (never reinforce) — same as before, just adjacency-gated now
+      for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner || !snapLegal(s,si,ti,owner)) continue;
         var tt=s.troops[ti], d=Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si]);
         var sc = -d*0.02 - tt*1.1;
         if (s.owner[ti]===NEUTRAL) sc+=8; else if (s.owner[ti]>=2) sc+=10; else sc += neutralsLeft ? -50 : 8;
@@ -2030,11 +2095,11 @@
       var myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
       var best=POL.noop_bias||0, bs=-1, bt=-1;
       for (var q=0;q<srcs.length;q++){ var si=srcs[q], st=s.troops[si];
-        for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; var tt=s.troops[ti];
+        for (var ti=0; ti<s.n; ti++){ if (ti===si || !snapLegal(s,si,ti,owner)) continue; var tt=s.troops[ti];
           var sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/DIAG,
             s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
             maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
-          sc += (s.owner[ti]===NEUTRAL) ? 0.3 : 0.8;     // mild "keep engaging" bias (no player-hunt)
+          if (s.owner[ti]!==owner) sc += (s.owner[ti]===NEUTRAL) ? 0.3 : 0.8;     // mild "keep engaging" bias (no player-hunt); not for reinforcement
           if (sc>best){ best=sc; bs=si; bt=ti; } } }
       return bs<0 ? null : [bs,bt];
     }
@@ -2108,11 +2173,12 @@
       function dToPlayer(ti){ var m=Infinity; for (var p=0;p<playerIdx.length;p++){ var d=Math.hypot(s.cx[ti]-s.cx[playerIdx[p]], s.cy[ti]-s.cy[playerIdx[p]]); if (d<m) m=d; } return m===Infinity?9999:m; }
       var list=[];
       for (var q=0;q<srcs.length;q++){ var si=srcs[q], st=s.troops[si];
-        for (var ti=0; ti<s.n; ti++){ if (ti===si || s.owner[ti]===owner) continue; var tt=s.troops[ti];
+        for (var ti=0; ti<s.n; ti++){ if (ti===si || !snapLegal(s,si,ti,owner)) continue; var tt=s.troops[ti];
           var sc=rlScore([ st/FN, tt/FN, (st-tt)/FN, Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/DIAG,
             s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
             maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]);
-          if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/DIAG); }
+          if (s.owner[ti]===owner) { /* reinforcement: no attack-biased adjustment, rlScore alone decides */ }
+          else if (s.owner[ti]===NEUTRAL){ if (playerIdx.length) sc += Math.max(0, 1.2 - dToPlayer(ti)/DIAG); }
           else if (s.owner[ti]>=2 && s.owner[ti]!==owner) sc += 1.0 * INF;
           else if (s.owner[ti]===PLAYER){ if (endgame) sc += (st>tt?3:-4);
             else { var lead=Math.max(0,Math.min(1,playerIdx.length/s.n-ownFrac));
@@ -2165,7 +2231,7 @@
       HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
       CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0; DESP=req.desp||0; INF=(req.infight==null?1:req.infight); VBLEND=(req.valueBlend==null?0.5:req.valueBlend);
       var tbudget=(req.mcts&&req.mcts.tbudget)||250, owner=req.ownerId;
-      var base={ n:req.n, cx:req.cx, cy:req.cy, owner:req.owner.slice(), troops:req.troops.slice(),
+      var base={ n:req.n, cx:req.cx, cy:req.cy, owner:req.owner.slice(), troops:req.troops.slice(), adj:req.adj,
         armies:(req.armies||[]).map(function(a){ return { owner:a.owner, count:a.count, ti:a.ti, t:0, ttotal:a.ttotal }; }) };
       var root={ snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[], terminal:isTerminal(base) };
       if (root.terminal) return { move:null, viz: req.wantViz ? buildViz(root, null, 0, owner) : null };
@@ -3378,6 +3444,7 @@
     if (owner==null) return;
     const from = states.find(s=>s.id===a.from), to = states.find(s=>s.id===a.to);
     if (!from || !to || from.owner!==owner) return;
+    if (!isLegalMove(from, to, owner)) return;   // fail fast on illegal guest actions (anti-cheat boundary for raw /api/action POSTs)
     sendTroops(from, to, a.denom);
   }
 
