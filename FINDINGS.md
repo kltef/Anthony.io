@@ -135,15 +135,62 @@ auxiliary loss. The new plan:
    pace with policy improvement instead of staying frozen at whatever `value_net.json` shipped with.
    Written independently to `tools/value_torch_new.json` — never auto-promoted, same as the policy.
 
+## Board-aware architecture: built (FINDINGS.md future-path #1)
+
+The 12-feature flat MLP was never given the shape of the map — only 12 numbers about one
+(source, target) pair. Phase B proved this is a real ceiling, not a tuning gap: bolt-on features
+that weren't derived from board topology gave the net nothing to learn from. This replaces the flat
+scorer with a small **graph-attention net** (`tools/gnn_net_torch.py`, `format:"gnn-v1"`):
+
+- **One embedding per territory**, computed once per board via 2 hops of single-head attention
+  *restricted to real border edges* (the adjacency graph from the Risk-movement work above) — not
+  full O(N²) attention over every pair of territories. This follows directly from the "would a
+  transformer help" discussion earlier in this project: the graph structure is already known, so
+  there's no reason to make the net rediscover it, and full attention would eat into the same
+  per-move time budget that sank Phase C's wider net for no benefit.
+- **Candidates are scored from a pair of node embeddings** + 3 cheap move-specific features
+  (troop delta, distance, can-take-outright), so the net can finally represent things a flat
+  per-move vector structurally can't — e.g. "this attack looks fine locally but strands my other
+  border" — exactly the class of signal Phase B's hand-picked extra features tried and failed to
+  supply.
+- **Additive, not a replacement.** The live game (`src/web/index.html`) format-dispatches on
+  `rlPolicy.format` — `computeUntried`/`snapGreedy`/`snapHeuristic` (both the main-thread and Web
+  Worker copies) compute node embeddings once per decision when `format==='gnn-v1'` and fall
+  straight through to the existing flat-MLP path otherwise. The shipped net is untouched until a
+  trained `gnn-v1` net actually wins the real-planner arena gate — same no-regression posture as
+  everything else in this project. JS inference was verified against the PyTorch implementation on
+  a fixed test board (`~1e-7` max error) before being wired into the live scoring functions.
+- **Trained the same way as the flat net** (`tools/train_gnn_torch.py`): real-planner visit-count
+  distillation, no-forget screen, real-planner gate, never auto-promoted. One real difference: each
+  training example needs its own graph-attention forward pass (node embeddings depend on that
+  board's specific adjacency), so training runs one decision at a time rather than one flattened
+  matmul batch like the flat trainer — self-play generation still dominates wall-clock either way,
+  per the timing breakdown above, so this is a correctness trade, not a scale-limiting one.
+- **"Deep self-play at scale" (future-path #2) is a property of this loop, not a separate
+  deliverable**: both `train_rl_torch.py` and `train_gnn_torch.py` warm-start from their own last
+  promoted checkpoint and roll a capped training buffer, so running either for longer (or resuming
+  across many sessions) is exactly what accumulates the "100k–1M self-play games" `FINDINGS.md`
+  originally called for — verified resumable across separate invocations.
+- **Honest expectation**: a freshly-initialized `gnn-v1` net starts from scratch (the two
+  architectures aren't weight-compatible, so there's no warm-start from the shipped net) and will
+  lose badly until it's actually trained — confirmed in testing. Whether it can eventually clear the
+  real-planner gate against the tuned flat-MLP net is exactly the open question this tooling exists
+  to answer, not a settled result.
+
 ## Tooling produced (in `tools/`)
 
-- `selfplay_arena.js` — headless real-planner arena (the measurement bedrock).
-- `train_rl.py` — policy trainer + features (`feats12`/`feats16`) + scripted opponent league.
+- `selfplay_arena.js` — headless real-planner arena (the measurement bedrock); now also derives a
+  synthetic border-adjacency graph and supports `--dump-visits` (visit-count + raw board capture).
+- `train_rl.py` — policy trainer + features (`feats12`/`feats16`) + scripted opponent league; now
+  adjacency/connected-path aware (Risk-style movement).
 - `train_value.py` — value-net trainer (Monte-Carlo regression).
 - `train_distill_big.py` — distill the MC expert into a configurable-width net.
 - `train_distill_big16.py` — 16-feature (richer-input) variant.
 - `train_distill_D.py` — value-net-bootstrapped stronger teacher (expert iteration).
 - `train_selfplay_loop.py` — autonomous self-improving loop (greedy gate).
 - `train_selfplay_planner.py` — autonomous self-improving loop with the real-planner gate.
-- `policy_net_torch.py` / `train_rl_torch.py` *(planned)* — PyTorch policy net + GPU training loop
-  distilling the real planner's visit-count distribution, for the adjacency-rules retrain above.
+- `policy_net_torch.py` / `train_rl_torch.py` — PyTorch flat-MLP net + GPU training loop distilling
+  the real planner's visit-count distribution, with value-net co-training, for the adjacency-rules
+  retrain above.
+- `gnn_net_torch.py` / `train_gnn_torch.py` — the board-aware graph-attention net and its GPU
+  training loop, described above.

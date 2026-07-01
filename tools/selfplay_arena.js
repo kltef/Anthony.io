@@ -143,7 +143,15 @@ function dumpDecision(env, owner, planFn){
   const feats = roots.map(r => r.move ? candFeats12(env, r.move[0], r.move[1], owner) : null);
   const visits = roots.map(r => r.visits);
   let chosen = 0; for (let i=1;i<visits.length;i++) if (visits[i]>visits[chosen]) chosen = i;
-  DUMP_STREAM.write(JSON.stringify({ feats, visits, chosen }) + '\n');
+  // raw board snapshot too — the flat-MLP trainer (train_rl_torch.py) only needs `feats`/`visits`
+  // above, but the graph-aware trainer (train_gnn_torch.py) needs the actual board+adjacency to
+  // (re)compute per-node features, which a flat per-move feature vector can't reconstruct.
+  const moves = roots.map(r => r.move);   // null entries are the no-op candidate, same alignment as feats/visits
+  DUMP_STREAM.write(JSON.stringify({
+    feats, visits, chosen, moves, mover: owner,
+    owner: env.owner, troops: env.troops, adj: env.adj, cx: env.cx, cy: env.cy, rlDiag: env.rlDiag,
+    armies: env.armies.map(a => ({ owner: a.owner, count: a.count, ti: a.ti })),
+  }) + '\n');
 }
 
 // ---- one game: ownerA vs ownerB (both 'enemies' so each models the other identically/fairly) ----
@@ -175,7 +183,8 @@ function main(){
   const polA = JSON.parse(fs.readFileSync(pathA,'utf8'));
   const polB = JSON.parse(fs.readFileSync(pathB,'utf8'));
   const planA = makePlanner(polA, BLEND_A, process.env.HTML_A), planB = makePlanner(polB, BLEND_B, process.env.HTML_B);
-  const lays = (p,bl) => p.layers.map(l=>l.b.length).join('-') + (p.value?` +value(w=${bl==null?0.5:bl})`:'');
+  const lays = (p,bl) => (p.format==='gnn-v1' ? `gnn embed${p.embed_dim}x${p.hops}hop` : p.layers.map(l=>l.b.length).join('-'))
+    + (p.value?` +value(w=${bl==null?0.5:bl})`:'');
   console.log(`ARENA: A=${pathA} [${lays(polA,BLEND_A)}]  vs  B=${pathB} [${lays(polB,BLEND_B)}]`);
   console.log(`games=${GAMES} budget=${TBUDGET}ms/move states=${NSTATES} (same budget => slower net does fewer sims)`);
   let aWins=0, bWins=0;
