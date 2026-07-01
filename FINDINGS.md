@@ -126,6 +126,14 @@ auxiliary loss. The new plan:
    local GPU. Loss weighting, buffer size, learning rate, and gate thresholds ship with reasonable
    defaults but are explicitly left for empirical tuning during that run, the same way every existing
    tool here was tuned against the arena rather than derived analytically.
+6. **The value net co-evolves with the policy, not just the policy alone.** The "teacher" that
+   produces training targets is really *MCTS search wrapped around the current best net* — its
+   quality depends on both the policy prior AND the value net used for leaf evaluation. Every
+   `--value-retrain-every` rounds, `train_rl_torch.py` generates fresh self-play (cheap physics
+   engine, not the costly real-planner arena) using the *current* best policy and retrains the value
+   net via the same Monte-Carlo regression `train_value.py` already uses, so leaf evaluation keeps
+   pace with policy improvement instead of staying frozen at whatever `value_net.json` shipped with.
+   Written independently to `tools/value_torch_new.json` — never auto-promoted, same as the policy.
 
 ## Tooling produced (in `tools/`)
 
