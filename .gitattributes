@@ -1,0 +1,8 @@
+# Keep LF line endings on these files even when cloned on Windows. The self-play arena
+# (tools/selfplay_arena.js) extracts the MCTS planner out of src/web/index.html with a regex that
+# anchors on LF newlines; a CRLF checkout makes that extraction silently fail, so the training
+# tools must see LF regardless of the client's core.autocrlf setting.
+*.js   text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+*.html text eol=lf
