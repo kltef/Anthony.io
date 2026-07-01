@@ -26,7 +26,11 @@ const ORB = 70, AISPD = 0.6, ENVDT = 0.2, GAMECAP = 38, CADENCE = 0.7;
 const _srcCache = {};
 function loadWorkerSrc(path){
   if (_srcCache[path]) return _srcCache[path];
-  const html = fs.readFileSync(path, 'utf8');
+  // normalize CRLF -> LF: on a Windows checkout git may convert line endings, and the extraction
+  // regex below anchors on `\n  }\n`, which would silently fail to match against `\r\n` and leave
+  // the whole trainer producing zero self-play data (buf stays 0). Strip \r so extraction is
+  // line-ending-agnostic regardless of how the repo was cloned.
+  const html = fs.readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
   const m = html.match(/function planWorkerMain\(\)\s*\{[\s\S]*?\n  \}\n/);
   if (!m) { console.error('could not extract planWorkerMain from '+path); process.exit(1); }
   return (_srcCache[path] = m[0]);
