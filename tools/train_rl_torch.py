@@ -32,6 +32,7 @@ import re
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Pool
 
 import numpy as np
@@ -81,28 +82,71 @@ def write_net(net, value_json, path):
     json.dump(j, open(path, 'w'))
 
 
-def planner_gate(cand_net, best_net, value_json, games, budget, cand_path, best_path):
+def _split_games(games, workers):
+    base = games // workers
+    rem = games % workers
+    return [base + (1 if i < rem else 0) for i in range(workers)]
+
+
+def _run_arena(argv, env=None, timeout=3600):
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, cwd=REPO_ROOT,
+                               timeout=timeout, env=env).stdout
+    except Exception as e:
+        print("  arena worker error:", e, flush=True)
+        return ""
+
+
+def planner_gate(cand_net, best_net, value_json, games, budget, cand_path, best_path, workers=1):
+    # Both sides are fixed files read by each worker (written once before any process starts), so N
+    # independent processes summing wins is equivalent to one sequential run — Node's Math.random()
+    # isn't seeded identically, so each worker plays genuinely different boards.
     write_net(cand_net, value_json, cand_path)
     write_net(best_net, value_json, best_path)
-    try:
-        out = subprocess.run(['node', 'tools/selfplay_arena.js', cand_path, best_path, str(games), str(budget)],
-                              capture_output=True, text=True, cwd=REPO_ROOT, timeout=1800).stdout
-    except Exception as e:
-        print("  gate error:", e, flush=True)
+    per_worker = _split_games(games, max(1, workers))
+    argvs = [['node', 'tools/selfplay_arena.js', cand_path, best_path, str(g), str(budget)]
+             for g in per_worker if g > 0]
+    if not argvs:
         return None
-    m = re.search(r'A won (\d+)/(\d+)', out)
-    return (int(m.group(1)) / int(m.group(2))) if m else None
+    with ThreadPoolExecutor(max_workers=len(argvs)) as ex:
+        outs = list(ex.map(lambda a: _run_arena(a, timeout=1800), argvs))
+    total_a, total_n = 0, 0
+    for out in outs:
+        m = re.search(r'A won (\d+)/(\d+)', out)
+        if m:
+            total_a += int(m.group(1))
+            total_n += int(m.group(2))
+    return (total_a / total_n) if total_n else None
 
 
-def self_play_dump(net, value_json, games, budget, dump_path, net_path):
+def self_play_dump(net, value_json, games, budget, dump_path, net_path, workers=1):
     write_net(net, value_json, net_path)
-    env = os.environ.copy()
-    env['DUMP_VISITS'] = dump_path
-    try:
-        subprocess.run(['node', 'tools/selfplay_arena.js', net_path, net_path, str(games), str(budget)],
-                        capture_output=True, text=True, cwd=REPO_ROOT, timeout=3600, env=env)
-    except Exception as e:
-        print("  self-play error:", e, flush=True)
+    per_worker = _split_games(games, max(1, workers))
+    if len(per_worker) == 1 or workers <= 1:
+        env = os.environ.copy()
+        env['DUMP_VISITS'] = dump_path
+        _run_arena(['node', 'tools/selfplay_arena.js', net_path, net_path, str(games), str(budget)], env)
+        return
+    worker_dumps = [f"{dump_path}.w{i}" for i in range(len(per_worker))]
+
+    def run_one(i):
+        if per_worker[i] <= 0:
+            return
+        env = os.environ.copy()
+        env['DUMP_VISITS'] = worker_dumps[i]
+        _run_arena(['node', 'tools/selfplay_arena.js', net_path, net_path,
+                    str(per_worker[i]), str(budget)], env)
+
+    with ThreadPoolExecutor(max_workers=len(per_worker)) as ex:
+        list(ex.map(run_one, range(len(per_worker))))
+    with open(dump_path, 'w') as out:
+        for wp in worker_dumps:
+            if os.path.exists(wp):
+                out.write(open(wp).read())
+                try:
+                    os.remove(wp)
+                except OSError:
+                    pass
 
 
 # ---------------- value-net co-training (fixed-VARCH Monte-Carlo regression, same recipe as
@@ -267,10 +311,14 @@ def main():
     ap.add_argument('--value-games-per-retrain', type=int, default=120,
                      help='self-play games (cheap physics, not the real planner) generated per value retrain')
     ap.add_argument('--value-buffer-cap', type=int, default=40000)
+    ap.add_argument('--workers', type=int, default=max(1, os.cpu_count() or 1),
+                     help='parallel Node arena processes for self-play/gate — Node is single-threaded '
+                     'so this is the main lever for using multiple CPU cores. Defaults to all cores.')
     args = ap.parse_args()
 
     device = args.device or ('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"device={device}  cuda_available={torch.cuda.is_available()}  cores={os.cpu_count()}", flush=True)
+    print(f"device={device}  cuda_available={torch.cuda.is_available()}  cores={os.cpu_count()}  "
+          f"workers={args.workers}", flush=True)
 
     resume_path = os.path.join(SCR, 'policy_torch_new.json')
     warm_path = resume_path if os.path.exists(resume_path) else T.POLICY
@@ -318,7 +366,7 @@ def main():
             # 1) self-play, capture the real planner's own visit-count distributions
             if os.path.exists(dump_path):
                 os.remove(dump_path)
-            self_play_dump(best, value_json, args.games_per_round, args.selfplay_budget, dump_path, selfplay_net_path)
+            self_play_dump(best, value_json, args.games_per_round, args.selfplay_budget, dump_path, selfplay_net_path, args.workers)
             new_records = load_dump(dump_path)
             buf.extend(new_records)
             if len(buf) > args.buffer_cap:
@@ -339,7 +387,7 @@ def main():
                 continue
 
             # 4) REAL-PLANNER gate
-            wr = planner_gate(cand, best, value_json, args.gate_games, args.gate_budget, cand_path, best_path)
+            wr = planner_gate(cand, best, value_json, args.gate_games, args.gate_budget, cand_path, best_path, args.workers)
             gates += 1
             promoted = False
             if wr is not None and wr >= args.gate_threshold:
@@ -379,7 +427,9 @@ def main():
         if vpool is not None:
             vpool.close()
             vpool.join()
-        for p in (dump_path, cand_path, best_path, selfplay_net_path):
+        cleanup_paths = [dump_path, cand_path, best_path, selfplay_net_path]
+        cleanup_paths += [f"{dump_path}.w{i}" for i in range(args.workers)]
+        for p in cleanup_paths:
             if os.path.exists(p):
                 try:
                     os.remove(p)

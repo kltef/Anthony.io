@@ -5,12 +5,12 @@
 # structured net is exactly the thing more self-play data has somewhere to go, per FINDINGS.md.
 #
 # Same round structure and same no-regression posture as train_rl_torch.py — see that file's header
-# for the full rationale; this one only differs in HOW a candidate is trained: node embeddings must
-# be recomputed from the raw board (owner/troops/adjacency/armies) per decision, not read off a flat
-# per-move feature vector, so the training loop here operates one decision (one board) at a time
-# rather than a single flattened batch. Self-play generation still dominates wall-clock (see
-# FINDINGS.md 5.8), so this is an acceptable trade for correctness — a batched/vectorized version
-# across boards of equal size is a reasonable future optimization, not attempted here.
+# for the full rationale; this one only differs in HOW a candidate is trained: node embeddings are
+# computed from the raw board (owner/troops/adjacency/armies) via graph-attention, not read off a
+# flat per-move feature vector. The training loop batches decisions that share the same node-count N
+# (see train_round's by_n bucketing) and runs a single vectorized forward pass per batch via
+# node_embeddings_batched() + move_scores_batched() — numerically verified equivalent to the
+# per-decision reference path (see tools/test_gnn_batch_equiv.py).
 #
 #   usage: python3 tools/train_gnn_torch.py --hours 5 --device cuda
 import argparse
@@ -59,33 +59,38 @@ def choose_gnn(net, g, owner, device='cpu'):
     # GNN-net move chooser over train_rl.py's lightweight environment `g` — used for the no-forget
     # screen (vs_script) and self-play (value co-training data generation), mirroring train_rl.py's
     # choose()/choose16() but scoring via node embeddings instead of the flat 12-feature MLP.
+    #
+    # All (src, tgt) pairs are collected in a single Python pass, then scored with ONE call to
+    # move_scores() and ONE .item() sync — previously there was one forward pass + two .item() syncs
+    # per source node, which serialized the GPU and added ~2ms of kernel-launch overhead per decision.
     o = g['owner']
     t = g['troops']
     srcs = np.where((o == owner) & (t >= 5))[0]
     if len(srcs) == 0:
         return None
+    FN = G.FN
+    all_pairs = []    # (si, tj) int tuples — flat list across all sources
+    all_move_x = []   # parallel move-feature rows
+    for si in srcs:
+        tgts = T.legal_targets(g, int(si), owner)
+        st = float(t[si])
+        for tj in tgts:
+            tt = float(t[tj])
+            dist = float(np.hypot(g['pos'][tj, 0] - g['pos'][si, 0],
+                                  g['pos'][tj, 1] - g['pos'][si, 1])) / g['rlDiag']
+            all_pairs.append((int(si), int(tj)))
+            all_move_x.append([(st - tt) / FN, dist, 1.0 if st > tt else 0.0])
+    if not all_pairs:
+        return None
     with torch.no_grad():
         h = board_embeddings(net, o.tolist(), t.tolist(), g['adj'], g['armies'], owner, device)
-        FN = G.FN
-        best = float(net.noop_bias.item())
-        mv = None
-        for si in srcs:
-            tgts = T.legal_targets(g, int(si), owner)
-            if len(tgts) == 0:
-                continue
-            st = float(t[si])
-            pairs = torch.tensor([[si, tj] for tj in tgts], dtype=torch.long, device=device)
-            move_x = torch.tensor(
-                [[(st - float(t[tj])) / FN, float(np.hypot(g['pos'][tj, 0] - g['pos'][si, 0],
-                                                             g['pos'][tj, 1] - g['pos'][si, 1])) / g['rlDiag'],
-                  1.0 if st > t[tj] else 0.0] for tj in tgts],
-                dtype=torch.float32, device=device)
-            scores = net.move_scores(h, pairs, move_x)
-            j = int(torch.argmax(scores).item())
-            if scores[j].item() > best:
-                best = scores[j].item()
-                mv = (int(si), int(tgts[j]))
-    return mv
+        pairs_t = torch.tensor(all_pairs, dtype=torch.long, device=device)
+        move_x_t = torch.tensor(all_move_x, dtype=torch.float32, device=device)
+        scores = net.move_scores(h, pairs_t, move_x_t)
+        best_idx = int(torch.argmax(scores).item())   # single CPU-GPU sync point
+        if scores[best_idx].item() > float(net.noop_bias.item()):
+            return all_pairs[best_idx]
+    return None
 
 
 def vs_script(net, opp, rng, n=60, N=18, device='cpu', max_t=80.0):
@@ -210,6 +215,21 @@ def self_play_dump(net, value_json, games, budget, dump_path, net_path, workers=
                     pass
 
 
+def _precompute_record(r):
+    # Called once per record when it enters the buffer. Stores node features and the dense adjacency
+    # mask as numpy arrays so build_batch() can just stack them — avoids re-running the Python
+    # node_features() loop and the O(N*deg) adj inner loop on every batch that touches this record.
+    N = len(r['owner'])
+    inc_mine, inc_enemy = incoming_from_armies(r['armies'], N, r['mover'])
+    r['_nf'] = np.array(G.node_features(r['owner'], r['troops'], r['adj'],
+                                         inc_mine, inc_enemy, r['mover']), dtype=np.float32)
+    adj_mask = np.zeros((N, N), dtype=np.float32)
+    for i, nbrs in enumerate(r['adj']):
+        for j in nbrs:
+            adj_mask[i, j] = 1.0
+    r['_adj_mask'] = adj_mask
+
+
 def load_dump(dump_path):
     records = []
     if not os.path.exists(dump_path):
@@ -222,6 +242,7 @@ def load_dump(dump_path):
             try:
                 r = json.loads(line)
                 if 'adj' in r:   # only records with the raw-board fields are usable for GNN training
+                    _precompute_record(r)
                     records.append(r)
             except Exception:
                 continue
@@ -257,18 +278,14 @@ def build_batch(records, device):
     # Pack a list of records that ALL share the same board node-count N into dense tensors. Candidates
     # are padded to the batch's max count and masked out in the loss, so per-decision softmax is
     # reproduced exactly. Grouping by N (see train_round) guarantees the uniform-N precondition.
+    #
+    # Node features and adj masks are read from r['_nf'] / r['_adj_mask'] pre-computed at load time
+    # by _precompute_record() — no Python loops here, just numpy stacks → single torch conversion.
     B = len(records)
     N = len(records[0]['owner'])
     FN = G.FN
-    node_x = torch.zeros(B, N, G.NODE_FEATS, dtype=torch.float32)
-    adj_mask = torch.zeros(B, N, N, dtype=torch.float32)
-    for b, r in enumerate(records):
-        inc_mine, inc_enemy = incoming_from_armies(r['armies'], N, r['mover'])
-        nf = G.node_features(r['owner'], r['troops'], r['adj'], inc_mine, inc_enemy, r['mover'])
-        node_x[b] = torch.tensor(nf, dtype=torch.float32)
-        for i, nbrs in enumerate(r['adj']):
-            for j in nbrs:
-                adj_mask[b, i, j] = 1.0
+    node_x = torch.as_tensor(np.stack([r['_nf'] for r in records]), dtype=torch.float32)
+    adj_mask = torch.as_tensor(np.stack([r['_adj_mask'] for r in records]), dtype=torch.float32)
     Mmax = max(len(r['moves']) for r in records)
     src_idx = torch.zeros(B, Mmax, dtype=torch.long)
     tgt_idx = torch.zeros(B, Mmax, dtype=torch.long)
