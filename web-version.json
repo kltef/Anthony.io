@@ -1,8 +1,8 @@
 {
-  "web": 3,
+  "web": 4,
   "notes": [
-    "Tap to update, with a changelog (like this one)",
-    "Correct app icon",
+    "New: Settings ⚙ — turn off Adjacent-only movement for classic send-anywhere play",
+    "Online now auto-detects the server (no more P2P toggle)",
     "Smoother Scenario mode",
     "Sharper Easy / Medium / Hard opponents"
   ],

@@ -30,6 +30,8 @@ android {
         release {
             isMinifyEnabled = false
             isDebuggable = false             // retires the debuggable=true flag that tripped Play Protect
+            isCrunchPngs = false             // the launcher PNGs came from a built APK (already optimized);
+                                             // skip aapt2's re-crunch, which rejects them ("failed to compile")
             signingConfig = signingConfigs.getByName("release")
         }
     }

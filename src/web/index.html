@@ -379,6 +379,7 @@
 
   <div class="who">Playing as <b id="playerNameDisp">Player</b>
     <button class="mini2" id="changeNameBtn" title="Change your name">✎</button>
+    <button class="mini2" id="settingsBtn" title="Settings">⚙</button>
     <button class="mini2" id="lbBtn">🏆 Leaderboard</button>
     <button class="mini2" id="shopBtn">🪙 Shop</button>
     <button class="mini2" id="exportBtn" title="Export your recorded play data">⬇ Data</button>
@@ -407,8 +408,7 @@
 
   <!-- host online -->
   <div class="panel gone" id="hostPanel">
-    <label class="hint" style="display:flex;align-items:center;justify-content:center;gap:8px;pointer-events:auto;cursor:pointer;margin-bottom:10px">
-      <input type="checkbox" id="hostP2P" style="width:18px;height:18px"> Serverless P2P — no server needed</label>
+    <p class="hint" id="hostNetMode" style="margin-bottom:10px"></p>
     <button class="btn" id="hostCreateBtn" disabled>Create a room</button>
     <div class="panel gone" id="hostLobby">
       <p class="roombox">Room code &nbsp;<b id="roomCode">····</b></p>
@@ -427,8 +427,7 @@
 
   <!-- join online -->
   <div class="panel gone" id="joinPanel">
-    <label class="hint" style="display:flex;align-items:center;justify-content:center;gap:8px;pointer-events:auto;cursor:pointer;margin-bottom:10px">
-      <input type="checkbox" id="joinP2P" style="width:18px;height:18px"> Serverless P2P — no server needed</label>
+    <p class="hint" id="joinNetMode" style="margin-bottom:10px"></p>
     <input id="codeInput" class="tin" maxlength="4" placeholder="ROOM CODE" autocomplete="off">
     <input id="nameInput" class="tin" maxlength="14" placeholder="Your name" autocomplete="off">
     <button class="btn" id="joinBtn" disabled>Join room</button>
@@ -466,6 +465,14 @@
   <p class="hint" id="buildTag" style="opacity:.55;font-size:12px;margin-top:2px"></p>
 </div>
 
+<div id="settingsPanel" class="gone" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:30;background:var(--white);border:3px solid var(--ink);border-radius:18px;padding:22px 24px;box-shadow:0 6px 0 rgba(46,58,74,.28),0 14px 34px rgba(21,68,88,.32);width:min(330px,92vw);text-align:center;pointer-events:auto">
+  <h2 style="font-family:var(--font-display);color:var(--ink);font-size:19px;margin-bottom:16px">⚙ Settings</h2>
+  <label style="display:flex;align-items:center;gap:12px;justify-content:center;cursor:pointer;color:var(--ink);font-weight:700">
+    <input type="checkbox" id="adjToggle" style="width:22px;height:22px"> Adjacent-only movement
+  </label>
+  <p class="hint" style="opacity:.7;font-size:12px;margin:8px 0 18px">On = Risk-style (attack neighbours only). Off = classic State.io: send troops to any state. Solo games only.</p>
+  <button class="btn" id="settingsClose">Done</button>
+</div>
 <div id="lbPanel" class="gone">
   <h2 class="lbh">🏆 Leaderboard</h2>
   <div id="lbBody" class="lbbody">Loading…</div>
@@ -1146,6 +1153,10 @@
   buildLevelButtons();
 
   // ---- difficulty mode: manual pick vs auto-adjust (chosen on first startup) ----
+  // Movement rule (Settings toggle): true = Risk-style adjacency (default), false = original
+  // send-anywhere movement. Only applies in SOLO (netMode null); multiplayer always forces
+  // adjacency on so host and guest stay in sync.
+  let adjacencyMode = lsGet('adjacencyMode') !== 'off';
   let diffMode  = lsGet('diffMode') || '';                                     // '' (unchosen), 'manual', 'auto'
   // the auto-difficulty ladder tops out at the last tier WITHOUT noAuto (Nightmare) — the asymptote
   // tier (Nightmare+) is opt-in only, never something the ladder walks a hot streak into.
@@ -1370,6 +1381,7 @@
   // both the human UI and the AI's chosen-move execution funnel through.
   function isLegalMove(from, to, mover) {
     if (!from || !to || from === to) return false;
+    if (!adjacencyMode && !netMode) return from.owner === mover;   // classic mode (solo): send anywhere from an owned state
     if (to.owner !== mover) return adjacency[from.id] && adjacency[from.id].has(to.id);
     if (from.owner !== mover) return false;
     const seen = new Set([from.id]), queue = [from.id];
@@ -1934,6 +1946,7 @@
   // struct-of-arrays counterpart of isLegalMove(), for snapshot-based (AI planner) board representations.
   function snapLegal(snap, si, ti, owner) {
     if (si === ti) return false;
+    if (!adjacencyMode && !netMode) return snap.owner[si] === owner;   // classic mode: any move from an owned source
     if (snap.owner[ti] !== owner) return snap.adj[si].includes(ti);
     if (snap.owner[si] !== owner) return false;
     const seen = new Set([si]), queue = [si];
@@ -1965,6 +1978,7 @@
   // O(1) legal-move test for a source `si` already owned by `owner`, using a precomputed ownerComp():
   // attack = adjacency to a non-owned target; reinforce = same owned component. Matches snapLegal().
   function legalFrom(s, comp, si, ti, owner) {
+    if (!adjacencyMode && !netMode) return true;   // classic mode: si is an owned source; any target legal
     return (s.owner[ti] !== owner) ? s.adj[si].indexOf(ti) >= 0 : comp[ti] === comp[si];
   }
   function snapStep(snap, dt) {
@@ -2330,7 +2344,8 @@
     let aiTeams = 0; const seenAI = {};
     for (const s of states) if (s.owner>=2 && !seenAI[s.owner]){ seenAI[s.owner]=1; aiTeams++; }
     const ponder = aiTeams <= 1;
-    return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies, adj, oppBias, oppW, explore, ponder,
+    const freeMove = !adjacencyMode && !netMode;   // classic-mode movement for the AI too (solo only)
+    return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies, adj, oppBias, oppW, explore, ponder, freeMove,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
       hunt:aiHunt(), desp:lv.desp||0, infight:aiInfight(), valueBlend:VALUE_BLEND, attn:lv.attnPressure||0,
       // Build the planner viz whenever the panel is open (either tab), NOT only when the planner tab
@@ -2463,7 +2478,7 @@
     'use strict';
     var NEUTRAL=0, PLAYER=1, MAX_TROOPS=150;
     var POL=null;                                   // trained policy (set on init)
-    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, INF=1, VBLEND=0.5, ATTN=0, OPPB=null, OPPW=null, names=[];
+    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, INF=1, VBLEND=0.5, ATTN=0, OPPB=null, OPPW=null, FREEMOVE=false, names=[];
     // Unit-splitting fractions the GNN planner enumerates per (source,target). MUST match FRACTIONS in
     // gnn_net_torch.py / the arena / the main thread. GNN/Impossible only; the flat MLP stays all-in.
     var FRACTIONS=[1.0,0.75,0.5,0.25];
@@ -2675,6 +2690,7 @@
     // since planWorkerMain is extracted via .toString() and can't reference outside-scope functions.
     function snapLegal(snap, si, ti, owner){
       if (si===ti) return false;
+      if (FREEMOVE) return snap.owner[si]===owner;   // classic mode: any move from an owned source
       if (snap.owner[ti]!==owner) return snap.adj[si].indexOf(ti)>=0;
       if (snap.owner[si]!==owner) return false;
       var seen={}; seen[si]=true; var queue=[si];
@@ -2697,6 +2713,7 @@
       return comp;
     }
     function legalFrom(s, comp, si, ti, owner){
+      if (FREEMOVE) return true;   // classic mode: si is an owned source; any target legal
       return (s.owner[ti]!==owner) ? s.adj[si].indexOf(ti)>=0 : comp[ti]===comp[si];
     }
     function snapStep(snap, dt){
@@ -3083,7 +3100,7 @@
       GR=req.growRate; EG=req.enemyGrow; DIAG=req.rlDiag||1; ORB=req.orbSpeed||70;
       HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
       CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0; DESP=req.desp||0; INF=(req.infight==null?1:req.infight); VBLEND=(req.valueBlend==null?0.5:req.valueBlend);
-      ATTN=req.attn||POL.attnPressure||0; OPPB=req.oppBias||null; OPPW=req.oppW||null;   // Nightmare+ levers 2/3/4c — inert (0/null) on
+      ATTN=req.attn||POL.attnPressure||0; OPPB=req.oppBias||null; OPPW=req.oppW||null; FREEMOVE=!!req.freeMove;   // Nightmare+ levers 2/3/4c — inert (0/null) on
       // every other tier. POL.attnPressure is an experiment hook (like POL.rawOnly): lets the arena
       // A/B the attention bias per SIDE, since env vars necessarily hit both seats.
       var tbudget=(req.mcts&&req.mcts.tbudget)||250, owner=req.ownerId;
@@ -4467,17 +4484,44 @@
   const joinPlayersEl = document.getElementById('joinPlayers');
   let aiFill = 1;
 
-  // ---- serverless (P2P) toggle ----
-  const hostP2P = document.getElementById('hostP2P');
-  const joinP2P = document.getElementById('joinP2P');
-  function setP2P(on){
-    NET.p2p = !!on;
-    if (hostP2P) hostP2P.checked = NET.p2p;
-    if (joinP2P) joinP2P.checked = NET.p2p;
-    if (NET.p2p && !window.P2P) alert('Serverless mode needs peerjs.min.js — check it loaded.');
+  // ---- transport: auto-detect the server, no manual toggle ----------------------------------
+  // Online play uses the /api server when it's reachable, and falls back to serverless P2P (WebRTC
+  // via peerjs) when it isn't — decided automatically on load, so there is no P2P checkbox. The
+  // probe hits a real /api route: a 404 from a plain static host (or a native app with no backend)
+  // is treated as "no server" and routes to P2P.
+  const hostNetMode = document.getElementById('hostNetMode');
+  const joinNetMode = document.getElementById('joinNetMode');
+  function showNetMode(){
+    const t = NET.p2p ? '🔗 Peer-to-peer (no server found)' : '🌐 Server connected';
+    if (hostNetMode) hostNetMode.textContent = t;
+    if (joinNetMode) joinNetMode.textContent = t;
   }
-  if (hostP2P) hostP2P.addEventListener('change', () => setP2P(hostP2P.checked));
-  if (joinP2P) joinP2P.addEventListener('change', () => setP2P(joinP2P.checked));
+  async function detectTransport(){
+    let serverUp = false;
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 2500);
+      const r = await fetch('/api/leaderboard', { signal: ctrl.signal, cache: 'no-store' });
+      clearTimeout(timer);
+      serverUp = r.ok;                 // 200 from the real backend; 404 (static host / no backend) => down
+    } catch(e){ serverUp = false; }    // network error / timeout / aborted => down
+    // P2P needs peerjs; if it didn't load, we can't fall back — stay on server mode and let the
+    // create/join call surface the failure rather than silently choosing a dead transport.
+    NET.p2p = !serverUp && !!window.P2P;
+    showNetMode();
+  }
+  detectTransport();
+
+  // ---- settings panel (movement rule) ----
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsPanel = document.getElementById('settingsPanel');
+  const adjToggle = document.getElementById('adjToggle');
+  const settingsClose = document.getElementById('settingsClose');
+  if (settingsBtn && settingsPanel){
+    settingsBtn.onclick = () => { if (adjToggle) adjToggle.checked = adjacencyMode; settingsPanel.classList.remove('gone'); };
+    if (adjToggle) adjToggle.onchange = () => { adjacencyMode = adjToggle.checked; lsSet('adjacencyMode', adjacencyMode ? 'on' : 'off'); };
+    if (settingsClose) settingsClose.onclick = () => settingsPanel.classList.add('gone');
+  }
 
   // ---- mode tabs ----
   modesEl.addEventListener('click', e => { const m = e.target.dataset.mode; if (m) setMode(m); });
@@ -5344,7 +5388,7 @@
   //   * a bridge-less packaged build that can't actually apply an update: the banner never shows, so
   //     it never promises something it can't deliver.
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 3;
+  const WEB_VERSION = 4;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }
