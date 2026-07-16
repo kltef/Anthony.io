@@ -15,3 +15,38 @@ tools/policy_*_new.json
 tools/value_*_new.json
 tools/_*_net.json
 tools/value_*_new.json
+
+# Signing keys — NEVER commit to a public repo (throwaway or not)
+*.keystore
+build/test.keystore
+release.keystore
+
+# Personal play data (privacy) — exported device logs, saved localStorage
+phone_export/
+
+# Local agent worktrees, scratch, editor state
+.claude/worktrees/
+godot/
+
+# Training data dumps + rolling pools (large, regenerable)
+tools/_*.jsonl
+tools/_*.jsonl.*
+tools/_midgame_pool.jsonl
+tools/*.log
+tools/*.err.log
+
+# Candidate / checkpoint nets and backups (large; the SHIPPED nets live in src/web/)
+tools/gnn10f_policy*.json
+tools/gnn56_policy*.json
+tools/gnn_grown_policy*.json
+tools/*.bak.json
+tools/_*.json
+
+# Web-asset working backups (the live files are the source of truth)
+src/web/*.bak
+src/web/*.bak.json
+src/web/*.pre-*
+src/web/index.html.pre-*
+
+# temp diff artifacts
+build/tmp_*.html

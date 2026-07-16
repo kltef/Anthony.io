@@ -24,8 +24,27 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-NODE_FEATS = 7   # [is_mine, is_neutral, is_enemy, troops/FN, degree/maxDeg, incMine/FN, incEnemy/FN]
-MOVE_FEATS = 3   # [(st-tt)/FN, dist/rlDiag, st>tt] — appended to the (source,target) embedding pair
+# v2 node features (2026-07-12): the original 7 plus 3 the net could not derive on its own —
+#   capHeadroom/FN  : how much passive generation this state has left before the 150 cap gates it
+#                     (the cap-dodge economy — see the play-test mega-stack findings — was invisible)
+#   borderPressure/FN: total hostile troops directly adjacent (threat concentration at this node)
+#   isFrontier      : any neighbor owned differently (border vs interior state)
+# CONTRACT: mirrored exactly in index.html gnnNodeFeats (worker AND main-thread copies). A 10-feature
+# net exports node_features:10; the JS side dispatches on that field, so old 7-feature nets keep
+# working unchanged.
+NODE_FEATS = 10  # [is_mine, is_neutral, is_enemy, troops/FN, degree/maxDeg, incMine/FN, incEnemy/FN, headroom/FN, borderPressure/FN, isFrontier]
+# MOVE_FEATS is 4 with unit-splitting enabled: the AI can send a FRACTION of a source's troops, not
+# just all of them, so the move head sees how much is being committed. `sent = st*frac` is the troop
+# count actually leaving the source; the feature vector is:
+#   [(sent-tt)/FN, dist/rlDiag, sent>tt, frac]
+# (with frac=1.0 this reduces to the old all-in [(st-tt)/FN, dist, st>tt, 1.0], so 2-element legacy
+# moves [si,ti] map cleanly to frac=1.0.) CONTRACT: this exact formula is mirrored in index.html
+# (worker + main-thread computeUntried/snapGreedy, and gnnMoveScore callers), selfplay_arena.js's
+# dump, and train_gnn_torch.py's build_batch/decision_loss — keep all of them in sync.
+MOVE_FEATS = 4
+# The split fractions the planner enumerates as separate candidates per (source,target). GNN/Impossible
+# only — the flat MLP (Grandmaster) stays all-in. Mirrored as FRACTIONS in index.html and the arena.
+FRACTIONS = [1.0, 0.75, 0.5, 0.25]
 FN = 50.0
 
 
@@ -79,7 +98,8 @@ class AttnHop(nn.Module):
 
 
 class GNNPolicyNet(nn.Module):
-    def __init__(self, node_feats=NODE_FEATS, embed_dim=24, hops=2, move_feats=MOVE_FEATS, head_dim=32):
+    def __init__(self, node_feats=NODE_FEATS, embed_dim=24, hops=2, move_feats=MOVE_FEATS, head_dim=32,
+                 value_head=False):
         super().__init__()
         self.node_feats, self.embed_dim, self.hops, self.move_feats, self.head_dim = \
             node_feats, embed_dim, hops, move_feats, head_dim
@@ -88,6 +108,27 @@ class GNNPolicyNet(nn.Module):
         self.head1 = nn.Linear(embed_dim * 2 + move_feats, head_dim)
         self.head2 = nn.Linear(head_dim, 1)
         self.noop_bias = nn.Parameter(torch.zeros(1))
+        # optional board-aware VALUE head (planner leaf evaluation): mean-pool the node embeddings,
+        # small tanh MLP -> expected result in [-1,1] for the mover. Additive — old nets (and old
+        # exported JSON) simply don't have it; format stays "gnn-v1" (see to_json's "vhead" key).
+        self.value_head = value_head
+        if value_head:
+            self.v1 = nn.Linear(embed_dim, 32)
+            self.v2 = nn.Linear(32, 1)
+
+    def board_value(self, h):
+        # h: (N, embed_dim) node embeddings (from node_embeddings()). Returns a scalar in [-1,1] —
+        # the mover's expected graded outcome. Mirrored in index.html gnnValueScore() (both copies).
+        pooled = h.mean(dim=0)
+        z = torch.tanh(self.v1(pooled))
+        return torch.tanh(self.v2(z)).squeeze(-1)
+
+    def board_value_batched(self, h):
+        # h: (B, N, embed_dim) -> (B,). Mean-pool per board — trivial here since batches are
+        # uniform-N (train_gnn_torch.build_batch groups records by node count).
+        pooled = h.mean(dim=1)
+        z = torch.tanh(self.v1(pooled))
+        return torch.tanh(self.v2(z)).squeeze(-1)
 
     def node_embeddings(self, node_x, adj):
         # node_x: (N, node_feats) tensor. adj: list of N neighbor-index lists. Returns (N, embed_dim).
@@ -125,7 +166,7 @@ class GNNPolicyNet(nn.Module):
 def to_json(net):
     def lin(l):
         return {"W": l.weight.detach().cpu().tolist(), "b": l.bias.detach().cpu().tolist()}
-    return {
+    j = {
         "format": "gnn-v1",
         "feat_norm": FN,
         "node_features": net.node_feats,
@@ -141,12 +182,17 @@ def to_json(net):
         "head1": lin(net.head1),
         "head2": lin(net.head2),
     }
+    # additive: exported ONLY when the net actually has a value head — old nets' JSON is unchanged,
+    # and the JS side (index.html gnnValueScore) dispatches on the presence of "vhead".
+    if getattr(net, "value_head", False):
+        j["vhead"] = {"v1": lin(net.v1), "v2": lin(net.v2)}
+    return j
 
 
 def from_json(path, device="cpu"):
     j = json.load(open(path))
     net = GNNPolicyNet(j["node_features"], j["embed_dim"], j["hops"], j["move_features"],
-                        len(j["head1"]["b"])).to(device)
+                        len(j["head1"]["b"]), value_head=("vhead" in j)).to(device)
 
     def load_lin(l, d):
         with torch.no_grad():
@@ -157,6 +203,9 @@ def from_json(path, device="cpu"):
         load_lin(a.q, ad["q"]); load_lin(a.k, ad["k"]); load_lin(a.v, ad["v"]); load_lin(a.update, ad["update"])
     load_lin(net.head1, j["head1"])
     load_lin(net.head2, j["head2"])
+    if "vhead" in j:
+        load_lin(net.v1, j["vhead"]["v1"])
+        load_lin(net.v2, j["vhead"]["v2"])
     with torch.no_grad():
         net.noop_bias.copy_(torch.tensor([j["noop_bias"]], dtype=torch.float32))
     return net
@@ -169,9 +218,17 @@ def node_features(owner, troops, adj, incoming_mine, incoming_enemy, mover):
     # whose perspective this is scored from. Returns an (N, NODE_FEATS) list of lists.
     N = len(owner)
     max_deg = max((len(a) for a in adj), default=1) or 1
+    CAP = 150.0
     out = []
     for i in range(N):
         o = owner[i]
+        border_pressure = 0.0
+        frontier = 0.0
+        for j in adj[i]:
+            if owner[j] != o:
+                frontier = 1.0
+            if owner[j] != 0 and owner[j] != mover:
+                border_pressure += troops[j]
         out.append([
             1.0 if o == mover else 0.0,
             1.0 if o == 0 else 0.0,
@@ -180,6 +237,9 @@ def node_features(owner, troops, adj, incoming_mine, incoming_enemy, mover):
             len(adj[i]) / max_deg,
             incoming_mine[i] / FN,
             incoming_enemy[i] / FN,
+            max(0.0, CAP - troops[i]) / FN,
+            border_pressure / FN,
+            frontier,
         ])
     return out
 
@@ -198,7 +258,7 @@ if __name__ == "__main__":
     print("node embeddings shape:", h.shape)
     assert h.shape == (N, net.embed_dim)
     pairs = torch.tensor([[0, 1], [2, 5], [3, 4]], dtype=torch.long)
-    move_x = torch.rand(3, MOVE_FEATS)
+    move_x = torch.rand(3, MOVE_FEATS)   # 4 move features now: [(sent-tt)/FN, dist, sent>tt, frac]
     scores = net.move_scores(h, pairs, move_x)
     print("move scores:", scores.tolist())
     assert scores.shape == (3,)

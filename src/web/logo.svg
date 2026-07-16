@@ -1,0 +1,109 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Full-bleed deep navy board background -->
+    <radialGradient id="bgGrad" cx="50%" cy="38%" r="78%">
+      <stop offset="0%" stop-color="#21365a"/>
+      <stop offset="55%" stop-color="#1a2b48"/>
+      <stop offset="100%" stop-color="#121d31"/>
+    </radialGradient>
+
+    <!-- Player blue sphere -->
+    <radialGradient id="blueGrad" cx="38%" cy="32%" r="80%">
+      <stop offset="0%" stop-color="#7cc4ff"/>
+      <stop offset="45%" stop-color="#46a6ef"/>
+      <stop offset="100%" stop-color="#2076c4"/>
+    </radialGradient>
+
+    <!-- Enemy red sphere -->
+    <radialGradient id="redGrad" cx="38%" cy="32%" r="80%">
+      <stop offset="0%" stop-color="#ff8a7f"/>
+      <stop offset="45%" stop-color="#e8574c"/>
+      <stop offset="100%" stop-color="#b8362d"/>
+    </radialGradient>
+
+    <!-- Orange sphere -->
+    <radialGradient id="orangeGrad" cx="38%" cy="32%" r="80%">
+      <stop offset="0%" stop-color="#ffce7a"/>
+      <stop offset="45%" stop-color="#f5a623"/>
+      <stop offset="100%" stop-color="#cd8210"/>
+    </radialGradient>
+
+    <!-- Arrow gradient: blue energy -->
+    <linearGradient id="arrowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#9ad3ff"/>
+      <stop offset="100%" stop-color="#46a6ef"/>
+    </linearGradient>
+
+    <!-- Soft drop shadow for nodes -->
+    <filter id="nodeShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#0a1322" flood-opacity="0.45"/>
+    </filter>
+
+    <!-- Subtle glow for the conquering arrow -->
+    <filter id="arrowGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#46a6ef" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- ===== FULL-BLEED BACKGROUND ===== -->
+  <rect x="0" y="0" width="512" height="512" fill="url(#bgGrad)"/>
+
+  <!-- Faint territory-network lattice in the background (depth, stays subtle) -->
+  <g stroke="#3a557f" stroke-width="5" opacity="0.30" stroke-linecap="round">
+    <line x1="150" y1="150" x2="256" y2="232"/>
+    <line x1="372" y1="156" x2="256" y2="232"/>
+    <line x1="150" y1="380" x2="232" y2="300"/>
+    <line x1="372" y1="372" x2="300" y2="300"/>
+  </g>
+  <g fill="#3a557f" opacity="0.30">
+    <circle cx="150" cy="150" r="13"/>
+    <circle cx="372" cy="156" r="13"/>
+    <circle cx="150" cy="380" r="13"/>
+    <circle cx="372" cy="372" r="13"/>
+  </g>
+
+  <!-- ===== CORE MOTIF (within safe zone ~87..425) ===== -->
+
+  <!-- Enemy node being conquered (top-right), dimmed to read as "losing" -->
+  <g filter="url(#nodeShadow)">
+    <circle cx="338" cy="170" r="58" fill="url(#redGrad)"/>
+    <circle cx="338" cy="170" r="58" fill="none" stroke="#ffffff" stroke-opacity="0.30" stroke-width="4"/>
+    <circle cx="320" cy="150" r="20" fill="#ffffff" opacity="0.18"/>
+  </g>
+
+  <!-- Small orange ally node (bottom-right) for faction variety -->
+  <g filter="url(#nodeShadow)">
+    <circle cx="350" cy="356" r="40" fill="url(#orangeGrad)"/>
+    <circle cx="350" cy="356" r="40" fill="none" stroke="#ffffff" stroke-opacity="0.28" stroke-width="3.5"/>
+    <circle cx="337" cy="343" r="13" fill="#ffffff" opacity="0.18"/>
+  </g>
+
+  <!-- Sweeping conquering ARROW from player node to enemy node -->
+  <g filter="url(#arrowGlow)">
+    <!-- shaft -->
+    <path d="M 188 300 Q 250 250 300 205"
+          fill="none" stroke="url(#arrowGrad)" stroke-width="26"
+          stroke-linecap="round"/>
+    <!-- arrowhead -->
+    <path d="M 326 186 L 286 198 L 304 233 Z" fill="#9ad3ff"/>
+  </g>
+
+  <!-- Streaming troop dots riding the arrow -->
+  <g fill="#eaf6ff">
+    <circle cx="214" cy="280" r="9"/>
+    <circle cx="244" cy="258" r="8"/>
+    <circle cx="272" cy="232" r="7"/>
+  </g>
+
+  <!-- Player BLUE node (main focal point, largest, front-most) -->
+  <g filter="url(#nodeShadow)">
+    <circle cx="178" cy="312" r="86" fill="url(#blueGrad)"/>
+    <circle cx="178" cy="312" r="86" fill="none" stroke="#ffffff" stroke-opacity="0.40" stroke-width="5"/>
+    <!-- glossy highlight -->
+    <ellipse cx="150" cy="278" rx="34" ry="24" fill="#ffffff" opacity="0.22"/>
+    <!-- bold troop count -->
+    <text x="178" y="312" font-family="Arial, Helvetica, sans-serif" font-size="92"
+          font-weight="800" fill="#ffffff" text-anchor="middle"
+          dominant-baseline="central">24</text>
+  </g>
+</svg>

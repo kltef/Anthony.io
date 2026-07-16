@@ -1,0 +1,11 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+# game assets are synced from ../src/web at build time (see app/build.gradle.kts syncWebAssets)
+/app/src/main/assets/web/

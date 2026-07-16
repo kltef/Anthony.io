@@ -112,14 +112,39 @@ def legal_targets(g, si, owner):
 def new_game(N, P, rng):
     pos=rng.random((N,2)); mnx,mny=pos.min(0); mxx,mxy=pos.max(0)
     rlDiag=math.hypot(mxx-mnx,mxy-mny) or 1.0
-    owner=np.zeros(N,dtype=np.int32); troops=rng.uniform(5,45,N)
+    # Opening-distribution mix (2026-07-11): half the boards use the shipping hard tiers' opening
+    # (22-troop starts, 18-55 neutrals — frequently NO beatable neighbor on move one, where the
+    # shipped net noop-locked; see selfplay_arena.js genBoard for the full story), half keep the
+    # legacy regime (40-troop starts, 5-45 neutrals) so easy openings stay in-distribution.
+    game_like = rng.random() < 0.5
+    owner=np.zeros(N,dtype=np.int32)
+    troops = rng.uniform(18,55,N) if game_like else rng.uniform(5,45,N)
+    seed_troops = 22.0 if game_like else 40.0
     seeds=[int(rng.integers(N))]
     for _ in range(P-1):
         d=np.full(N,1e9)
         for s in seeds: d=np.minimum(d,np.hypot(pos[:,0]-pos[s,0],pos[:,1]-pos[s,1]))
         seeds.append(int(np.argmax(d)))
-    for pi,s in enumerate(seeds): owner[s]=pi+1; troops[s]=40.0
+    for pi,s in enumerate(seeds): owner[s]=pi+1; troops[s]=seed_troops
     adj = delaunay_adjacency(pos)
+    # Real maps (TopoJSON borders) have corner states with only 1-2 neighbors — e.g. Maine on the
+    # East Coast — which Delaunay graphs essentially never produce. A net that never trains on
+    # low-degree seats learns to noop-hoard when parked in one (play-data 2026-07-04: Impossible/Ace
+    # sat a whole game on a degree-1 state). Prune ~15% of nodes down to pendants so corner seats
+    # are in-distribution. Only prune nodes whose neighbors are all degree>=3, so the graph stays
+    # connected and we never cascade two pendants into an island.
+    npend = max(1, int(N*0.15))
+    cand = [i for i in range(N) if len(adj[i]) >= 3]
+    rng.shuffle(cand)
+    pruned = 0
+    for i in cand:
+        if pruned >= npend: break
+        if any(len(adj[j]) <= 2 for j in adj[i]): continue
+        keep = min(adj[i], key=lambda j: math.hypot(pos[i,0]-pos[j,0], pos[i,1]-pos[j,1]))
+        for j in [x for x in adj[i] if x != keep]:
+            adj[j] = [x for x in adj[j] if x != i]
+        adj[i] = [keep]
+        pruned += 1
     return dict(pos=pos,owner=owner,troops=troops,armies=[],rlDiag=rlDiag,ORB=rlDiag/8.0,N=N,adj=adj)
 def step(g,dt):
     o=g['owner']; t=g['troops']; grow=(o>0)&(t<CAP)
@@ -134,10 +159,11 @@ def step(g,dt):
                 if t[ti]<0: o[ti]=a['owner']; t[ti]=-t[ti]
         else: still.append(a)
     g['armies']=still
-def send(g,si,ti):
-    amt=g['troops'][si]
+def send(g,si,ti,frac=1.0):
+    # frac (0..1) = unit-split fraction the GNN policy may choose; send that share, leave the remainder.
+    amt=g['troops'][si]*frac
     if amt<1 or g['owner'][si]==0: return
-    g['troops'][si]=0.0
+    g['troops'][si]-=amt
     d=math.hypot(g['pos'][ti,0]-g['pos'][si,0],g['pos'][ti,1]-g['pos'][si,1])
     g['armies'].append(dict(owner=int(g['owner'][si]),count=amt,ti=int(ti),t=0.0,ttotal=max(0.05,d/g['ORB'])))
 def feats12(g, si, owner, tgts, glob):
@@ -264,6 +290,35 @@ def economist(g,owner):
     if len(safe)==0: return None
     d=np.hypot(pos[safe,0]-pos[si,0],pos[safe,1]-pos[si,1])
     return (int(si),int(safe[int(np.argmin(d))]))
+def farmer(g,owner):
+    # The distant-expander exploit found in play-testing (2026-07-04) vs the 1v1 symmetric planner:
+    # stay away from the enemy, expand the OTHER direction, out-grow a passive opponent, then crush
+    # with the built-up army. A net must keep expanding / pressure a distant farmer, not sit.
+    o=g['owner']; t=g['troops']; pos=g['pos']
+    en=np.where((o!=owner)&(o>0))[0]
+    mine=np.where(o==owner)[0]
+    if len(mine)==0: return None
+    myT=float(t[mine].sum()); enT=float(t[en].sum()) if len(en) else 0.0
+    # war phase: overwhelming advantage (or nothing left to farm) -> march the big stack at the enemy
+    if len(en)==0 or myT > 1.6*enT + 30:
+        srcs=mine[t[mine]>=12]
+        if len(srcs)==0: return None
+        si=srcs[np.argmax(t[srcs])]; tgts=direct_targets(g,int(si),owner)
+        if len(tgts)==0: return None
+        pool=tgts[o[tgts]>0] if (o[tgts]>0).any() else tgts
+        d=np.hypot(pos[pool,0]-pos[si,0],pos[pool,1]-pos[si,1])
+        return (int(si),int(pool[int(np.argmin(d))]))
+    # farm phase: take the affordable neutral FARTHEST from the enemy centroid (never poke the bear)
+    ecx=float(pos[en,0].mean()); ecy=float(pos[en,1].mean())
+    best=None
+    for si in mine[t[mine]>=10]:
+        tg=direct_targets(g,int(si),owner)
+        if len(tg)==0: continue
+        tg=tg[(o[tg]==0)&(t[tg]<t[si]*0.8)]
+        for ti in tg:
+            sc=np.hypot(pos[ti,0]-ecx,pos[ti,1]-ecy) - 0.3*t[ti]
+            if best is None or sc>best[0]: best=(sc,int(si),int(ti))
+    return (best[1],best[2]) if best else None
 def alive_owners(g):
     s=set(int(x) for x in np.unique(g['owner']) if x>0)
     for a in g['armies']: s.add(a['owner'])
@@ -288,6 +343,7 @@ def play(seats, rng, N=18, max_t=150.0, dt=0.25):
                 elif k=='turtle': mv=turtle(g,p)
                 elif k=='rush':   mv=rush(g,p)
                 elif k=='econ':   mv=economist(g,p)
+                elif k=='farmer': mv=farmer(g,p)
                 else:             mv=heuristic(g,p)
                 if mv: send(g,mv[0],mv[1])
         if len(alive_owners(g))<=1: break

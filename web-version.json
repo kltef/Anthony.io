@@ -1,0 +1,5 @@
+{
+  "web": 1,
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
+  "files": ["index.html", "gnn_policy.json", "rl_policy.json"]
+}
