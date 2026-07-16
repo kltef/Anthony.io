@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Navy gradient sampled from the original State.io icon art (#16233C top -> #12203A bottom),
+     so the adaptive foreground's own navy edges blend seamlessly into this background layer. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#16233C"
+        android:endColor="#12203A" />
+</shape>
