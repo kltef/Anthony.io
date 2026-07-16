@@ -5387,6 +5387,76 @@
   //   * plain browser: a hard reload picks up whatever the server now serves.
   //   * a bridge-less packaged build that can't actually apply an update: the banner never shows, so
   //     it never promises something it can't deliver.
+  // ---- TEMPORARY: menu autoplay probe ---------------------------------------------------------
+  // Answers one question before we build the music system: can audio START on the menu with NO tap?
+  // The shell sets mediaPlaybackRequiresUserGesture=false, so in-app it very likely can (a plain
+  // browser will still block until a gesture). Shows a small badge bottom-left with the verdict.
+  // Delete this whole block once we've decided Web-Audio vs native. (search: MENU AUTOPLAY PROBE)
+  (function menuAutoplayProbe(){
+    function badge(msg, ok){
+      let b = document.getElementById('audioProbe');
+      if (!b){
+        b = document.createElement('div'); b.id = 'audioProbe';
+        b.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;font:12px/1.35 system-ui,'
+          + 'sans-serif;padding:7px 10px;border-radius:8px;color:#fff;max-width:80vw;'
+          + 'box-shadow:0 2px 10px #0008;pointer-events:none';
+        (document.body || document.documentElement).appendChild(b);
+      }
+      b.style.background = ok ? '#134d2b' : '#5a1d1d';
+      b.textContent = msg;
+      try { console.log('[audioProbe]', msg); } catch(e){}
+    }
+    function silentWav(sec){
+      const sr = 8000, n = sr*sec, buf = new ArrayBuffer(44 + n*2), v = new DataView(buf);
+      const w = (o,s)=>{ for (let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
+      w(0,'RIFF'); v.setUint32(4,36+n*2,true); w(8,'WAVE'); w(12,'fmt ');
+      v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+      v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true);
+      v.setUint16(34,16,true); w(36,'data'); v.setUint32(40,n*2,true);
+      let bin = '', u8 = new Uint8Array(buf);
+      for (let i=0;i<u8.length;i++) bin += String.fromCharCode(u8[i]);
+      return 'data:audio/wav;base64,' + btoa(bin);
+    }
+    async function run(){
+      badge('🔎 audio probe…', false);              // show immediately so it's never a silent hang
+      let ctxState = 'n/a', audioEl = 'n/a', waOK = false;
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC){
+          const ctx = new AC();
+          // Do NOT await resume(): before a user gesture Chrome leaves that promise pending forever.
+          // Fire it, wait briefly, then read the state — 'running' means autoplay is permitted.
+          if (ctx.state === 'suspended'){ try { ctx.resume(); } catch(e){} }
+          await new Promise(r => setTimeout(r, 250));
+          ctxState = ctx.state; waOK = (ctx.state === 'running');
+          if (waOK){
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            g.gain.value = 0.00001; o.frequency.value = 220;      // effectively inaudible
+            o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.15);
+          }
+        }
+      } catch(e){ ctxState = 'err:' + e.name; }
+      try {
+        const a = new Audio(silentWav(1)); a.volume = 0.00001;
+        const p = a.play();
+        if (p && p.then){
+          audioEl = await Promise.race([
+            p.then(()=>'played').catch(e=>'blocked:' + e.name),
+            new Promise(r => setTimeout(()=>r('timeout'), 500))
+          ]);
+        } else audioEl = 'played';
+      } catch(e){ audioEl = 'err:' + e.name; }
+      const good = waOK || audioEl === 'played';
+      badge((good
+          ? '🔊 Autoplay OK — music can start on the menu with no tap'
+          : '🔇 Autoplay blocked — a tap is needed (native audio required for menu-on-launch)')
+        + '  [ctx:' + ctxState + ' · audio:' + audioEl + ']', good);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+    else run();
+  })();
+  // ---- end MENU AUTOPLAY PROBE ----------------------------------------------------------------
+
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
   const WEB_VERSION = 4;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
