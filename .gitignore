@@ -50,3 +50,4 @@ src/web/index.html.pre-*
 
 # temp diff artifacts
 build/tmp_*.html
+build/unsigned_shell.apk
