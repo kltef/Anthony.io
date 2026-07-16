@@ -254,18 +254,20 @@
   #dlToast.gone { display: none !important; }
   .dl-icon { font-size: 22px; flex: none; }
 
-  /* "New update available!" banner (self-update — see initUpdates) */
+  /* "New update available!" card, with changelog (self-update — see initUpdates) */
   #updateBanner { position: fixed; top: calc(48px + var(--sat)); left: 50%;
     transform: translateX(-50%) translateY(-24px); background: var(--white); border: 3px solid var(--ink);
-    border-radius: 999px; padding: 7px 8px 7px 16px; z-index: 46; display: none; align-items: center; gap: 10px;
-    box-shadow: 0 4px 0 rgba(46,58,74,.28), 0 10px 28px rgba(21,68,88,.3);
-    opacity: 0; transition: opacity .25s ease, transform .25s ease; max-width: min(360px,94vw); }
+    border-radius: 18px; padding: 14px 18px 16px; z-index: 46; display: none; flex-direction: column; gap: 8px;
+    box-shadow: 0 4px 0 rgba(46,58,74,.28), 0 12px 30px rgba(21,68,88,.32);
+    opacity: 0; transition: opacity .25s ease, transform .25s ease; width: min(300px,92vw); text-align: left; }
   #updateBanner.show { display: flex; opacity: 1; transform: translateX(-50%) translateY(0); }
-  #updateBanner .ub-txt { font-family: var(--font-display); color: var(--ink); font-weight: 700; font-size: 14px; }
+  #updateBanner .ub-title { font-family: var(--font-display); color: var(--ink); font-weight: 800; font-size: 15px; padding-right: 16px; }
+  #updateBanner .ub-notes { margin: 0; padding-left: 18px; color: var(--slate); font-size: 12.5px; line-height: 1.5; max-height: 40vh; overflow: auto; }
+  #updateBanner .ub-notes:empty { display: none; }
   #updateBanner .ub-go { background: var(--coral); color: #fff; border: none; border-radius: 999px;
-    padding: 8px 16px; font-weight: 800; cursor: pointer; font-family: var(--font-display); }
+    padding: 9px 16px; font-weight: 800; cursor: pointer; font-family: var(--font-display); align-self: stretch; margin-top: 2px; }
   #updateBanner .ub-go[disabled] { opacity: .7; cursor: default; }
-  #updateBanner .ub-x { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--slate); padding: 0 6px; }
+  #updateBanner .ub-x { position: absolute; top: 7px; right: 11px; background: none; border: none; font-size: 18px; cursor: pointer; color: var(--slate); line-height: 1; }
   .dl-body { flex: 1; min-width: 0; }
   .dl-title { color: var(--green-text); font-weight: 800; font-size: 13px; margin-bottom: 1px; }
   .dl-file { color: var(--slate); font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -531,9 +533,10 @@
   <button class="dl-close" id="dlToastClose">×</button>
 </div>
 <div id="updateBanner">
-  <span class="ub-txt">🎉 New update available!</span>
-  <button class="ub-go" id="updateGo">Update</button>
   <button class="ub-x" id="updateX" aria-label="dismiss">×</button>
+  <div class="ub-title">🎉 New update available</div>
+  <ul class="ub-notes" id="updateNotes"></ul>
+  <button class="ub-go" id="updateGo">Update now</button>
 </div>
 
 <script src="d3.min.js"></script>
@@ -5341,7 +5344,7 @@
   //   * a bridge-less packaged build that can't actually apply an update: the banner never shows, so
   //     it never promises something it can't deliver.
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 2;
+  const WEB_VERSION = 3;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }
@@ -5370,7 +5373,14 @@
           if ((+j.apk||0) > (+seen||0)) pending = { kind:'apk', url:j.apkUrl, apk:+j.apk };
         }
         if (!pending && (+j.web||0) > WEB_VERSION) pending = { kind:'web' };
-        if (pending) banner.classList.add('show');
+        if (pending){
+          // populate the changelog from the manifest's "notes" (string or array of lines)
+          const notesEl = document.getElementById('updateNotes');
+          if (notesEl){ notesEl.innerHTML='';
+            const notes = Array.isArray(j.notes) ? j.notes : (j.notes ? [j.notes] : []);
+            for (const n of notes){ const li=document.createElement('li'); li.textContent=String(n); notesEl.appendChild(li); } }
+          banner.classList.add('show');
+        }
       } catch(e){ /* offline / manifest missing -> no banner */ }
     }
 

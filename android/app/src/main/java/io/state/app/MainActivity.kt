@@ -74,11 +74,10 @@ class MainActivity : Activity() {
 
         web.loadUrl("https://stateio.local/web/index.html")
 
-        // Silent web-asset OTA on launch: pull a newer game (if published) in the background and
-        // reload into it. This is the frictionless update path — no install screen at all.
-        UpdateManager.checkWebUpdateAsync(this) { updated ->
-            if (updated) runOnUiThread { web.reload() }
-        }
+        // Updates are TAP-TO-APPLY, not silent. The in-game banner (index.html initUpdates) checks
+        // the version manifest, shows a "New update available" card with the changelog, and only
+        // downloads + reloads when the user taps Update (via AndroidHost.updateWebAndReload). So
+        // there is deliberately no auto-download/reload on launch here.
     }
 
     @Deprecated("Deprecated in Java")

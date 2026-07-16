@@ -1,5 +1,11 @@
 {
-  "web": 2,
+  "web": 3,
+  "notes": [
+    "Tap to update, with a changelog (like this one)",
+    "Correct app icon",
+    "Smoother Scenario mode",
+    "Sharper Easy / Medium / Hard opponents"
+  ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": ["index.html", "gnn_policy.json", "rl_policy.json"]
 }
