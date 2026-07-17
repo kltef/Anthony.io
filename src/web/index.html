@@ -5421,6 +5421,10 @@
     const buf={}, gnode={}, src={}, cur={}, tgt={};
     BEDS.forEach(b=>{ cur[b]=0; tgt[b]=0; });
     let stingerUntil=0, lastTick=0;
+    // adaptive-switch state machine (smooth/cinematic): a committed bed, a dwell timer before it may
+    // change, and a short combat memory so Battle lingers after a skirmish instead of snapping off.
+    let committed='menu', pending=null, pendingSince=0, lastCombatMs=-1e9;
+    const DWELL_MS=3200, COMBAT_LINGER_MS=4000, XFADE_TAU=0.9;   // hold ~3.2s · battle lingers 4s · slow fades
     let vol=(function(){ const v=parseFloat(lsGet('musicVol')); return isNaN(v)?0.6:Math.max(0,Math.min(1,v)); })();
     let muted=lsGet('musicMuted')==='1';
 
@@ -5469,30 +5473,59 @@
       } else stingerUntil=(ctx.currentTime*1000)+3500;
     }
 
-    // Pick the target bed from live game state (globals: running/states/troops/myOwner/NEUTRAL).
-    function selectBed(){
-      const nowMs = ctx? ctx.currentTime*1000 : 0;
-      if(typeof running==='undefined' || !running) return (nowMs<stingerUntil) ? null : 'menu';
-      let mine=0, foe=0, myStates=0, tot=0, incoming=0; const orbs=troops.length;
-      for(const s of states){ if(s.owner===NEUTRAL) continue; tot++;
-        if(s.owner===myOwner){ mine+=s.troops; myStates++; } else foe+=s.troops; }
+    // ---- adaptive selection -----------------------------------------------------------------
+    // Judge yourself against your STRONGEST single rival (not the sum of all enemies, so extra weak
+    // opponents don't read as "losing"), blending troop ratio with territory into one 0..1 `lead`.
+    // Enter/exit thresholds are sticky (hysteresis) and a change must persist DWELL_MS before it
+    // commits — so moods hold cinematically. A big incoming assault overrides straight to Cornered
+    // even while you're ahead. Returns one of the four in-match beds.
+    function inMatchBed(nowMs){
+      const eT={}, eS={}; let myStates=0, myTroops=0;              // enemy troops/states by owner
+      for(const s of states){ if(s.owner===NEUTRAL) continue;
+        if(s.owner===myOwner){ myStates++; myTroops+=s.troops; }
+        else { eS[s.owner]=(eS[s.owner]||0)+1; eT[s.owner]=(eT[s.owner]||0)+s.troops; } }
+      let incomingCount=0, incomingTroops=0, myAttacks=0;
       for(const t of troops){ if(t.owner===NEUTRAL) continue;
-        if(t.owner===myOwner) mine+=t.count||0;
-        else { foe+=t.count||0; const d=states[t.targetId]; if(d&&d.owner===myOwner) incoming++; } }
-      const frac=mine/Math.max(1,mine+foe);
-      if(foe<=0) return 'triumph';                                  // no enemy troops left -> winning
-      if(frac>=0.6 && myStates>=Math.max(2,tot*0.5)) return 'triumph';
-      if(frac<=0.3 || (incoming>=3 && frac<0.42)) return 'cornered';
-      if(orbs>0 || frac<0.55) return 'battle';
-      return 'explore';                                             // early spread, little conflict
+        const d=states[t.targetId];
+        if(t.owner===myOwner){ myTroops+=t.count||0;
+          if(d && d.owner!==NEUTRAL && d.owner!==myOwner) myAttacks++; }          // I'm attacking an enemy
+        else { eT[t.owner]=(eT[t.owner]||0)+(t.count||0);
+          if(d && d.owner===myOwner){ incomingCount++; incomingTroops+=t.count||0; } } }  // enemy attacking me
+      let rival=null, rivalT=0; for(const o in eT){ if(eT[o]>rivalT){ rivalT=eT[o]; rival=o; } }
+      const rivalStates = rival!=null ? (eS[rival]||0) : 0;
+      const anyEnemy = Object.keys(eT).length>0 || Object.keys(eS).length>0;
+      const troopRatio = myTroops/Math.max(1, myTroops+rivalT);
+      const territory  = myStates/Math.max(1, myStates+rivalStates);
+      const lead = 0.5*troopRatio + 0.5*territory;                  // 0..1, vs your top rival
+      const bigSiege = incomingTroops>=20 && incomingTroops>=0.5*myTroops;   // major assault inbound
+      if(incomingCount>0 || myAttacks>0) lastCombatMs=nowMs;
+      const recentCombat = (nowMs-lastCombatMs) < COMBAT_LINGER_MS;
+
+      function desired(cur){
+        if(!anyEnemy) return 'triumph';                            // everyone else wiped -> winning
+        if(bigSiege) return 'cornered';                            // override: big attack even if ahead
+        if(lead >= (cur==='triumph' ? 0.60 : 0.66)) return 'triumph';   // clearly winning (~2:1); sticky
+        if(lead <= (cur==='cornered' ? 0.40 : 0.34)) return 'cornered'; // clearly losing (~1:2); sticky
+        return recentCombat ? 'battle' : 'explore';
+      }
+      const raw = desired(committed);
+      if(raw===committed){ pending=null; return committed; }
+      if(raw==='cornered' && bigSiege){ committed='cornered'; pending=null; return committed; }  // instant override
+      if(pending!==raw){ pending=raw; pendingSince=nowMs; }         // start the dwell timer
+      else if(nowMs-pendingSince >= DWELL_MS){ committed=raw; pending=null; }   // commit after the hold
+      return committed;
     }
 
-    // Called every frame from loop(): ease each bed's gain toward its target (equal-ish crossfade).
+    // Every frame: choose the target bed, then ease all bed gains toward it (slow cinematic crossfade).
     function tick(){
       if(!ctx) return;
-      const now=ctx.currentTime, dt=Math.min(0.1, lastTick? now-lastTick : 0.016); lastTick=now;
-      const sel=selectBed();                                        // null = beds silent (stinger)
-      const k=1-Math.exp(-dt/0.6);                                  // ~0.6s time-constant crossfade
+      const now=ctx.currentTime, dt=Math.min(0.1, lastTick? now-lastTick : 0.016), nowMs=now*1000; lastTick=now;
+      let sel;
+      if(typeof running==='undefined' || !running){
+        committed='explore'; pending=null;                         // reset the machine for the next match
+        sel = (nowMs<stingerUntil) ? null : 'menu';                // null = all beds silent (stinger ringing)
+      } else sel = inMatchBed(nowMs);
+      const k=1-Math.exp(-dt/XFADE_TAU);
       for(const b of BEDS){
         tgt[b] = (sel===b) ? 1 : 0;
         cur[b] += (tgt[b]-cur[b])*k;
@@ -5505,7 +5538,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 5;
+  const WEB_VERSION = 6;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }

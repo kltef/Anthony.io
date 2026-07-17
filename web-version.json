@@ -1,10 +1,10 @@
 {
-  "web": 5,
+  "web": 6,
   "notes": [
-    "🎵 New: adaptive music — the score shifts as the battle turns",
-    "Menu, exploration, battle, triumph and last-stand themes",
-    "Victory / defeat stings when a match ends",
-    "Music volume + on/off in Settings ⚙"
+    "Smarter music: the score now reads the whole board, not just raw troop counts",
+    "Judges you against your strongest rival, so extra weak enemies don't sound like you're losing",
+    "Cinematic — moods hold instead of flip-flopping; a big incoming attack snaps to the last-stand theme",
+    "Battle theme lingers through a fight and eases back to exploration in the lulls"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": ["index.html", "gnn_policy.json", "rl_policy.json", "menu.mp3", "explore.mp3", "battle.mp3", "triumph.mp3", "cornered.mp3", "win.mp3", "lose.mp3"]
