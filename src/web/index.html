@@ -5538,7 +5538,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 6;
+  const WEB_VERSION = 7;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }
@@ -5571,8 +5571,23 @@
           // populate the changelog from the manifest's "notes" (string or array of lines)
           const notesEl = document.getElementById('updateNotes');
           if (notesEl){ notesEl.innerHTML='';
-            const notes = Array.isArray(j.notes) ? j.notes : (j.notes ? [j.notes] : []);
-            for (const n of notes){ const li=document.createElement('li'); li.textContent=String(n); notesEl.appendChild(li); } }
+            const addNote = (txt, isHead) => { const li=document.createElement('li');
+              if (isHead){ li.textContent=txt; li.style.cssText='list-style:none;margin-left:-18px;margin-top:7px;font-weight:800;color:var(--ink)'; }
+              else li.textContent=String(txt);
+              notesEl.appendChild(li); };
+            // Per-version history: show every build newer than the installed one, newest first, so
+            // notes from any skipped versions aren't lost. Fall back to flat notes (old manifests / APK).
+            const hist = Array.isArray(j.history) ? j.history : null;
+            if (hist && pending.kind==='web'){
+              hist.filter(h => (+h.web||0) > WEB_VERSION).sort((a,b)=>(+b.web)-(+a.web))
+                  .forEach(h => { addNote('Build ' + h.web, true);
+                    (Array.isArray(h.notes) ? h.notes : (h.notes ? [h.notes] : [])).forEach(n => n && addNote(n)); });
+            }
+            if (!notesEl.children.length){
+              const notes = Array.isArray(j.notes) ? j.notes : (j.notes ? [j.notes] : []);
+              notes.forEach(n => addNote(n));
+            }
+          }
           banner.classList.add('show');
         }
       } catch(e){ /* offline / manifest missing -> no banner */ }

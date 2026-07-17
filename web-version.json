@@ -1,11 +1,74 @@
 {
-  "web": 6,
+  "web": 7,
   "notes": [
-    "Smarter music: the score now reads the whole board, not just raw troop counts",
-    "Judges you against your strongest rival, so extra weak enemies don't sound like you're losing",
-    "Cinematic — moods hold instead of flip-flopping; a big incoming attack snaps to the last-stand theme",
-    "Battle theme lingers through a fight and eases back to exploration in the lulls"
+    "The update card now lists every build's notes since your version, not just the latest",
+    "Full changelog history is kept in the update manifest"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
-  "files": ["index.html", "gnn_policy.json", "rl_policy.json", "menu.mp3", "explore.mp3", "battle.mp3", "triumph.mp3", "cornered.mp3", "win.mp3", "lose.mp3"]
+  "files": ["index.html", "gnn_policy.json", "rl_policy.json", "menu.mp3", "explore.mp3", "battle.mp3", "triumph.mp3", "cornered.mp3", "win.mp3", "lose.mp3"],
+  "history": [
+    {
+      "web": 7,
+      "date": "2026-07-16",
+      "notes": [
+        "The update card now lists every build's notes since your version, not just the latest",
+        "Full changelog history is kept in the update manifest"
+      ]
+    },
+    {
+      "web": 6,
+      "date": "2026-07-16",
+      "notes": [
+        "Smarter music: the score now reads the whole board, not just raw troop counts",
+        "Judges you against your strongest rival, so extra weak enemies don't sound like you're losing",
+        "Cinematic — moods hold instead of flip-flopping; a big incoming attack snaps to the last-stand theme",
+        "Battle theme lingers through a fight and eases back to exploration in the lulls"
+      ]
+    },
+    {
+      "web": 5,
+      "date": "2026-07-16",
+      "notes": [
+        "🎵 New: adaptive music — the score shifts as the battle turns",
+        "Menu, exploration, battle, triumph and last-stand themes",
+        "Victory / defeat stings when a match ends",
+        "Music volume + on/off in Settings ⚙"
+      ]
+    },
+    {
+      "web": 4,
+      "date": "2026-07-16",
+      "notes": [
+        "New: Settings ⚙ — turn off Adjacent-only movement for classic send-anywhere play",
+        "Online now auto-detects the server (no more P2P toggle)",
+        "Smoother Scenario mode",
+        "Sharper Easy / Medium / Hard opponents"
+      ]
+    },
+    {
+      "web": 3,
+      "date": "2026-07-16",
+      "notes": [
+        "Tap to update, with a changelog (like this one)",
+        "Correct app icon",
+        "Smoother Scenario mode",
+        "Sharper Easy / Medium / Hard opponents"
+      ]
+    },
+    {
+      "web": 2,
+      "date": "2026-07-16",
+      "notes": [
+        "In-app build indicator so you can see the live web version",
+        "Real launcher icon"
+      ]
+    },
+    {
+      "web": 1,
+      "date": "2026-07-16",
+      "notes": [
+        "Over-the-air web updates enabled"
+      ]
+    }
+  ]
 }
