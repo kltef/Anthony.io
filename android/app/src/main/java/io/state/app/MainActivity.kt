@@ -80,6 +80,19 @@ class MainActivity : Activity() {
         // there is deliberately no auto-download/reload on launch here.
     }
 
+    // Foreground/background: pausing the WebView stops it burning CPU off-screen AND makes the JS
+    // Page Visibility API accurate, so the game's visibilitychange handler (which suspends the music)
+    // fires reliably. The rAF-driven sim already halts when hidden.
+    override fun onPause() {
+        super.onPause()
+        web.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        web.onResume()
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (web.canGoBack()) web.goBack() else moveTaskToBack(true)

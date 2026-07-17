@@ -5420,7 +5420,7 @@
     let ctx=null, master=null, t0=null, ready=false;
     const buf={}, gnode={}, src={}, cur={}, tgt={};
     BEDS.forEach(b=>{ cur[b]=0; tgt[b]=0; });
-    let stingerUntil=0, lastTick=0;
+    let stingerUntil=0, lastTick=0, suspendedByHide=false;
     // adaptive-switch state machine (smooth/cinematic): a committed bed, a dwell timer before it may
     // change, and a short combat memory so Battle lingers after a skirmish instead of snapping off.
     let committed='menu', pending=null, pendingSince=0, lastCombatMs=-1e9;
@@ -5457,6 +5457,11 @@
       ensure(); if(ctx&&ctx.state==='suspended') ctx.resume();   // may stay suspended till a gesture
       const g=()=>{ ensure(); if(ctx&&ctx.state==='suspended') ctx.resume(); };
       ['pointerdown','touchstart','keydown','click'].forEach(e=>window.addEventListener(e,g,{passive:true}));
+      document.addEventListener('visibilitychange', ()=>{         // pause the score when the app leaves the foreground
+        if(!ctx) return;
+        if(document.hidden){ if(ctx.state==='running'){ suspendedByHide=true; ctx.suspend(); } }
+        else if(suspendedByHide){ suspendedByHide=false; ctx.resume(); }   // resume only if WE paused it
+      });
       (function raf(){ tick(); requestAnimationFrame(raf); })();  // always-on: drives menu + in-game
     }
     function setVolume(v){ vol=Math.max(0,Math.min(1,v)); lsSet('musicVol',String(vol)); if(master&&!muted) master.gain.value=vol; }
@@ -5538,7 +5543,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 7;
+  const WEB_VERSION = 8;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }
