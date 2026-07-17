@@ -113,6 +113,45 @@ need another rebuild.
 
 ---
 
+## Deep-dive: Play Games leaderboards vs. our server leaderboard
+
+A recurring question: *"Can an app that isn't on the Play Store use Google Play Games
+leaderboards?"* Short answer: **testing yes, public no, and it's native either way.**
+
+**What works with a sideloaded (off-Store) build — for a fixed tester list:**
+1. A Google Play **Console** developer account ($25 one-time).
+2. A Play Games Services project with an **app entry linked** for `io.state.app` (the entry
+   must exist in the Console; it need not be published to production).
+3. Your **signing cert SHA-1 registered** in the OAuth credentials — the testkey cert works,
+   as long as the installed APK is signed with it (our same-key rule).
+4. Each tester's **Google account added to the PGS tester list**.
+5. The device must have **Google Play Services** (any normal Google-certified phone; a
+   de-Googled phone or bare emulator won't work).
+
+**Where it stops:**
+- To open leaderboards to *anyone* (not just listed testers) you must **publish the PGS
+  configuration**, which Google ties to publishing the app on Play (at least a closed/internal
+  track). A never-on-Play app can only serve Play leaderboards to listed testers.
+- **It's a native SDK** — not callable from the WebView. Needs the Play Games SDK in the
+  Kotlin shell + a bridge method ⇒ **shell rebuild**, and GMS-only devices.
+
+**Recommendation for this app:** we already have a custom server leaderboard
+(`/api/leaderboard`, the "Leaderboard" button). For a sideloaded, off-Store build it's the
+better fit on every axis:
+
+| | Custom server leaderboard | Play Games leaderboard |
+|---|---|---|
+| Setup | None — already wired | Play Console + OAuth + SHA-1 + testers |
+| Ships via | **OTA** (pure web) | **Shell rebuild** (native SDK + bridge) |
+| Works on | Any device, any distribution | Only Google-Play-Services devices |
+| Public off-Store | ✅ Yes | ❌ Testers only unless on Play |
+| Control | Everything (design, rules, anti-cheat) | Google's overlay/format |
+
+Reach for Play Games leaderboards only if you specifically want the Play social overlay
+**and** plan to distribute on the Store. Otherwise, build out the server leaderboard.
+
+---
+
 ## Current concrete constraints (don't get bitten)
 
 1. **OTA files must be listed** in `web-version.json` → `files[]`. If the game references a
