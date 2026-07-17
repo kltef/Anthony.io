@@ -471,6 +471,12 @@
     <input type="checkbox" id="adjToggle" style="width:22px;height:22px"> Adjacent-only movement
   </label>
   <p class="hint" style="opacity:.7;font-size:12px;margin:8px 0 18px">On = Risk-style (attack neighbours only). Off = classic State.io: send troops to any state. Solo games only.</p>
+  <div style="height:1px;background:#e6ebf2;margin:2px 0 16px"></div>
+  <label style="display:flex;align-items:center;gap:12px;justify-content:center;cursor:pointer;color:var(--ink);font-weight:700">
+    <input type="checkbox" id="musicToggle" style="width:22px;height:22px"> Music
+  </label>
+  <input type="range" id="musicVol" min="0" max="100" step="1" style="width:84%;margin:14px 0 2px;accent-color:#2e3a4a">
+  <p class="hint" style="opacity:.7;font-size:12px;margin:4px 0 18px">Adaptive score that follows the battle.</p>
   <button class="btn" id="settingsClose">Done</button>
 </div>
 <div id="lbPanel" class="gone">
@@ -1343,6 +1349,7 @@
     introText.style.display = 'none';
     resultText.textContent = won ? 'VICTORY!' : 'DEFEAT';
     resultText.style.color = won ? '#38c46f' : '#ef5b52';
+    if (typeof Music!=='undefined') Music.stinger(won);
     startBtn.textContent = 'Play Again';
     lastCoinAward = 0;
     recordResult(won);
@@ -4517,9 +4524,21 @@
   const settingsPanel = document.getElementById('settingsPanel');
   const adjToggle = document.getElementById('adjToggle');
   const settingsClose = document.getElementById('settingsClose');
+  const musicToggle = document.getElementById('musicToggle');
+  const musicVol = document.getElementById('musicVol');
   if (settingsBtn && settingsPanel){
-    settingsBtn.onclick = () => { if (adjToggle) adjToggle.checked = adjacencyMode; settingsPanel.classList.remove('gone'); };
+    settingsBtn.onclick = () => {
+      if (adjToggle) adjToggle.checked = adjacencyMode;
+      // sync the music controls to current state each time the panel opens (Music is defined by now)
+      if (typeof Music!=='undefined'){
+        if (musicToggle) musicToggle.checked = !Music.isMuted();
+        if (musicVol) musicVol.value = Math.round(Music.getVolume()*100);
+      }
+      settingsPanel.classList.remove('gone');
+    };
     if (adjToggle) adjToggle.onchange = () => { adjacencyMode = adjToggle.checked; lsSet('adjacencyMode', adjacencyMode ? 'on' : 'off'); };
+    if (musicToggle) musicToggle.onchange = () => { if (typeof Music!=='undefined') Music.setMuted(!musicToggle.checked); };
+    if (musicVol) musicVol.oninput = () => { if (typeof Music!=='undefined') Music.setVolume(parseInt(musicVol.value,10)/100); };
     if (settingsClose) settingsClose.onclick = () => settingsPanel.classList.add('gone');
   }
 
@@ -4695,6 +4714,7 @@
     const win = r && r.winnerOwner===myOwner;
     resultText.textContent = win ? 'YOU WIN!' : ((r&&r.winner?r.winner:'Someone')+' wins');
     resultText.style.color = win ? '#38c46f' : '#f0c24a';
+    if (typeof Music!=='undefined') Music.stinger(!!win);
     nnBtn.classList.remove('gone');
     recordResult(!!win);
   }
@@ -4738,6 +4758,7 @@
     const youWon = winner===PLAYER;
     resultText.textContent = youWon ? 'YOU WIN!' : (winner!=null ? ownerName(winner)+' wins' : 'Draw');
     resultText.style.color = youWon ? '#38c46f' : '#f0c24a';
+    if (typeof Music!=='undefined') Music.stinger(youWon);
     recordResult(youWon);
   }
   function ownerName(o){
@@ -5177,6 +5198,7 @@
     if (winner==null){ resultText.textContent='STALEMATE'; resultText.style.color='#cdd9ea'; }
     else if (winner===PLAYER && !scenarioObserver){ resultText.textContent='VICTORY!'; resultText.style.color='#38c46f'; }
     else { resultText.textContent=(COLOR_NAMES[winner]||('Team '+winner))+' wins!'; resultText.style.color=COLORS[winner]||'#fff'; }
+    if (typeof Music!=='undefined') Music.stinger(winner===PLAYER && !scenarioObserver);
   }
 
   buildScnRegionButtons(); buildScnLevelButtons(); buildScnPresets(); renderScn();
@@ -5387,78 +5409,103 @@
   //   * plain browser: a hard reload picks up whatever the server now serves.
   //   * a bridge-less packaged build that can't actually apply an update: the banner never shows, so
   //     it never promises something it can't deliver.
-  // ---- TEMPORARY: menu autoplay probe ---------------------------------------------------------
-  // Answers one question before we build the music system: can audio START on the menu with NO tap?
-  // The shell sets mediaPlaybackRequiresUserGesture=false, so in-app it very likely can (a plain
-  // browser will still block until a gesture). Shows a small badge bottom-left with the verdict.
-  // Delete this whole block once we've decided Web-Audio vs native. (search: MENU AUTOPLAY PROBE)
-  (function menuAutoplayProbe(){
-    function badge(msg, ok){
-      let b = document.getElementById('audioProbe');
-      if (!b){
-        b = document.createElement('div'); b.id = 'audioProbe';
-        b.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;font:12px/1.35 system-ui,'
-          + 'sans-serif;padding:7px 10px;border-radius:8px;color:#fff;max-width:80vw;'
-          + 'box-shadow:0 2px 10px #0008;pointer-events:none';
-        (document.body || document.documentElement).appendChild(b);
+  // ================= MUSIC — adaptive crossfade director =======================================
+  // Web-Audio background score. The looping beds (menu/explore/battle/triumph/cornered) all share
+  // A-minor / 120 BPM and are PHASE-ALIGNED to a common origin, so we only ever crossfade their
+  // gains and transitions land on the beat. win/lose are one-shot stingers layered on top. Autoplays
+  // where the shell allows it (mediaPlaybackRequiresUserGesture=false); otherwise unlocks on the
+  // first user gesture. Purely client-side presentation — never touches the sim or MP snapshots.
+  const Music = (function(){
+    const BEDS = ['menu','explore','battle','triumph','cornered'];   // looping, gain-crossfaded
+    let ctx=null, master=null, t0=null, ready=false;
+    const buf={}, gnode={}, src={}, cur={}, tgt={};
+    BEDS.forEach(b=>{ cur[b]=0; tgt[b]=0; });
+    let stingerUntil=0, lastTick=0;
+    let vol=(function(){ const v=parseFloat(lsGet('musicVol')); return isNaN(v)?0.6:Math.max(0,Math.min(1,v)); })();
+    let muted=lsGet('musicMuted')==='1';
+
+    function ensure(){
+      if (ctx) return;
+      const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+      ctx=new AC();
+      master=ctx.createGain(); master.gain.value=muted?0:vol; master.connect(ctx.destination);
+      ['menu','explore','battle','triumph','cornered','win','lose'].forEach(load);
+    }
+    function load(name){
+      fetch(name+'.mp3').then(r=>r.ok?r.arrayBuffer():Promise.reject(r.status)).then(ab=>
+        new Promise((res,rej)=>ctx.decodeAudioData(ab,res,rej))
+      ).then(b=>{ buf[name]=b; if(BEDS.includes(name)) startBed(name); ready=true; })
+       .catch(()=>{ /* missing/failed file -> that cue simply never plays */ });
+    }
+    // Start a bed looping, phase-aligned to t0 no matter when its buffer finished decoding.
+    function startBed(name){
+      if(!ctx||!buf[name]||src[name]) return;
+      if(t0===null) t0=ctx.currentTime+0.06;
+      const s=ctx.createBufferSource(); s.buffer=buf[name]; s.loop=true;
+      const g=ctx.createGain(); g.gain.value=cur[name]||0;
+      s.connect(g).connect(master);
+      const now=ctx.currentTime, dur=buf[name].duration;
+      if(now<=t0) s.start(t0,0);
+      else s.start(now, ((now-t0)%dur));            // resume mid-loop so every bed shares one clock
+      src[name]=s; gnode[name]=g;
+    }
+    function boot(){
+      ensure(); if(ctx&&ctx.state==='suspended') ctx.resume();   // may stay suspended till a gesture
+      const g=()=>{ ensure(); if(ctx&&ctx.state==='suspended') ctx.resume(); };
+      ['pointerdown','touchstart','keydown','click'].forEach(e=>window.addEventListener(e,g,{passive:true}));
+      (function raf(){ tick(); requestAnimationFrame(raf); })();  // always-on: drives menu + in-game
+    }
+    function setVolume(v){ vol=Math.max(0,Math.min(1,v)); lsSet('musicVol',String(vol)); if(master&&!muted) master.gain.value=vol; }
+    function setMuted(m){ muted=!!m; lsSet('musicMuted',muted?'1':'0'); if(master) master.gain.value=muted?0:vol; }
+    function getVolume(){ return vol; } function isMuted(){ return muted; }
+
+    function stinger(won){
+      const name=won?'win':'lose';
+      if(!ctx) return;
+      if(buf[name]){
+        const s=ctx.createBufferSource(); s.buffer=buf[name];
+        const g=ctx.createGain(); g.gain.value=1; s.connect(g).connect(master); s.start(0);
+        stingerUntil=ctx.currentTime*1000 + buf[name].duration*1000 - 400;   // duck beds while it rings
+      } else stingerUntil=(ctx.currentTime*1000)+3500;
+    }
+
+    // Pick the target bed from live game state (globals: running/states/troops/myOwner/NEUTRAL).
+    function selectBed(){
+      const nowMs = ctx? ctx.currentTime*1000 : 0;
+      if(typeof running==='undefined' || !running) return (nowMs<stingerUntil) ? null : 'menu';
+      let mine=0, foe=0, myStates=0, tot=0, incoming=0; const orbs=troops.length;
+      for(const s of states){ if(s.owner===NEUTRAL) continue; tot++;
+        if(s.owner===myOwner){ mine+=s.troops; myStates++; } else foe+=s.troops; }
+      for(const t of troops){ if(t.owner===NEUTRAL) continue;
+        if(t.owner===myOwner) mine+=t.count||0;
+        else { foe+=t.count||0; const d=states[t.targetId]; if(d&&d.owner===myOwner) incoming++; } }
+      const frac=mine/Math.max(1,mine+foe);
+      if(foe<=0) return 'triumph';                                  // no enemy troops left -> winning
+      if(frac>=0.6 && myStates>=Math.max(2,tot*0.5)) return 'triumph';
+      if(frac<=0.3 || (incoming>=3 && frac<0.42)) return 'cornered';
+      if(orbs>0 || frac<0.55) return 'battle';
+      return 'explore';                                             // early spread, little conflict
+    }
+
+    // Called every frame from loop(): ease each bed's gain toward its target (equal-ish crossfade).
+    function tick(){
+      if(!ctx) return;
+      const now=ctx.currentTime, dt=Math.min(0.1, lastTick? now-lastTick : 0.016); lastTick=now;
+      const sel=selectBed();                                        // null = beds silent (stinger)
+      const k=1-Math.exp(-dt/0.6);                                  // ~0.6s time-constant crossfade
+      for(const b of BEDS){
+        tgt[b] = (sel===b) ? 1 : 0;
+        cur[b] += (tgt[b]-cur[b])*k;
+        if(cur[b]<0.0005) cur[b]=0;
+        if(gnode[b]) gnode[b].gain.value = cur[b];
       }
-      b.style.background = ok ? '#134d2b' : '#5a1d1d';
-      b.textContent = msg;
-      try { console.log('[audioProbe]', msg); } catch(e){}
     }
-    function silentWav(sec){
-      const sr = 8000, n = sr*sec, buf = new ArrayBuffer(44 + n*2), v = new DataView(buf);
-      const w = (o,s)=>{ for (let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
-      w(0,'RIFF'); v.setUint32(4,36+n*2,true); w(8,'WAVE'); w(12,'fmt ');
-      v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
-      v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true);
-      v.setUint16(34,16,true); w(36,'data'); v.setUint32(40,n*2,true);
-      let bin = '', u8 = new Uint8Array(buf);
-      for (let i=0;i<u8.length;i++) bin += String.fromCharCode(u8[i]);
-      return 'data:audio/wav;base64,' + btoa(bin);
-    }
-    async function run(){
-      badge('🔎 audio probe…', false);              // show immediately so it's never a silent hang
-      let ctxState = 'n/a', audioEl = 'n/a', waOK = false;
-      try {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (AC){
-          const ctx = new AC();
-          // Do NOT await resume(): before a user gesture Chrome leaves that promise pending forever.
-          // Fire it, wait briefly, then read the state — 'running' means autoplay is permitted.
-          if (ctx.state === 'suspended'){ try { ctx.resume(); } catch(e){} }
-          await new Promise(r => setTimeout(r, 250));
-          ctxState = ctx.state; waOK = (ctx.state === 'running');
-          if (waOK){
-            const o = ctx.createOscillator(), g = ctx.createGain();
-            g.gain.value = 0.00001; o.frequency.value = 220;      // effectively inaudible
-            o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.15);
-          }
-        }
-      } catch(e){ ctxState = 'err:' + e.name; }
-      try {
-        const a = new Audio(silentWav(1)); a.volume = 0.00001;
-        const p = a.play();
-        if (p && p.then){
-          audioEl = await Promise.race([
-            p.then(()=>'played').catch(e=>'blocked:' + e.name),
-            new Promise(r => setTimeout(()=>r('timeout'), 500))
-          ]);
-        } else audioEl = 'played';
-      } catch(e){ audioEl = 'err:' + e.name; }
-      const good = waOK || audioEl === 'played';
-      badge((good
-          ? '🔊 Autoplay OK — music can start on the menu with no tap'
-          : '🔇 Autoplay blocked — a tap is needed (native audio required for menu-on-launch)')
-        + '  [ctx:' + ctxState + ' · audio:' + audioEl + ']', good);
-    }
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
-    else run();
+    return { boot, tick, stinger, setVolume, setMuted, getVolume, isMuted };
   })();
-  // ---- end MENU AUTOPLAY PROBE ----------------------------------------------------------------
+  Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 4;
+  const WEB_VERSION = 5;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }

@@ -54,7 +54,7 @@ dependencies {
 // web files at runtime without a rebuild.
 val syncWebAssets by tasks.registering(Copy::class) {
     from("../../src/web") {
-        include("index.html", "*.json", "*.js", "*.svg")
+        include("index.html", "*.json", "*.js", "*.svg", "*.mp3")
         exclude("*.bak", "*.bak.json", "*.bak.xml", "*.pre-*")
     }
     into("src/main/assets/web")

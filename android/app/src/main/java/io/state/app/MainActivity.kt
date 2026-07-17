@@ -111,6 +111,7 @@ class OtaThenAssetHandler(
         n.endsWith(".html") -> "text/html"
         n.endsWith(".js") -> "text/javascript"
         n.endsWith(".json") -> "application/json"
+        n.endsWith(".mp3") -> "audio/mpeg"
         n.endsWith(".svg") -> "image/svg+xml"
         n.endsWith(".css") -> "text/css"
         else -> "application/octet-stream"

@@ -1,11 +1,11 @@
 {
-  "web": 4,
+  "web": 5,
   "notes": [
-    "New: Settings ⚙ — turn off Adjacent-only movement for classic send-anywhere play",
-    "Online now auto-detects the server (no more P2P toggle)",
-    "Smoother Scenario mode",
-    "Sharper Easy / Medium / Hard opponents"
+    "🎵 New: adaptive music — the score shifts as the battle turns",
+    "Menu, exploration, battle, triumph and last-stand themes",
+    "Victory / defeat stings when a match ends",
+    "Music volume + on/off in Settings ⚙"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
-  "files": ["index.html", "gnn_policy.json", "rl_policy.json"]
+  "files": ["index.html", "gnn_policy.json", "rl_policy.json", "menu.mp3", "explore.mp3", "battle.mp3", "triumph.mp3", "cornered.mp3", "win.mp3", "lose.mp3"]
 }
