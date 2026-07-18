@@ -1,7 +1,7 @@
 {
-  "web": 10,
+  "web": 11,
   "notes": [
-    "Nightmare / Nightmare+ won't capture territory they can't hold against an adjacent enemy"
+    "Restored the v2.2 AI: the planner is back on the original pure-JS engine (the deeper WASM search was over-committing and over-extending)"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 11,
+      "date": "2026-07-18",
+      "notes": [
+        "Restored the v2.2 AI: the planner is back on the original pure-JS engine (the deeper WASM search was over-committing and over-extending)"
+      ]
+    },
     {
       "web": 10,
       "date": "2026-07-18",
