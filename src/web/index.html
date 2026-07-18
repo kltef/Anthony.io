@@ -732,12 +732,13 @@
     // attention spotlight can service), and the opponent model warm-started + driving the search
     // tree. Stats stay 100% symmetric: it out-thinks, out-clicks, and has read your file — it
     // never out-cheats. Opt-in only: excluded from the auto-difficulty ladder (noAuto).
-    // Ω2 recalibration (nightmare_omega.md, post-WASM): the 5.5x engine moved the latency floor,
-    // so the dials move to it — 0.15s cadence with 120ms plans still searches deeper than
-    // pre-WASM Nightmare did at 240ms, while acting nearly twice as fast. Salvo 8 = attention
-    // pressure at map scale. Calibrated 2026-07-15 (60/60 vs the tester-profile bot).
-    { name:'Nightmare+', enemies:1, aiSpeed:0.15, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true,
-      planDt:0.25, mctsK:9, tbudget:4000, workerMs:120, hunt:0.7, multiMove:8, attnPressure:1.0, personal:true, noAuto:true },
+    // Ω2 recalibration (nightmare_omega.md, post-WASM): the 5.5x engine moved the latency floor.
+    // 2026-07-18 override (play-tester feedback: it grabbed territory it couldn't hold): trade the
+    // fast-cadence identity for DEPTH — a ~1s search per decision so it looks far enough ahead to
+    // see the recapture. Cadence raised in lockstep (aiSpeed 0.15 -> 1.0) so it stays PLAN-bound,
+    // not latency-bound (a latency-bound tier loses — measured 2026-07-04). Salvo 8 unchanged.
+    { name:'Nightmare+', enemies:1, aiSpeed:1.0, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true,
+      planDt:0.25, mctsK:9, tbudget:4000, workerMs:1000, hunt:0.7, multiMove:8, attnPressure:1.0, personal:true, noAuto:true },
   ];
   let levelIdx = 0;
 
@@ -5543,7 +5544,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 8;
+  const WEB_VERSION = 9;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }

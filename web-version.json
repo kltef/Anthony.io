@@ -1,7 +1,7 @@
 {
-  "web": 8,
+  "web": 9,
   "notes": [
-    "Music now pauses when you leave the app and picks back up when you return"
+    "Nightmare+ now thinks ~1s per move (deeper search) so it stops taking territory it can't hold"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 9,
+      "date": "2026-07-18",
+      "notes": [
+        "Nightmare+ now thinks ~1s per move (deeper search) so it stops taking territory it can't hold"
+      ]
+    },
     {
       "web": 8,
       "date": "2026-07-16",
