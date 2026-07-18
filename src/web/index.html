@@ -2457,6 +2457,18 @@
     // Every commit passes the same guards as the classic single-move path: ignore a stale/
     // relocated source, and don't instantly flee a freshly-threatened state (REACT_DELAY).
     const kMax = (LEVELS[levelIdx] && LEVELS[levelIdx].multiMove) || 1;
+    // Defensibility guard (planner tiers — Nightmare / Nightmare+): refuse a capture we'd immediately
+    // lose to an adjacent enemy. Stops the AI donating troops to grab a border state the human just
+    // recaptures — the exact "took it but couldn't hold it" mistake. Reinforcing our own is always OK.
+    const canHold = (s, t, frac) => {
+      if (t.owner === owner) return true;                 // reinforcing an owned state, not a capture
+      const garrison = Math.floor(s.troops * (frac != null ? frac : 1)) - t.troops;   // left holding t
+      if (garrison <= 0) return true;                     // this send won't actually capture anyway
+      let threat = 0;                                     // biggest single adjacent enemy that could recapture
+      for (const nid of (adjacency[t.id] || [])){ const n = states[nid];
+        if (n && n.owner !== NEUTRAL && n.owner !== owner) threat = Math.max(threat, n.troops); }
+      return garrison >= threat;                          // hold only if we out-garrison that neighbour
+    };
     let noopV = -1; const mvCands = [];
     for (const k in agg.tally){ const c = agg.tally[k];
       if (k === 'noop') noopV = c.visits; else mvCands.push(c); }
@@ -2468,6 +2480,7 @@
       const mv = c.move, s = states[mv[0]], t = states[mv[1]];
       if (!s || !t || s === t || s.owner !== owner || freshThreat(s)) continue;
       if (usedSrc.has(mv[0]) || usedTgt.has(mv[1])) continue;   // one send per source; no same-tick dogpile
+      if (!canHold(s, t, mv[2])) continue;                // defensibility guard: skip un-holdable grabs
       sendTroops(s, t, null, mv[2]);                      // mv[2] = split fraction (undefined => all)
       usedSrc.add(mv[0]); usedTgt.add(mv[1]); committed++;
     }
@@ -5544,7 +5557,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 9;
+  const WEB_VERSION = 10;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }
