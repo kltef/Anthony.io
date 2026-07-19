@@ -106,7 +106,9 @@ def _train(a, log, extra, env_extra=None):
             '--script-mix', str(a.script_mix)]
     if a.device:
         base += ['--device', a.device]
-    return detach(base + extra, log, env_extra)
+    env = {'DEPTH_RULES': '1'}   # train under the SHIPPED game's rules (depth v2, build 13+):
+    env.update(env_extra or {})  # inherited by every arena subprocess (data-gen AND internal gates)
+    return detach(base + extra, log, env)
 
 
 def phase3(a):

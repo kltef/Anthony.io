@@ -38,6 +38,7 @@ LEAGUE = ['script:turtle', 'script:rush', 'script:econ', 'script:farmer', 'scrip
 def arena(a, b, games, budget, gamecap=None, extra_env=None):
     """Run one arena match, return side A's win-rate (parses 'FINAL: A won X/N')."""
     env = os.environ.copy()
+    env['DEPTH_RULES'] = '1'   # gate under the SHIPPED game's rules (depth v2, build 13+)
     if gamecap:
         env['GAMECAP'] = str(gamecap)
     if extra_env:

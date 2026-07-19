@@ -188,12 +188,58 @@ function genBoard(N, owners){
   }
   return { n:N, cx, cy, owner, troops, armies:[], rlDiag, adj };
 }
+// DEPTH_RULES=1: play under the shipped game's depth mechanics (build 13+) — Lanchester-1.5
+// combat, terrain gradient, supply lines (40% growth + 0.85x defence off-core), quadratic
+// over-cap attrition, neutral restock. Mirrors index.html's depth-mode sim (CONTRACT) so the
+// net trains on the game the tester actually plays. Invest is NOT modelled here (no seat uses
+// it in the arena); classic physics remain the default so old measurements stay comparable.
+const DEPTH_RULES = !!+(process.env.DEPTH_RULES||0);
+const LANCH = 1.5;
+function terrM(env, i){ const d=env.adj[i].length; return d<=2?1.4:d===3?1.2:1; }
+function recomputeSupply(env){
+  const sup = env._sup || (env._sup = new Array(env.n).fill(false));
+  sup.fill(false);
+  const byOwner = {};
+  for (let i=0;i<env.n;i++) if (env.owner[i]!==0) (byOwner[env.owner[i]] = byOwner[env.owner[i]]||[]).push(i);
+  for (const o in byOwner){
+    const ids=byOwner[o]; if (ids.length<=1) continue;
+    const own=new Set(ids), seen=new Set(), comps=[];
+    for (const id of ids){ if (seen.has(id)) continue;
+      const c=[id]; seen.add(id);
+      for (let q=0;q<c.length;q++) for (const nb of env.adj[c[q]]) if (own.has(nb)&&!seen.has(nb)){ seen.add(nb); c.push(nb); }
+      comps.push(c); }
+    if (comps.length<=1) continue;
+    comps.sort((a,b)=>b.length-a.length);
+    for (let c=1;c<comps.length;c++) for (const id of comps[c]) sup[id]=true;
+  }
+}
 function step(env, dt){
-  for (let i=0;i<env.n;i++) if (env.owner[i]!==0 && env.troops[i]<150) env.troops[i]=Math.min(150, env.troops[i]+1.0*dt);
+  if (DEPTH_RULES){
+    env._supT = (env._supT||0) - dt;
+    if (env._supT<=0){ env._supT = 0.5; recomputeSupply(env); }
+  }
+  const sup = env._sup;
+  for (let i=0;i<env.n;i++){
+    if (env.owner[i]!==0 && env.troops[i]<150){
+      let g = 1.0*dt;
+      if (DEPTH_RULES && sup && sup[i]) g *= 0.4;                         // off-supply growth
+      env.troops[i]=Math.min(150, env.troops[i]+g);
+    }
+    else if (DEPTH_RULES && env.owner[i]!==0 && env.troops[i]>150){       // quadratic over-cap attrition
+      const ex=env.troops[i]-150;
+      env.troops[i]=Math.max(150, env.troops[i]-(0.02*ex*ex/150)*dt);
+    }
+    if (DEPTH_RULES && env.owner[i]===0 && env.troops[i]<30) env.troops[i]+=0.2*dt;   // neutral restock
+  }
   const still=[];
   for (const a of env.armies){ a.t+=dt;
     if (a.t>=a.ttotal){ const ti=a.ti;
       if (env.owner[ti]===a.owner) env.troops[ti]+=a.count;
+      else if (DEPTH_RULES){
+        const tm = terrM(env,ti)*(sup&&sup[ti]?0.85:1), dE = env.troops[ti]*tm;   // Lanchester+terrain+supply
+        if (a.count>dE){ env.owner[ti]=a.owner; env.troops[ti]=Math.pow(Math.pow(a.count,LANCH)-Math.pow(dE,LANCH),1/LANCH); }
+        else env.troops[ti]=Math.pow(Math.pow(dE,LANCH)-Math.pow(a.count,LANCH),1/LANCH)/tm;
+      }
       else { env.troops[ti]-=a.count; if (env.troops[ti]<0){ env.owner[ti]=a.owner; env.troops[ti]=-env.troops[ti]; } } }
     else still.push(a); }
   env.armies=still;
@@ -220,6 +266,7 @@ function buildReq(env, owner, nDecision){
   return { n:env.n, cx:env.cx, cy:env.cy, owner:env.owner.slice(), troops:env.troops.slice(), names:[], adj:env.adj,
     armies:env.armies.map(a=>({ owner:a.owner, count:a.count, ti:a.ti, ttotal:Math.max(0.02, a.ttotal-a.t) })),
     aiSpeed:AISPD, rlDiag:env.rlDiag, orbSpeed:ORB, growRate:1.0, enemyGrow:1.0, hunt:0, desp:0, infight:1,
+    depth:DEPTH_RULES, terr:DEPTH_RULES ? env.owner.map((_,i)=>terrM(env,i)*(env._sup&&env._sup[i]?0.85:1)) : undefined,
     horizon:HORIZON, dt:DT, ownerId:owner, wantViz:false, explore,
     attn:+(process.env.ATTN_PRESSURE||0),   // Nightmare+ Lever 2 test hook (attention-pressure bias)
     oppW: process.env.OPP_W ? JSON.parse(process.env.OPP_W) : undefined,   // Lever 4c test hook
