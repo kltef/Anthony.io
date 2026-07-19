@@ -47,10 +47,14 @@ EPS = 1e-3   # scale of the dormant new-unit weights
 def grow(src_path, out_path, new_dim=64):
     old = G.from_json(src_path)
     assert old.hops == 2, f"growth is written for 2-hop sources (got {old.hops})"
-    assert old.node_feats < G.NODE_FEATS, "source already has the new feature count"
+    assert old.node_feats <= G.NODE_FEATS, "source has MORE features than this build"
     d0, d1 = old.embed_dim, new_dim
     nf0, nf1 = old.node_feats, G.NODE_FEATS
-    assert d1 > d0
+    assert d1 > d0 or nf1 > nf0, "nothing to grow (same feats and same embed)"
+    # d1 == d0 is allowed: FEATURE-ONLY growth (add the 3 v2 node-features, keep embed size) so the
+    # net stays v2.2's speed in the equal-time arena — the exact thing that beat the bigger nets. The
+    # preservation check below is the real guardrail (refuses to write if not function-preserving).
+    assert d1 >= d0, "target embed_dim must be >= the source's"
     new = G.GNNPolicyNet(node_feats=nf1, embed_dim=d1, hops=old.hops,
                          move_feats=old.move_feats, head_dim=old.head_dim, value_head=True)
     s = math.sqrt(d1 / d0)   # Q rescale: cancels the sqrt(dim) attention normalizer change

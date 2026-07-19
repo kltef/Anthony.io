@@ -19,6 +19,7 @@ screen). gate_fader.py is the FINAL check before you copy a candidate into src/w
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -26,8 +27,29 @@ import time
 SCR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCR)
 PY = sys.executable or 'py'
+CHAMPION = os.path.join(ROOT, 'src', 'web', 'gnn_policy.json')   # v2.2 — the warm-start seed
 COUNTER = os.path.join(SCR, 'counter_gnn.json')        # phase 3/4 output candidate
 GROWN = os.path.join(SCR, 'counter_grown.json')        # phase 5 grown-net candidate
+
+
+def seed_from_champion(out):
+    """Warm-start: a challenger from fresh random weights loses to v2.2's lineage on the plateau
+    (proven repeatedly, see FINDINGS.md). So a NEW run starts FROM the champion and only has to
+    improve against Fader. The trainer's build uses 10 node-features (v2); v2.2 has 7, so we bridge
+    with a FEATURE-ONLY net2net growth (embed unchanged -> same arena speed, the thing that beat the
+    bigger nets), function-preserving so it starts playing exactly like v2.2. An existing candidate
+    is left alone so the trainer resumes it."""
+    if os.path.exists(out):
+        print('  resuming existing candidate %s' % os.path.basename(out))
+        return
+    r = subprocess.run([PY, 'tools/grow_net.py', CHAMPION, out, '--dim', '24'],
+                       cwd=ROOT, capture_output=True, text=True)
+    tail = (r.stdout or '').strip().splitlines()[-1:] + (r.stderr or '').strip().splitlines()[-3:]
+    print('\n'.join('    ' + ln for ln in tail))
+    if r.returncode != 0 or not os.path.exists(out):
+        raise SystemExit('seed growth failed — cannot warm-start (see above)')
+    print('  warm-start: grew v2.2 -> 10-feature net (embed 24, function-preserving) -> %s'
+          % os.path.basename(out))
 # fader-heavy league for best-response data generation: fader repeated = oversampled,
 # the classic exploiters stay in so the counter never overfits into something they beat.
 FADER_LEAGUE = 'script:fader,script:fader,script:fader,script:human,script:turtle,script:rush,script:econ'
@@ -90,6 +112,7 @@ def _train(a, log, extra, env_extra=None):
 def phase3(a):
     print('== PHASE 3: best-response training vs the fader bot (detached, GPU) ==')
     a.out = a.out or COUNTER
+    seed_from_champion(a.out)
     _train(a, os.path.join(SCR, 'phase3_train.log'),
            ['--anchor-mix', '0.25', '--long-mix', '0.4', '--long-cap', '240'],
            {'ARENA_SCRIPTS': FADER_LEAGUE})
@@ -99,6 +122,7 @@ def phase3(a):
 def phase4(a):
     print('== PHASE 4: long-game emphasis + honest value retraining (detached, GPU) ==')
     a.out = a.out or COUNTER
+    seed_from_champion(a.out)
     _train(a, os.path.join(SCR, 'phase4_train.log'),
            ['--anchor-mix', '0.25', '--long-mix', '0.6', '--long-cap', '300',
             '--gate-long-mix', '0.7', '--value-retrain-every', '2'],
