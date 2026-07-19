@@ -26,6 +26,11 @@ import re
 import subprocess
 import sys
 
+# Windows consoles default to cp1252, which can't print emoji in changelog bullets —
+# and a print crash here would leave the bump half-done. Degrade output, never crash.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(ROOT, "web-version.json")
 INDEX = os.path.join(ROOT, "src", "web", "index.html")

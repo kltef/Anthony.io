@@ -1,7 +1,7 @@
 {
-  "web": 11,
+  "web": 12,
   "notes": [
-    "Restored the v2.2 AI: the planner is back on the original pure-JS engine (the deeper WASM search was over-committing and over-extending)"
+    "New: Depth mechanics (Settings) — invest troops for permanent growth, highlands defend 1.35x, cut-off states grow slowly, concentrated attacks hit harder"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 12,
+      "date": "2026-07-19",
+      "notes": [
+        "New: Depth mechanics (Settings) — invest troops for permanent growth, highlands defend 1.35x, cut-off states grow slowly, concentrated attacks hit harder"
+      ]
+    },
     {
       "web": 11,
       "date": "2026-07-18",
