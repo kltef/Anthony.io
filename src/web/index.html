@@ -279,6 +279,7 @@
   #investBtn { font-size: 14px !important; }
   #investBtn:not(:disabled) { background: #79c982; color: var(--ink); }
   #airdropBtn { font-size: 14px !important; background: var(--green); color: var(--ink); }
+  #upgradeBtn.armed, #investBtn.armed { background: var(--green) !important; color: var(--ink); }
   #airdropBtn.armed { background: var(--green); color: var(--ink);
     box-shadow: 0 3px 0 var(--ink), 0 0 0 4px var(--gold); }
   .coinline { pointer-events: auto; background: var(--gold); color: var(--ink); border: 2.5px solid var(--ink);
@@ -776,6 +777,8 @@
   let nnVizT = 0;                              // throttle clock for the per-frame NN viz recompute
   let lastTime = 0, selected = null, dragPos = null, pointerDown = false;
   let airArmed = false;   // 🪂 Airdrop is "armed": the next tap on one of your states drops reinforcements there
+  let buildArmed = null;  // '⬆'/'🌱' build mode: 'upgrade'|'invest' — taps on your states apply it (mobile can't
+                          // select-then-button: a state tap starts the drag/send flow, so the buttons arm instead)
   let selSet = [], moved = false;   // states chosen for a joint (combined) attack while dragging
   let aiTimers = {};
   let planSeq2 = {};   // owner -> plans issued this game (Ω4 opening noise window; reset in newGame)
@@ -1358,7 +1361,7 @@
     const lv = LEVELS[levelIdx];
     cfg = lv;
     selectPolicyForLevel();                             // Grandmaster -> flat MLP, Impossible -> GNN net
-    troops = []; selected=null; dragPos=null; airArmed=false; aiTimers={}; planSeq2={}; planPending={}; planEpoch++; resetCam();
+    troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; planSeq2={}; planPending={}; planEpoch++; resetCam();
     startGameLog();
     OppModel.load(playerName);                          // load this player's learned opponent model
     if (netMode!=='host') myOwner = PLAYER;
@@ -4512,6 +4515,14 @@
       }
       refreshHud(); return;
     }
+    // ⬆/🌱 build mode armed: this tap upgrades/invests the tapped state (if yours). Stays armed
+    // so several states can be built in a row; tapping anything else (or the button) disarms.
+    if (buildArmed){
+      if (s && s.owner===myOwner){
+        if (buildArmed==='upgrade') tryUpgrade(s); else tryInvest(s);
+      } else buildArmed = null;
+      hudUpg = hudInv = null; refreshHud(); return;
+    }
     pointerDown=true; moved=false;
     if (s && s.owner===myOwner){ selSet=[s]; dragPos=pos; selected=null; }
     else { selSet=[]; if (selected){ if (s) issueMove(selected,s); selected=null; } }
@@ -5304,7 +5315,7 @@
     selectPolicyForLevel();                             // Grandmaster -> flat MLP, Impossible -> GNN net
     if (regionIdx !== scnRegionIdx){ regionIdx = scnRegionIdx; buildStatesForRegion(); buildRegionButtons(); }
     buildGeo();
-    troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; aiTimers={}; planSeq2={}; planPending={}; planEpoch++; resetCam();
+    troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; buildArmed=null; aiTimers={}; planSeq2={}; planPending={}; planEpoch++; resetCam();
     matchTrack = null;
 
     myOwner = PLAYER;
@@ -5393,25 +5404,24 @@
   const adaptHud = document.getElementById('adaptHud'); let _adaptHudT = 0;
   function refreshHud(){
     if (!upgradeBtn || !airdropBtn) return;
-    // ⬆ Upgrade — visible when a player state is selected and can still be upgraded
-    let uShow=false, uLabel='', uDis=false;
-    if (upgradesOn && running && selected && selected.owner===myOwner && (selected.level||0) < PLAYER_CAP.length-1){
-      const cost = upgradeCost(selected.level||0);
-      uShow=true; uLabel='⬆ Upgrade ('+cost+')'; uDis = selected.troops < cost;
-    }
-    const uKey = uShow ? uLabel+(uDis?'·d':'') : '';
-    if (uKey!==hudUpg){ hudUpg=uKey; upgradeBtn.style.display = uShow?'':'none';
-      if (uShow){ upgradeBtn.textContent=uLabel; upgradeBtn.disabled=uDis; } }
-    // 🌱 Invest (Depth #1) — visible when a player state is selected and can still be invested
+    // ⬆ Upgrade / 🌱 Invest — PERMANENT while playing solo (mobile can't select-then-press: a
+    // state tap starts the drag flow). Press to ARM, then tap your states; a desktop-selected
+    // state still applies instantly on press. Armed shows "tap a state".
+    const uShow = upgradesOn && running && !netMode;
+    const uLabel = !uShow ? '' : (buildArmed==='upgrade') ? '⬆ Tap a state'
+      : (selected && selected.owner===myOwner && (selected.level||0) < PLAYER_CAP.length-1)
+        ? '⬆ Upgrade ('+upgradeCost(selected.level||0)+')' : '⬆ Upgrade';
+    if (uLabel!==hudUpg){ hudUpg=uLabel; upgradeBtn.style.display = uShow?'':'none';
+      if (uShow){ upgradeBtn.textContent=uLabel; upgradeBtn.disabled=false;
+        upgradeBtn.classList.toggle('armed', buildArmed==='upgrade'); } }
     if (investBtn){
-      let iShow=false, iLabel='', iDis=false;
-      if (depthOn() && running && selected && selected.owner===myOwner && (selected.inv||0) < 3){
-        const icost = investCost(selected.inv||0);
-        iShow=true; iLabel='🌱 Invest ('+icost+')'; iDis = selected.troops <= icost;
-      }
-      const iKey = iShow ? iLabel+(iDis?'·d':'') : '';
-      if (iKey!==hudInv){ hudInv=iKey; investBtn.style.display = iShow?'':'none';
-        if (iShow){ investBtn.textContent=iLabel; investBtn.disabled=iDis; } }
+      const iShow = depthOn() && running;
+      const iLabel = !iShow ? '' : (buildArmed==='invest') ? '🌱 Tap a state'
+        : (selected && selected.owner===myOwner && (selected.inv||0) < 3)
+          ? '🌱 Invest ('+investCost(selected.inv||0)+')' : '🌱 Invest';
+      if (iLabel!==hudInv){ hudInv=iLabel; investBtn.style.display = iShow?'':'none';
+        if (iShow){ investBtn.textContent=iLabel; investBtn.disabled=false;
+          investBtn.classList.toggle('armed', buildArmed==='invest'); } }
     }
     // 🪂 Airdrop — visible in solo when you own charges. Tap to ARM, then tap a state to drop.
     const aShow = (!netMode && running && PERK.airdrops>0);
@@ -5435,11 +5445,20 @@
       } else if (adaptHud.style.display!=='none'){ adaptHud.style.display='none'; }
     }
   }
-  if (upgradeBtn) upgradeBtn.addEventListener('click', ()=>{ if (tryUpgrade(selected)) refreshHud(); });
-  if (investBtn) investBtn.addEventListener('click', ()=>{ if (tryInvest(selected)) { hudInv=null; refreshHud(); } });
+  // press = apply to the selected state (desktop flow) OR toggle build-arm (mobile flow)
+  if (upgradeBtn) upgradeBtn.addEventListener('click', ()=>{
+    if (selected && tryUpgrade(selected)) { hudUpg=null; }
+    else { buildArmed = (buildArmed==='upgrade') ? null : 'upgrade'; airArmed=false; hudUpg=hudInv=null; }
+    refreshHud();
+  });
+  if (investBtn) investBtn.addEventListener('click', ()=>{
+    if (selected && tryInvest(selected)) { hudInv=null; }
+    else { buildArmed = (buildArmed==='invest') ? null : 'invest'; airArmed=false; hudUpg=hudInv=null; }
+    refreshHud();
+  });
   if (airdropBtn) airdropBtn.addEventListener('click', ()=>{
     if (!running || netMode || PERK.airdrops<=0) return;
-    airArmed = !airArmed; refreshHud();   // arm/disarm; the actual drop happens on the next tap (gameDown)
+    airArmed = !airArmed; buildArmed=null; hudUpg=hudInv=null; refreshHud();   // arm/disarm; the drop happens on the next tap (gameDown)
   });
 
   // ============================ SHOP ============================
@@ -5728,7 +5747,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 13;
+  const WEB_VERSION = 14;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }

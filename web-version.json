@@ -1,11 +1,7 @@
 {
-  "web": 13,
+  "web": 14,
   "notes": [
-    "Depth v2 balance: hoards above the cap now desert faster the bigger they are (a 1000-stack bleeds ~100/s)",
-    "Highlands appear on more maps (gradient up to 1.4x) with a clearer mountain badge",
-    "Cut-off states also fight weaker (0.85x) — and the AI hunts them",
-    "Neutral states slowly restock, so turtling has a clock",
-    "AI opponents invest in their economy properly"
+    "Mobile fix: Upgrade and Invest are now always-on buttons — tap one, then tap your states to build (tap elsewhere to cancel)"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -21,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 14,
+      "date": "2026-07-19",
+      "notes": [
+        "Mobile fix: Upgrade and Invest are now always-on buttons — tap one, then tap your states to build (tap elsewhere to cancel)"
+      ]
+    },
     {
       "web": 13,
       "date": "2026-07-19",
