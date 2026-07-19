@@ -276,6 +276,8 @@
   /* ---- coins & shop ---- */
   #upgradeBtn { font-size: 14px !important; }
   #upgradeBtn:not(:disabled) { background: var(--gold); color: var(--ink); }
+  #investBtn { font-size: 14px !important; }
+  #investBtn:not(:disabled) { background: #79c982; color: var(--ink); }
   #airdropBtn { font-size: 14px !important; background: var(--green); color: var(--ink); }
   #airdropBtn.armed { background: var(--green); color: var(--ink);
     box-shadow: 0 3px 0 var(--ink), 0 0 0 4px var(--gold); }
@@ -357,7 +359,7 @@
 <div id="topbar"><div id="bar"></div></div>
 <div id="adaptHud" style="display:none"></div>
 <div id="zoom"><button id="zoomIn" title="Zoom in">+</button><button id="zoomOut" title="Zoom out">&minus;</button></div>
-<div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="upgradeBtn" title="Upgrade the selected state's troop cap" style="display:none">⬆ Upgrade</button><button id="airdropBtn" title="Drop reinforcements onto the selected state" style="display:none">🪂 Airdrop</button><button id="nnBtn" title="Show the Grandmaster AI's neural network">AI brain</button></div>
+<div id="speed"><button id="speedBtn" title="Game speed">1&times;</button><button id="fracBtn" title="How many troops each tap/drag sends — tap to cycle All / Half / Quarter">Send: All</button><button id="upgradeBtn" title="Upgrade the selected state's troop cap" style="display:none">⬆ Upgrade</button><button id="investBtn" title="Invest troops to permanently boost this state's growth (+40% per tier)" style="display:none">🌱 Invest</button><button id="airdropBtn" title="Drop reinforcements onto the selected state" style="display:none">🪂 Airdrop</button><button id="nnBtn" title="Show the Grandmaster AI's neural network">AI brain</button></div>
 <div id="nnpanel">
   <div id="nntabs">
     <button class="nntab on" data-viz="brain">AI Brain</button>
@@ -471,6 +473,10 @@
     <input type="checkbox" id="adjToggle" style="width:22px;height:22px"> Adjacent-only movement
   </label>
   <p class="hint" style="opacity:.7;font-size:12px;margin:8px 0 18px">On = Risk-style (attack neighbours only). Off = classic State.io: send troops to any state. Solo games only.</p>
+  <label style="display:flex;align-items:center;gap:12px;justify-content:center;cursor:pointer;color:var(--ink);font-weight:700">
+    <input type="checkbox" id="depthToggle" style="width:22px;height:22px"> Depth mechanics
+  </label>
+  <p class="hint" style="opacity:.7;font-size:12px;margin:8px 0 18px">🌱 Invest in growth · ⛰ highlands defend 1.35× · ⚠ cut-off states grow slow · concentrated attacks hit harder. Solo games only.</p>
   <div style="height:1px;background:#e6ebf2;margin:2px 0 16px"></div>
   <label style="display:flex;align-items:center;gap:12px;justify-content:center;cursor:pointer;color:var(--ink);font-weight:700">
     <input type="checkbox" id="musicToggle" style="width:22px;height:22px"> Music
@@ -1164,6 +1170,50 @@
   // send-anywhere movement. Only applies in SOLO (netMode null); multiplayer always forces
   // adjacency on so host and guest stay in sync.
   let adjacencyMode = lsGet('adjacencyMode') !== 'off';
+
+  // ---- DEPTH MECHANICS (Settings toggle, solo-only — netplay keeps classic rules for sync) ----
+  // Four interlocking strategy layers that deepen the game without changing its concept:
+  //   1. INVEST   — spend a state's troops to permanently raise its growth (economy-vs-tempo).
+  //   2. TERRAIN  — chokepoint/peninsula states (<=2 neighbours) defend at 1.35x ("highlands" ⛰).
+  //   3. SUPPLY   — states cut off from your largest connected territory grow at 40% (⚠ badge).
+  //   4. LANCHESTER combat — casualties scale superlinearly (exponent 1.5): one concentrated
+  //      strike beats the same troops trickled in, and defence in depth actually holds.
+  // The planner models #2 and #4 (via req.depth/req.terr — see planWorkerMain CONTRACT); #1/#3
+  // follow the special-tiles precedent (real sim only, not the forward model).
+  let depthMode = lsGet('depthMode') !== 'off';
+  const depthOn = () => depthMode && !netMode;
+  const LANCH = 1.5;                                        // concentration exponent (CONTRACT: worker copy)
+  const terrMult = si => (adjacency[si] && adjacency[si].length<=2) ? 1.35 : 1;
+  const investCost = inv => 25 + inv*15;                    // 25 / 40 / 55 to reach invest tier 1..3
+  const invGrowMult = s => 1 + 0.4*(s.inv||0);              // +40% growth per invest tier
+  function tryInvest(s){
+    if (!depthOn() || !running || !s || s.owner!==myOwner || (s.inv||0)>=3) return false;
+    const cost = investCost(s.inv||0);
+    if (s.troops <= cost) return false;
+    s.troops -= cost; s.inv = (s.inv||0)+1; s.pulse = 1.2; return true;
+  }
+  // supply: BFS the owner's territory into connected components; the largest is the "core",
+  // everything else is off-supply. Recomputed on a 0.5s clock in update() (cheap at N<=56).
+  function recomputeSupply(){
+    const byOwner = {};
+    for (const s of states){ s.offSupply = false; if (s.owner!==NEUTRAL) (byOwner[s.owner] = byOwner[s.owner]||[]).push(s.id); }
+    for (const o in byOwner){
+      const ids = byOwner[o]; if (ids.length<=1) continue;
+      const own = new Set(ids), seen = new Set(), comps = [];
+      for (const id of ids){
+        if (seen.has(id)) continue;
+        const comp=[id]; seen.add(id);
+        for (let q=0;q<comp.length;q++)
+          for (const nb of adjacency[comp[q]]) if (own.has(nb) && !seen.has(nb)){ seen.add(nb); comp.push(nb); }
+        comps.push(comp);
+      }
+      if (comps.length<=1) continue;
+      comps.sort((a,b)=>b.length-a.length);
+      for (let c=1;c<comps.length;c++) for (const id of comps[c]) states[id].offSupply = true;
+    }
+  }
+  let supplyClock = 0, aiInvClock = 0;
+
   let diffMode  = lsGet('diffMode') || '';                                     // '' (unchosen), 'manual', 'auto'
   // the auto-difficulty ladder tops out at the last tier WITHOUT noAuto (Nightmare) — the asymptote
   // tier (Nightmare+) is opt-in only, never something the ladder walks a hot streak into.
@@ -1314,7 +1364,7 @@
     for (const s of states) {
       s.owner = NEUTRAL;
       s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax));
-      s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null;
+      s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null; s.inv = 0; s.offSupply = false;
     }
     const enemyCount = Math.max(1, Math.min((mpEnemies!=null) ? mpEnemies : lv.enemies, states.length-1));
     const starters = [];
@@ -1670,8 +1720,17 @@
       // a Fortress absorbs 25% of an incoming attack (defender's advantage). The tile itself
       // persists through capture, so a captured Capital/Fortress now works for the new owner.
       const dmg = (to.type==='fortress' && to.troops>0) ? Math.round(t.count*TILE.fortress.defense) : t.count;
-      to.troops -= dmg;
-      if (to.troops < 0) { to.owner=t.owner; to.troops=-to.troops; to.pulse=1.2; }
+      if (depthOn()){
+        // Depth #4 (Lanchester) + #2 (terrain): survivors follow (A^L - D^L)^(1/L), so one
+        // concentrated strike beats the same troops trickled in; highlands multiply the
+        // defender's effective strength (divided back out so the bonus never MINTS troops).
+        const tm = terrMult(to.id), defEff = to.troops * tm;
+        if (dmg > defEff){ to.owner = t.owner; to.troops = Math.round(Math.pow(Math.pow(dmg,LANCH)-Math.pow(defEff,LANCH), 1/LANCH)); to.pulse = 1.2; }
+        else to.troops = Math.round(Math.pow(Math.pow(defEff,LANCH)-Math.pow(dmg,LANCH), 1/LANCH) / tm);
+      } else {
+        to.troops -= dmg;
+        if (to.troops < 0) { to.owner=t.owner; to.troops=-to.troops; to.pulse=1.2; }
+      }
     }
   }
 
@@ -1998,6 +2057,12 @@
       a.t += dt;
       if (a.t >= a.ttotal) {
         if (snap.owner[a.ti]===a.owner) snap.troops[a.ti] += a.count;
+        else if (depthOn()){
+          // Depth #4/#2 mirror (CONTRACT: matches arrive() and the worker's snapStep)
+          const tm = terrMult(a.ti), dE = snap.troops[a.ti]*tm;
+          if (a.count > dE){ snap.owner[a.ti]=a.owner; snap.troops[a.ti]=Math.pow(Math.pow(a.count,LANCH)-Math.pow(dE,LANCH),1/LANCH); }
+          else snap.troops[a.ti] = Math.pow(Math.pow(dE,LANCH)-Math.pow(a.count,LANCH),1/LANCH)/tm;
+        }
         else { snap.troops[a.ti] -= a.count; if (snap.troops[a.ti]<0){ snap.owner[a.ti]=a.owner; snap.troops[a.ti]=-snap.troops[a.ti]; } }
       } else still.push(a);
     }
@@ -2353,7 +2418,9 @@
     for (const s of states) if (s.owner>=2 && !seenAI[s.owner]){ seenAI[s.owner]=1; aiTeams++; }
     const ponder = aiTeams <= 1;
     const freeMove = !adjacencyMode && !netMode;   // classic-mode movement for the AI too (solo only)
-    return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies, adj, oppBias, oppW, explore, ponder, freeMove,
+    const depth = depthMode && !netMode;           // depth mechanics: worker models Lanchester+terrain
+    const terr = depth ? states.map(s => terrMult(s.id)) : null;
+    return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies, adj, oppBias, oppW, explore, ponder, freeMove, depth, terr,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
       hunt:aiHunt(), desp:lv.desp||0, infight:aiInfight(), valueBlend:VALUE_BLEND, attn:lv.attnPressure||0,
       // Build the planner viz whenever the panel is open (either tab), NOT only when the planner tab
@@ -2491,7 +2558,8 @@
     'use strict';
     var NEUTRAL=0, PLAYER=1, MAX_TROOPS=150;
     var POL=null;                                   // trained policy (set on init)
-    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, INF=1, VBLEND=0.5, ATTN=0, OPPB=null, OPPW=null, FREEMOVE=false, names=[];
+    var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, INF=1, VBLEND=0.5, ATTN=0, OPPB=null, OPPW=null, FREEMOVE=false, DEPTH=false, TERR=null, names=[];
+    var LB=1.5;   // Lanchester concentration exponent — CONTRACT: mirrors LANCH in the main thread
     // Unit-splitting fractions the GNN planner enumerates per (source,target). MUST match FRACTIONS in
     // gnn_net_torch.py / the arena / the main thread. GNN/Impossible only; the flat MLP stays all-in.
     var FRACTIONS=[1.0,0.75,0.5,0.25];
@@ -2735,6 +2803,14 @@
       var still=[];
       for (var a=0;a<snap.armies.length;a++){ var ar=snap.armies[a]; ar.t+=dt;
         if (ar.t>=ar.ttotal){ if (snap.owner[ar.ti]===ar.owner) snap.troops[ar.ti]+=ar.count;
+          else if (DEPTH){
+            // depth-mode combat mirror (CONTRACT: matches arrive() / main snapStep): Lanchester
+            // superlinear casualties + terrain defence via TERR — so the search predicts fights
+            // under the same rules the real sim resolves them with.
+            var tm=(TERR&&TERR[ar.ti])||1, dE=snap.troops[ar.ti]*tm;
+            if (ar.count>dE){ snap.owner[ar.ti]=ar.owner; snap.troops[ar.ti]=Math.pow(Math.pow(ar.count,LB)-Math.pow(dE,LB),1/LB); }
+            else snap.troops[ar.ti]=Math.pow(Math.pow(dE,LB)-Math.pow(ar.count,LB),1/LB)/tm;
+          }
           else { snap.troops[ar.ti]-=ar.count; if (snap.troops[ar.ti]<0){ snap.owner[ar.ti]=ar.owner; snap.troops[ar.ti]=-snap.troops[ar.ti]; } } }
         else still.push(ar); }
       snap.armies=still;
@@ -3113,7 +3189,7 @@
       GR=req.growRate; EG=req.enemyGrow; DIAG=req.rlDiag||1; ORB=req.orbSpeed||70;
       HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
       CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0; DESP=req.desp||0; INF=(req.infight==null?1:req.infight); VBLEND=(req.valueBlend==null?0.5:req.valueBlend);
-      ATTN=req.attn||POL.attnPressure||0; OPPB=req.oppBias||null; OPPW=req.oppW||null; FREEMOVE=!!req.freeMove;   // Nightmare+ levers 2/3/4c — inert (0/null) on
+      ATTN=req.attn||POL.attnPressure||0; OPPB=req.oppBias||null; OPPW=req.oppW||null; FREEMOVE=!!req.freeMove; DEPTH=!!req.depth; TERR=req.terr||null;   // Nightmare+ levers 2/3/4c — inert (0/null) on
       // every other tier. POL.attnPressure is an experiment hook (like POL.rawOnly): lets the arena
       // A/B the attention bias per SIDE, since env vars necessarily hit both seats.
       var tbudget=(req.mcts&&req.mcts.tbudget)||250, owner=req.ownerId;
@@ -3404,10 +3480,32 @@
     if (matchTrack){ snapClock += dt; if (snapClock >= 1.5){ snapClock = 0; ensureHeader(); if (matchTrack.snaps.length < 800) matchTrack.snaps.push(boardSnapshot()); } }
     aiSnow = humanSnowball();   // once per tick: drives enemy catch-up growth + anti-snowball hunt
     updateThreats();
+    const depth = depthOn();
+    if (depth){
+      supplyClock += dt;
+      if (supplyClock >= 0.5){ supplyClock = 0; recomputeSupply(); }   // Depth #3: refresh the core map
+      // AI invest (Depth #1): every ~3s each AI may invest in ONE safe interior state — the same
+      // economy-vs-tempo tradeoff the player has, decided by a simple safety heuristic.
+      aiInvClock += dt;
+      if (aiInvClock >= 3){ aiInvClock = 0;
+        const done = {};
+        for (const s of states){
+          const o = s.owner;
+          if (o < 2 || done[o] || (s.inv||0) >= 3 || slotControl[o] !== 'ai') continue;
+          if (s.troops < investCost(s.inv||0) + 25) continue;         // keep a fighting reserve
+          let border = false;
+          for (const nb of adjacency[s.id]) if (states[nb].owner !== NEUTRAL && states[nb].owner !== o){ border = true; break; }
+          if (border) continue;                                        // only safe interior states
+          s.troops -= investCost(s.inv||0); s.inv = (s.inv||0)+1; s.pulse = 1.2; done[o] = 1;
+        }
+      }
+    }
     for (const s of states) {
       const cap = capOf(s);
       if (s.owner!==NEUTRAL && s.troops<cap) {
-        s.growAcc += growRateFor(s.owner)*tileGrowMult(s)*dt;
+        let g = growRateFor(s.owner)*tileGrowMult(s);
+        if (depth){ g *= invGrowMult(s); if (s.offSupply) g *= 0.4; }  // Depth #1 invest, #3 supply
+        s.growAcc += g*dt;
         while (s.growAcc>=1){ s.growAcc-=1; if (s.troops<cap) s.troops++; }
       }
       if (s.pulse>0) s.pulse = Math.max(0, s.pulse-dt*3);
@@ -3459,7 +3557,7 @@
   // don't get too small, while still shrinking relative to the enlarged states.
   function zk(){ return 1/Math.pow(cam.scale, 0.6); }
 
-  function node(x,y,count,owner,sel,pulse,type,level) {
+  function node(x,y,count,owner,sel,pulse,type,level,st) {
     const k = zk();
     const r = (markR + (pulse||0)*2) * k;
     if (sel){ ctx.strokeStyle='#2b3440'; ctx.lineWidth=3*k; ctx.beginPath(); ctx.arc(x,y,r+6*k,0,Math.PI*2); ctx.stroke(); }
@@ -3480,6 +3578,23 @@
       const pr=2.0*k, gap=5.5*k, span=(level-1)*gap;
       ctx.fillStyle = DARK[owner] || '#2b3440';
       for (let i=0;i<level;i++){ ctx.beginPath(); ctx.arc(x - span/2 + i*gap, y + r + 5*k, pr, 0, Math.PI*2); ctx.fill(); }
+    }
+    // depth-mechanics badges (solo depth mode only)
+    if (st && depthMode && !netMode){
+      const bf = (markR*0.62*k)+'px "Segoe UI Emoji","Apple Color Emoji",Segoe UI,sans-serif';
+      if (terrMult(st.id) > 1){                       // #2: highland (chokepoint/peninsula) ⛰
+        ctx.font=bf; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText('⛰', x - r*1.12, y - r*0.85);
+      }
+      if ((st.inv||0) > 0){                           // #1: invest tiers as green pips (right side)
+        ctx.fillStyle = '#2e8b3d';
+        const pr2=2.0*k, gap2=5.0*k;
+        for (let i=0;i<st.inv;i++){ ctx.beginPath(); ctx.arc(x + r + 4*k, y - ((st.inv-1)*gap2)/2 + i*gap2, pr2, 0, Math.PI*2); ctx.fill(); }
+      }
+      if (st.offSupply && owner!==NEUTRAL){           // #3: cut off from the core ⚠
+        ctx.font=bf; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText('⚠', x + r*1.12, y - r*0.85);
+      }
     }
     // cosmetic territory emblem on the local player's states (shop) — local-view only.
     // Drawn on its own white mini-badge so the crest reads at map zoom.
@@ -3585,7 +3700,7 @@
     }
 
     // nodes
-    for (const s of states) node(s.cx, s.cy, s.troops, s.owner, selected===s, s.pulse, s.type, s.level);
+    for (const s of states) node(s.cx, s.cy, s.troops, s.owner, selected===s, s.pulse, s.type, s.level, s);
 
     updateBar();
     // Recompute the NN viz at ~12/sec instead of every frame — a full net eval over all
@@ -4529,12 +4644,14 @@
   const settingsBtn = document.getElementById('settingsBtn');
   const settingsPanel = document.getElementById('settingsPanel');
   const adjToggle = document.getElementById('adjToggle');
+  const depthToggle = document.getElementById('depthToggle');
   const settingsClose = document.getElementById('settingsClose');
   const musicToggle = document.getElementById('musicToggle');
   const musicVol = document.getElementById('musicVol');
   if (settingsBtn && settingsPanel){
     settingsBtn.onclick = () => {
       if (adjToggle) adjToggle.checked = adjacencyMode;
+      if (depthToggle) depthToggle.checked = depthMode;
       // sync the music controls to current state each time the panel opens (Music is defined by now)
       if (typeof Music!=='undefined'){
         if (musicToggle) musicToggle.checked = !Music.isMuted();
@@ -4543,6 +4660,7 @@
       settingsPanel.classList.remove('gone');
     };
     if (adjToggle) adjToggle.onchange = () => { adjacencyMode = adjToggle.checked; lsSet('adjacencyMode', adjacencyMode ? 'on' : 'off'); };
+    if (depthToggle) depthToggle.onchange = () => { depthMode = depthToggle.checked; lsSet('depthMode', depthMode ? 'on' : 'off'); hudInv = null; };
     if (musicToggle) musicToggle.onchange = () => { if (typeof Music!=='undefined') Music.setMuted(!musicToggle.checked); };
     if (musicVol) musicVol.oninput = () => { if (typeof Music!=='undefined') Music.setVolume(parseInt(musicVol.value,10)/100); };
     if (settingsClose) settingsClose.onclick = () => settingsPanel.classList.add('gone');
@@ -5067,7 +5185,7 @@
   function renderScnEditor(){ selected=scnSelState; render(); scnEditStatus(); }
   function scnBlankBoard(){
     const lv=LEVELS[scnLevelIdx];
-    for(const s of states){ s.owner=NEUTRAL; s._team=-1; s._seed=false; s.type=null; s.level=0; s.pulse=0; s.growAcc=0;
+    for(const s of states){ s.owner=NEUTRAL; s._team=-1; s._seed=false; s.type=null; s.level=0; s.pulse=0; s.growAcc=0; s.inv=0; s.offSupply=false;
       s.troops=Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
     scnSelState=null;
   }
@@ -5151,7 +5269,7 @@
     if (scnAuthored){
       // The board was painted by hand in the on-map editor: states already carry their owner and
       // troop count. Don't allocate or re-roll troops — launch exactly what the user laid out.
-      for (const s of states){ s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null; }
+      for (const s of states){ s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null; s.inv = 0; s.offSupply = false; }
       owners = [...new Set(states.filter(s => s.owner!==NEUTRAL).map(s => s.owner))];
       scenarioObserver = !owners.includes(PLAYER);
       if (tilesOn){
@@ -5171,7 +5289,7 @@
       // troops: a team's seed is its "capital" (full start strength); its other states hold a
       // modest garrison; unclaimed land keeps the usual neutral spread.
       for (const s of states){
-        s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null;
+        s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null; s.inv = 0; s.offSupply = false;
         if (s.owner===NEUTRAL){ s.troops = Math.floor(rand(lv.neutralMin, lv.neutralMax)); }
         else {
           const base = s.owner===PLAYER ? lv.playerStart : lv.enemyStart;
@@ -5221,8 +5339,9 @@
 
   // ============================ IN-MATCH HUD: UPGRADE & AIRDROP ============================
   const upgradeBtn = document.getElementById('upgradeBtn');
+  const investBtn = document.getElementById('investBtn');
   const airdropBtn = document.getElementById('airdropBtn');
-  let hudUpg = null, hudAir = null;   // last-rendered keys (only touch the DOM on change)
+  let hudUpg = null, hudInv = null, hudAir = null;   // last-rendered keys (only touch the DOM on change)
   const adaptHud = document.getElementById('adaptHud'); let _adaptHudT = 0;
   function refreshHud(){
     if (!upgradeBtn || !airdropBtn) return;
@@ -5235,6 +5354,17 @@
     const uKey = uShow ? uLabel+(uDis?'·d':'') : '';
     if (uKey!==hudUpg){ hudUpg=uKey; upgradeBtn.style.display = uShow?'':'none';
       if (uShow){ upgradeBtn.textContent=uLabel; upgradeBtn.disabled=uDis; } }
+    // 🌱 Invest (Depth #1) — visible when a player state is selected and can still be invested
+    if (investBtn){
+      let iShow=false, iLabel='', iDis=false;
+      if (depthOn() && running && selected && selected.owner===myOwner && (selected.inv||0) < 3){
+        const icost = investCost(selected.inv||0);
+        iShow=true; iLabel='🌱 Invest ('+icost+')'; iDis = selected.troops <= icost;
+      }
+      const iKey = iShow ? iLabel+(iDis?'·d':'') : '';
+      if (iKey!==hudInv){ hudInv=iKey; investBtn.style.display = iShow?'':'none';
+        if (iShow){ investBtn.textContent=iLabel; investBtn.disabled=iDis; } }
+    }
     // 🪂 Airdrop — visible in solo when you own charges. Tap to ARM, then tap a state to drop.
     const aShow = (!netMode && running && PERK.airdrops>0);
     if (!aShow) airArmed = false;
@@ -5258,6 +5388,7 @@
     }
   }
   if (upgradeBtn) upgradeBtn.addEventListener('click', ()=>{ if (tryUpgrade(selected)) refreshHud(); });
+  if (investBtn) investBtn.addEventListener('click', ()=>{ if (tryInvest(selected)) { hudInv=null; refreshHud(); } });
   if (airdropBtn) airdropBtn.addEventListener('click', ()=>{
     if (!running || netMode || PERK.airdrops<=0) return;
     airArmed = !airArmed; refreshHud();   // arm/disarm; the actual drop happens on the next tap (gameDown)
