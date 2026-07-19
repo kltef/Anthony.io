@@ -240,7 +240,11 @@ def planner_gate(cand_net, best_net, value_json, games, budget, cand_path, best_
 # self-play never produces the board states these styles force (hoards, distant farming, joint
 # human-style salvos), so the no-forget screen kept catching regressions the training data had no
 # way to prevent. Only the planner seat's decisions are dumped; the scripted seat never plans.
-SCRIPT_OPPONENTS = ['script:turtle', 'script:rush', 'script:farmer', 'script:econ', 'script:human']
+# 'script:fader' is the play-tester's fitted farm-and-snowball bot (fit_fader_profile.py).
+# ARENA_SCRIPTS env overrides the league (comma-separated, repeats allowed to oversample one
+# opponent) — beat_fader.py phase 3 uses this for best-response training against the fader bot.
+SCRIPT_OPPONENTS = (os.environ['ARENA_SCRIPTS'].split(',') if os.environ.get('ARENA_SCRIPTS') else
+                    ['script:turtle', 'script:rush', 'script:farmer', 'script:econ', 'script:human', 'script:fader'])
 
 
 def self_play_dump(net, value_json, games, budget, dump_path, net_path, workers=1,

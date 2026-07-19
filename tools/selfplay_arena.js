@@ -331,9 +331,86 @@ const SCRIPTS = {
     }
     return [[top.si, top.ti, frac()]];
   },
+  // fader — the play-tester's measured farm-and-snowball style, fitted from his real exported
+  // games by tools/fit_fader_profile.py (135 games / 8189 moves, 2026-07-18). Signature: ~71%
+  // of his moves consolidate troops rearward->frontier, he grabs cheap neutrals, and he does
+  // NOT attack until his total troops reach ~warRatio x the enemy's — then strikes as a
+  // full-stack joint salvo at the weakest border state (median 7x local force in his logs).
+  // Beating THIS bot = denying that snowball. FADER_PROFILE env overrides the fitted numbers.
+  fader(env, owner){
+    const P = SCRIPTS._faderProfile || (SCRIPTS._faderProfile =
+      Object.assign({ reinforceRate:0.712, neutralRate:0.146, warRatio:3.0, fracAll:0.785,
+                      stackTarget:100, jointMax:4 },
+                    process.env.FADER_PROFILE ? JSON.parse(process.env.FADER_PROFILE) : {}));
+    const mine=[], en=[];
+    for (let i=0;i<env.n;i++){ if (env.owner[i]===owner) mine.push(i); else if (env.owner[i]!==0) en.push(i); }
+    if (!mine.length) return null;
+    const myT=mine.reduce((a,i)=>a+env.troops[i],0), enT=en.reduce((a,i)=>a+env.troops[i],0);
+    const frac=()=> Math.random()<P.fracAll ? 1.0 : 0.5;
+    const grabNeutral=()=>{ let best=null;
+      for (const si of mine){ const st=env.troops[si]; if (st<8) continue;
+        for (const ti of env.adj[si]){ if (env.owner[ti]!==0 || env.troops[ti]>=st*0.8) continue;
+          const d=Math.hypot(env.cx[ti]-env.cx[si], env.cy[ti]-env.cy[si]);
+          const sc=-env.troops[ti]*1.2 - d*0.5;
+          if (!best || sc>best[0]) best=[sc,si,ti]; } }
+      return best ? [[best[1],best[2],frac()]] : null; };
+    // WAR phase: snowball ready (total troops >= warRatio x enemy) -> joint salvo, biggest
+    // stacks adjacent to the WEAKEST border enemy state, full sends.
+    if (!en.length || myT >= P.warRatio*enT){
+      let tgt=-1, tt=Infinity;
+      for (const si of mine) for (const j of env.adj[si])
+        if (env.owner[j]!==owner && env.owner[j]!==0 && env.troops[j]<tt){ tt=env.troops[j]; tgt=j; }
+      if (tgt<0) return grabNeutral();               // no enemy on the border yet: keep expanding
+      const srcs=mine.filter(si=>env.adj[si].indexOf(tgt)>=0 && env.troops[si]>=8)
+                     .sort((a,b)=>env.troops[b]-env.troops[a]).slice(0, P.jointMax);
+      if (!srcs.length) return null;
+      return srcs.map(si=>[si, tgt, 1.0]);
+    }
+    // DEFEND first: a frontier state about to be lost gets a joint reinforcement — his 71%
+    // reinforce rate is banking AND defense, and without this the bot folds to any pressure.
+    const incoming={};
+    for (const arm of env.armies) if (arm.owner!==owner && env.owner[arm.ti]===owner)
+      incoming[arm.ti]=(incoming[arm.ti]||0)+arm.count;
+    let danger=null;
+    for (const si of mine){
+      let th=incoming[si]||0;
+      for (const j of env.adj[si]) if (env.owner[j]!==owner && env.owner[j]!==0) th=Math.max(th, env.troops[j]*0.7);
+      if (th > env.troops[si] && (!danger || th-env.troops[si] > danger[0])) danger=[th-env.troops[si], si];
+    }
+    if (danger){
+      const si=danger[1];
+      const helpers=mine.filter(s=>s!==si && env.adj[s].indexOf(si)>=0 && env.troops[s]>=8)
+                        .sort((a,b)=>env.troops[b]-env.troops[a]).slice(0, P.jointMax);
+      if (helpers.length) return helpers.map(s=>[s, si, 1.0]);
+    }
+    // ECON phase: roll his measured move mix — reinforce (consolidate rear stacks toward the
+    // frontier bank), grab a cheap neutral, or an opportunistic 2:1+ border attack.
+    const r=Math.random(), pR=P.reinforceRate, pN=P.reinforceRate+P.neutralRate;
+    if (r < pR){
+      const frontier=mine.filter(si=>env.adj[si].some(j=>env.owner[j]!==owner));
+      if (!frontier.length) return grabNeutral();
+      let bank=frontier[0]; for (const si of frontier) if (env.troops[si]>env.troops[bank]) bank=si;
+      if (env.troops[bank] >= Math.min(145, P.stackTarget*1.4)) return grabNeutral();  // bank full: convert
+      let best=null;                                  // biggest rear stack with an own-neighbor closer to the bank
+      for (const si of mine){ if (si===bank || env.troops[si]<8) continue;
+        const dSelf=Math.hypot(env.cx[bank]-env.cx[si], env.cy[bank]-env.cy[si]);
+        for (const ti of env.adj[si]){ if (env.owner[ti]!==owner) continue;
+          const d=Math.hypot(env.cx[bank]-env.cx[ti], env.cy[bank]-env.cy[ti]);
+          if (d<dSelf-1e-6){ const sc=env.troops[si];
+            if (!best || sc>best[0]) best=[sc,si,ti]; } } }
+      return best ? [[best[1],best[2],frac()]] : grabNeutral();
+    }
+    if (r < pN) return grabNeutral();
+    let atk=null;                                     // opportunistic: only a clearly-won border fight
+    for (const si of mine){ const st=env.troops[si]; if (st<12) continue;
+      for (const ti of env.adj[si]){ if (env.owner[ti]===owner || env.owner[ti]===0) continue;
+        if (st > env.troops[ti]*2.0){ const sc=st-env.troops[ti];
+          if (!atk || sc>atk[0]) atk=[sc,si,ti]; } } }
+    return atk ? [[atk[1],atk[2],frac()]] : grabNeutral();
+  },
 };
 function makeScripted(kind){
-  if (!SCRIPTS[kind]) { console.error(`unknown scripted opponent "${kind}" (script:turtle|rush|econ|farmer|human)`); process.exit(1); }
+  if (!SCRIPTS[kind]) { console.error(`unknown scripted opponent "${kind}" (script:turtle|rush|econ|farmer|human|fader)`); process.exit(1); }
   const fn = (env, owner) => SCRIPTS[kind](env, owner);
   fn.scripted = true; fn.kind = kind;
   return fn;
@@ -450,9 +527,14 @@ function playGame(planA, planB, ownerA, ownerB){
     step(env, ENVDT); t+=ENVDT;
     for (const o of [ownerA, ownerB]){
       const planFn=planners[o];
-      if (planFn.scripted && planFn.kind==='econ'){
+      if (planFn.scripted && (planFn.kind==='econ' || planFn.kind==='fader')){
+        // econ: the airdrop hoard exploit (train_rl.py). fader: the play-tester runs the full
+        // coin-shop economy (investor / airdrops / boost — see his exported localStorage), so his
+        // bot gets the same +25/7s drip; the counter-net must beat his ECONOMY, not a stripped
+        // version of him.
         air[o] = (air[o]==null ? 7.0 : air[o]) - ENVDT;
-        if (air[o]<=0){ air[o]=7.0; const si=biggestSrc(env,o,0); if (si>=0) env.troops[si]+=25.0; }
+        if (air[o]<=0){ air[o]=7.0; const si=biggestSrc(env,o,0);
+          if (si>=0) env.troops[si] += +(process.env.FADER_DRIP || 25); }   // FADER_DRIP tunes the perk economy
       }
       timers[o]-=ENVDT;
       if (timers[o]<=0){ const cad=cadOf(planFn); timers[o]=rnd(cad*0.7, cad*1.3);

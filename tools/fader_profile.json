@@ -1,0 +1,14 @@
+{
+  "fitted_from": "phone_export/playdata_fader.json",
+  "games": 135,
+  "moves": 8189,
+  "reinforceRate": 0.712,
+  "neutralRate": 0.146,
+  "attackRate": 0.142,
+  "fracAll": 0.785,
+  "jointRate": 0.799,
+  "warRatio": 3.0,
+  "forceRatio": 7.0,
+  "stackTarget": 100,
+  "jointMax": 4
+}

@@ -139,7 +139,7 @@ def summarize(games, label):
     if lost:
         print("\n  LOSSES (%d) — the games to learn from:" % len(lost))
         for g in lost:
-            fb = g.get("finalBoard", {})
+            fb = g.get("finalBoard") or {}
             own = fb.get("own", [])
             share = pct(sum(1 for o in own if o == 1), len(own)) if own else 0
             print("    %-11s %3.0fs  %2d moves  final territory %2.0f%%" % (
