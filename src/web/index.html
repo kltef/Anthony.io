@@ -476,7 +476,7 @@
   <label style="display:flex;align-items:center;gap:12px;justify-content:center;cursor:pointer;color:var(--ink);font-weight:700">
     <input type="checkbox" id="depthToggle" style="width:22px;height:22px"> Depth mechanics
   </label>
-  <p class="hint" style="opacity:.7;font-size:12px;margin:8px 0 18px">🌱 Invest in growth · ⛰ highlands defend 1.35× · ⚠ cut-off states grow slow · concentrated attacks hit harder. Solo games only.</p>
+  <p class="hint" style="opacity:.7;font-size:12px;margin:8px 0 18px">🌱 Invest in growth · ⛰ highlands defend up to 1.4× · ⚠ cut-off states grow slow and fight weak · hoards above the cap desert (faster the bigger the hoard) · neutrals restock over time · concentrated attacks hit harder. Solo games only.</p>
   <div style="height:1px;background:#e6ebf2;margin:2px 0 16px"></div>
   <label style="display:flex;align-items:center;gap:12px;justify-content:center;cursor:pointer;color:var(--ink);font-weight:700">
     <input type="checkbox" id="musicToggle" style="width:22px;height:22px"> Music
@@ -1183,7 +1183,16 @@
   let depthMode = lsGet('depthMode') !== 'off';
   const depthOn = () => depthMode && !netMode;
   const LANCH = 1.5;                                        // concentration exponent (CONTRACT: worker copy)
-  const terrMult = si => (adjacency[si] && adjacency[si].length<=2) ? 1.35 : 1;
+  // over-cap attrition curve (anti-hoard): decay/s = ATTRITION_Q * excess^2 / cap — QUADRATIC in
+  // the excess, so a small tactical buffer above cap is nearly free (200 @cap150 -> 0.3/s) but a
+  // warehoused doom-stack bleeds hard (300 -> 3/s, 1000 -> ~96/s). Mass-then-strike stays viable;
+  // hoard-forever does not. (CONTRACT: mirrored in both snapStep copies at the flat 150 cap.)
+  const ATTRITION_Q = 0.02;
+  const OFFSUP_DEF = 0.85;                                  // off-supply states defend at 0.85x
+  // terrain gradient: true chokepoints (<=2 neighbours) 1.4x, minor highlands (3) 1.2x. The
+  // v1 <=2 rule produced zero highlands on the well-connected default map.
+  const terrMult = si => !adjacency[si] ? 1
+    : adjacency[si].length<=2 ? 1.4 : adjacency[si].length===3 ? 1.2 : 1;
   const investCost = inv => 25 + inv*15;                    // 25 / 40 / 55 to reach invest tier 1..3
   const invGrowMult = s => 1 + 0.4*(s.inv||0);              // +40% growth per invest tier
   function tryInvest(s){
@@ -1464,6 +1473,7 @@
     let amount;
     if (frac != null) { amount = Math.floor(from.troops * frac); }
     else { denom = (denom && denom > 1) ? Math.floor(denom) : 1; amount = denom > 1 ? Math.floor(from.troops / denom) : from.troops; }
+    amount = Math.floor(amount);   // states can hold fractional troops (depth attrition) — orbs never do
     if (amount < 1) return;
     from.troops -= amount;             // leave the remainder (all of it when denom===1)
     from.pulse = 1;
@@ -1721,10 +1731,11 @@
       // persists through capture, so a captured Capital/Fortress now works for the new owner.
       const dmg = (to.type==='fortress' && to.troops>0) ? Math.round(t.count*TILE.fortress.defense) : t.count;
       if (depthOn()){
-        // Depth #4 (Lanchester) + #2 (terrain): survivors follow (A^L - D^L)^(1/L), so one
-        // concentrated strike beats the same troops trickled in; highlands multiply the
-        // defender's effective strength (divided back out so the bonus never MINTS troops).
-        const tm = terrMult(to.id), defEff = to.troops * tm;
+        // Depth #4 (Lanchester) + #2 (terrain) + #3 (supply): survivors follow (A^L - D^L)^(1/L),
+        // so one concentrated strike beats the same troops trickled in; highlands multiply the
+        // defender's effective strength, cut-off states fight at OFFSUP_DEF (both divided back
+        // out so a multiplier never MINTS troops).
+        const tm = terrMult(to.id) * (to.offSupply ? OFFSUP_DEF : 1), defEff = to.troops * tm;
         if (dmg > defEff){ to.owner = t.owner; to.troops = Math.round(Math.pow(Math.pow(dmg,LANCH)-Math.pow(defEff,LANCH), 1/LANCH)); to.pulse = 1.2; }
         else to.troops = Math.round(Math.pow(Math.pow(defEff,LANCH)-Math.pow(dmg,LANCH), 1/LANCH) / tm);
       } else {
@@ -2052,14 +2063,19 @@
     for (let i=0;i<snap.n;i++)
       if (snap.owner[i]!==NEUTRAL && snap.troops[i]<MAX_TROOPS)
         snap.troops[i] = Math.min(MAX_TROOPS, snap.troops[i] + growRateFor(snap.owner[i])*dt);
+      else if (depthOn() && snap.owner[i]!==NEUTRAL && snap.troops[i]>MAX_TROOPS){  // quadratic over-cap attrition mirror (flat-150 approx, CONTRACT)
+        const _ex = snap.troops[i]-MAX_TROOPS;
+        snap.troops[i] = Math.max(MAX_TROOPS, snap.troops[i] - (0.02*_ex*_ex/MAX_TROOPS)*dt);
+      }
     const still = [];
     for (const a of snap.armies) {
       a.t += dt;
       if (a.t >= a.ttotal) {
         if (snap.owner[a.ti]===a.owner) snap.troops[a.ti] += a.count;
         else if (depthOn()){
-          // Depth #4/#2 mirror (CONTRACT: matches arrive() and the worker's snapStep)
-          const tm = terrMult(a.ti), dE = snap.troops[a.ti]*tm;
+          // Depth #4/#2/#3 mirror (CONTRACT: matches arrive() and the worker's snapStep;
+          // offSupply read from the live board — static-root approximation, like TERR)
+          const tm = terrMult(a.ti) * (states[a.ti] && states[a.ti].offSupply ? OFFSUP_DEF : 1), dE = snap.troops[a.ti]*tm;
           if (a.count > dE){ snap.owner[a.ti]=a.owner; snap.troops[a.ti]=Math.pow(Math.pow(a.count,LANCH)-Math.pow(dE,LANCH),1/LANCH); }
           else snap.troops[a.ti] = Math.pow(Math.pow(dE,LANCH)-Math.pow(a.count,LANCH),1/LANCH)/tm;
         }
@@ -2418,8 +2434,11 @@
     for (const s of states) if (s.owner>=2 && !seenAI[s.owner]){ seenAI[s.owner]=1; aiTeams++; }
     const ponder = aiTeams <= 1;
     const freeMove = !adjacencyMode && !netMode;   // classic-mode movement for the AI too (solo only)
-    const depth = depthMode && !netMode;           // depth mechanics: worker models Lanchester+terrain
-    const terr = depth ? states.map(s => terrMult(s.id)) : null;
+    const depth = depthMode && !netMode;           // depth mechanics: worker models Lanchester+terrain+supply
+    // TERR is the worker's per-state DEFENCE multiplier: terrain gradient x off-supply penalty.
+    // Folding supply in here means the search naturally hunts cut-off exclaves (they read as
+    // cheaper captures) with zero extra worker plumbing. Root-static, like the rest of TERR.
+    const terr = depth ? states.map(s => terrMult(s.id) * (s.offSupply ? OFFSUP_DEF : 1)) : null;
     return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies, adj, oppBias, oppW, explore, ponder, freeMove, depth, terr,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
       hunt:aiHunt(), desp:lv.desp||0, infight:aiInfight(), valueBlend:VALUE_BLEND, attn:lv.attnPressure||0,
@@ -2798,8 +2817,14 @@
       return (s.owner[ti]!==owner) ? s.adj[si].indexOf(ti)>=0 : comp[ti]===comp[si];
     }
     function snapStep(snap, dt){
-      for (var i=0;i<snap.n;i++) if (snap.owner[i]!==NEUTRAL && snap.troops[i]<MAX_TROOPS)
-        snap.troops[i]=Math.min(MAX_TROOPS, snap.troops[i]+growRateFor(snap.owner[i])*dt);
+      for (var i=0;i<snap.n;i++){
+        if (snap.owner[i]!==NEUTRAL && snap.troops[i]<MAX_TROOPS)
+          snap.troops[i]=Math.min(MAX_TROOPS, snap.troops[i]+growRateFor(snap.owner[i])*dt);
+        else if (DEPTH && snap.owner[i]!==NEUTRAL && snap.troops[i]>MAX_TROOPS){   // quadratic over-cap attrition mirror (CONTRACT)
+          var _ex=snap.troops[i]-MAX_TROOPS;
+          snap.troops[i]=Math.max(MAX_TROOPS, snap.troops[i]-(0.02*_ex*_ex/MAX_TROOPS)*dt);
+        }
+      }
       var still=[];
       for (var a=0;a<snap.armies.length;a++){ var ar=snap.armies[a]; ar.t+=dt;
         if (ar.t>=ar.ttotal){ if (snap.owner[ar.ti]===ar.owner) snap.troops[ar.ti]+=ar.count;
@@ -3484,19 +3509,25 @@
     if (depth){
       supplyClock += dt;
       if (supplyClock >= 0.5){ supplyClock = 0; recomputeSupply(); }   // Depth #3: refresh the core map
-      // AI invest (Depth #1): every ~3s each AI may invest in ONE safe interior state — the same
-      // economy-vs-tempo tradeoff the player has, decided by a simple safety heuristic.
+      // AI invest (Depth #1, v2 heuristic): every 2s each AI may invest in up to TWO safe interior
+      // states, preferring economy tiles (capital/factory) then the richest — so hard tiers build
+      // a compounding economy the way a good human does, not one timid tier at a time.
       aiInvClock += dt;
-      if (aiInvClock >= 3){ aiInvClock = 0;
-        const done = {};
+      if (aiInvClock >= 2){ aiInvClock = 0;
+        const cands = {};                                              // owner -> candidate states
         for (const s of states){
           const o = s.owner;
-          if (o < 2 || done[o] || (s.inv||0) >= 3 || slotControl[o] !== 'ai') continue;
-          if (s.troops < investCost(s.inv||0) + 25) continue;         // keep a fighting reserve
+          if (o < 2 || (s.inv||0) >= 3 || slotControl[o] !== 'ai') continue;
+          if (s.troops < investCost(s.inv||0) + 15) continue;          // keep a small reserve
           let border = false;
           for (const nb of adjacency[s.id]) if (states[nb].owner !== NEUTRAL && states[nb].owner !== o){ border = true; break; }
           if (border) continue;                                        // only safe interior states
-          s.troops -= investCost(s.inv||0); s.inv = (s.inv||0)+1; s.pulse = 1.2; done[o] = 1;
+          (cands[o] = cands[o]||[]).push(s);
+        }
+        for (const o in cands){
+          cands[o].sort((a,b) => ((b.type==='capital'||b.type==='factory')?1000:0) + b.troops
+                               - (((a.type==='capital'||a.type==='factory')?1000:0) + a.troops));
+          for (const s of cands[o].slice(0,2)){ s.troops -= investCost(s.inv||0); s.inv = (s.inv||0)+1; s.pulse = 1.2; }
         }
       }
     }
@@ -3507,6 +3538,20 @@
         if (depth){ g *= invGrowMult(s); if (s.offSupply) g *= 0.4; }  // Depth #1 invest, #3 supply
         s.growAcc += g*dt;
         while (s.growAcc>=1){ s.growAcc-=1; if (s.troops<cap) s.troops++; }
+      }
+      // depth v2: OVER-CAP ATTRITION — the cap used to limit only passive growth, so transfer-
+      // stacking amassed unlimited hoards for free (the farm-and-snowball engine). Excess above
+      // the cap now decays QUADRATICALLY (see ATTRITION_Q curve): convert it or lose it.
+      else if (depth && s.owner!==NEUTRAL && s.troops > cap){
+        const ex = s.troops - cap;
+        s.troops = Math.max(cap, s.troops - (ATTRITION_Q*ex*ex/cap)*dt);
+      }
+      // depth v2: neutrals slowly restock (up to 30) — turtling now has a clock: the longer you
+      // farm, the more expensive the remaining map gets. (Not in the forward models: ~3s horizon
+      // makes it negligible there, same precedent as tiles.)
+      if (depth && s.owner===NEUTRAL && s.troops < 30){
+        s.growAcc += 0.2*dt;
+        while (s.growAcc>=1){ s.growAcc-=1; if (s.troops<30) s.troops++; }
       }
       if (s.pulse>0) s.pulse = Math.max(0, s.pulse-dt*3);
     }
@@ -3566,7 +3611,7 @@
     ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
     ctx.fillStyle='#2b3440'; ctx.font='bold '+(markR*0.85*k)+'px Segoe UI, sans-serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(count, x, y+1*k);
+    ctx.fillText(Math.round(count), x, y+1*k);   // troops can be fractional under depth attrition
     // special-tile glyph above the marker
     if (type && TILE[type]){
       ctx.fillStyle='#2b3440'; ctx.textBaseline='alphabetic';
@@ -3582,9 +3627,12 @@
     // depth-mechanics badges (solo depth mode only)
     if (st && depthMode && !netMode){
       const bf = (markR*0.62*k)+'px "Segoe UI Emoji","Apple Color Emoji",Segoe UI,sans-serif';
-      if (terrMult(st.id) > 1){                       // #2: highland (chokepoint/peninsula) ⛰
-        ctx.font=bf; ctx.textAlign='center'; ctx.textBaseline='middle';
-        ctx.fillText('⛰', x - r*1.12, y - r*0.85);
+      if (terrMult(st.id) > 1){                       // #2: highland (chokepoint/peninsula) — drawn
+        // as a canvas triangle: the ⛰ emoji is an outline glyph that vanishes at badge size
+        const tx = x - r*1.12, ty = y - r*0.85, ts = markR*(terrMult(st.id)>=1.4?0.38:0.30)*k;
+        ctx.fillStyle = '#5b6c83';
+        ctx.beginPath(); ctx.moveTo(tx, ty-ts); ctx.lineTo(tx-ts, ty+ts*0.8); ctx.lineTo(tx+ts, ty+ts*0.8);
+        ctx.closePath(); ctx.fill();
       }
       if ((st.inv||0) > 0){                           // #1: invest tiers as green pips (right side)
         ctx.fillStyle = '#2e8b3d';
@@ -5680,7 +5728,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 12;
+  const WEB_VERSION = 13;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }
