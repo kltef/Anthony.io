@@ -1,7 +1,7 @@
 {
-  "web": 17,
+  "web": 18,
   "notes": [
-    "Nightmare+'s urgency-scaled search budget now ranges 50ms-1000ms (was 400ms-1000ms) for a snappier reaction when one of its states is about to fall"
+    "Nightmare+'s root-move breadth now scales with the same urgency signal as its search budget — narrow and fast under threat, considers its whole legal-move list when the board is calm (was fixed at ~10-12 moves)"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 18,
+      "date": "2026-07-20",
+      "notes": [
+        "Nightmare+'s root-move breadth now scales with the same urgency signal as its search budget — narrow and fast under threat, considers its whole legal-move list when the board is calm (was fixed at ~10-12 moves)"
+      ]
+    },
     {
       "web": 17,
       "date": "2026-07-20",
