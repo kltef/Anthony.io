@@ -1,7 +1,7 @@
 {
-  "web": 19,
+  "web": 20,
   "notes": [
-    "Nightmare+'s urgency floor is now 250ms instead of 50ms — still a fast reaction under threat, just not quite as razor-thin"
+    "Scenario mode has no cap on AI team count anymore (limited only by the map's state count), and the Rollout Planner now shows an animated loading spinner instead of static text while it computes its first search"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 20,
+      "date": "2026-07-20",
+      "notes": [
+        "Scenario mode has no cap on AI team count anymore (limited only by the map's state count), and the Rollout Planner now shows an animated loading spinner instead of static text while it computes its first search"
+      ]
+    },
     {
       "web": 19,
       "date": "2026-07-20",
