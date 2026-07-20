@@ -2485,7 +2485,7 @@
         if (a.count < tr[a.ti]) continue;                    // only count it if it would actually flip the state
         if (a.ttotal < soonestThreat) soonestThreat = a.ttotal;
       }
-      const URGENT_T=1.5, CALM_T=4.0, MIN_MS=50, maxMs=pp.workerMs;   // seconds / absolute ms floor / hard ceiling
+      const URGENT_T=1.5, CALM_T=4.0, MIN_MS=250, maxMs=pp.workerMs;   // seconds / absolute ms floor / hard ceiling
       const frac = soonestThreat<=URGENT_T ? 0
                  : soonestThreat>=CALM_T ? 1
                  : (soonestThreat-URGENT_T)/(CALM_T-URGENT_T);
@@ -3206,7 +3206,7 @@
       // Every other tier keeps the exact old fixed cut.
       var cut;
       if (OPPW){
-        var urgFrac=Math.max(0, Math.min(1, (TBMS-50)/Math.max(1,MAXMS-50)));
+        var urgFrac=Math.max(0, Math.min(1, (TBMS-250)/Math.max(1,MAXMS-250)));
         cut = Math.max(4, Math.round(4 + urgFrac*(list.length-4)));
       } else cut = K+(TBMS>=120?3:1);
       var top=list.slice(0, cut), mx=-Infinity;   // budget-scaled candidate cut
@@ -4055,7 +4055,7 @@
       kv('salvo width (multiMove)', String(lv.multiMove||1));
       kv('attention-pressure bias', (lv.attnPressure||0).toFixed(2));
       nnctx.font='9px Segoe UI, sans-serif'; nnctx.textAlign='left'; nnctx.fillStyle='#8a97a6';
-      nnctx.fillText('budget scales 50ms-'+(pb?pb.base:lv.workerMs||0)+'ms on how soon an incoming attack could actually flip one of my states', pad, Y); Y+=14;
+      nnctx.fillText('budget scales 250ms-'+(pb?pb.base:lv.workerMs||0)+'ms on how soon an incoming attack could actually flip one of my states', pad, Y); Y+=14;
     }
   }
 
