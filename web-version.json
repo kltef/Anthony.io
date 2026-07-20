@@ -1,7 +1,7 @@
 {
-  "web": 20,
+  "web": 21,
   "notes": [
-    "Scenario mode has no cap on AI team count anymore (limited only by the map's state count), and the Rollout Planner now shows an animated loading spinner instead of static text while it computes its first search"
+    "Fixed a weird dotted background patch that appeared in the corner of the Continental U.S. (50-state) map — it was Alaska/Hawaii rendering badly clipped since they're not part of any playable region"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 21,
+      "date": "2026-07-20",
+      "notes": [
+        "Fixed a weird dotted background patch that appeared in the corner of the Continental U.S. (50-state) map — it was Alaska/Hawaii rendering badly clipped since they're not part of any playable region"
+      ]
+    },
     {
       "web": 20,
       "date": "2026-07-20",
