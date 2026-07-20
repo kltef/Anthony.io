@@ -67,12 +67,17 @@ def detach(argv, log, env_extra=None):
     fh = open(log, 'a')
     fh.write('\n===== launched %s =====\n$ %s\n' % (time.strftime('%Y-%m-%d %H:%M:%S'), ' '.join(argv)))
     fh.flush()
-    # CREATE_NO_WINDOW (not DETACHED_PROCESS): a fully console-less parent makes every node
-    # arena child allocate a VISIBLE console — 16 windows popping per round. A hidden console
-    # is inherited by all children (no popups) and still survives our terminal closing.
-    flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
-    p = subprocess.Popen(argv, cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT,
-                         creationflags=flags, close_fds=False)
+    if os.name == 'nt':
+        # CREATE_NO_WINDOW (not DETACHED_PROCESS): a fully console-less parent makes every node
+        # arena child allocate a VISIBLE console — 16 windows popping per round. A hidden console
+        # is inherited by all children (no popups) and still survives our terminal closing.
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        p = subprocess.Popen(argv, cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT,
+                             creationflags=flags, close_fds=False)
+    else:
+        # POSIX (cloud VM): its own session survives the SSH connection dropping (like nohup)
+        p = subprocess.Popen(argv, cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT,
+                             start_new_session=True)
     print('  detached pid %d -> %s' % (p.pid, log))
     print("  watch:  py tools/beat_fader.py status")
     return p.pid
@@ -161,11 +166,14 @@ def gate(a):
 
 def status(a):
     print('== training processes ==')
-    r = subprocess.run(['powershell', '-Command',
-                        "Get-CimInstance Win32_Process -Filter \"Name like '%python%'\" | "
-                        "Where-Object { $_.CommandLine -match 'train_gnn_torch' } | "
-                        "Select-Object ProcessId, @{n='Started';e={$_.CreationDate}} | Format-Table -AutoSize"],
-                       capture_output=True, text=True)
+    if os.name == 'nt':
+        r = subprocess.run(['powershell', '-Command',
+                            "Get-CimInstance Win32_Process -Filter \"Name like '%python%'\" | "
+                            "Where-Object { $_.CommandLine -match 'train_gnn_torch' } | "
+                            "Select-Object ProcessId, @{n='Started';e={$_.CreationDate}} | Format-Table -AutoSize"],
+                           capture_output=True, text=True)
+    else:
+        r = subprocess.run(['pgrep', '-af', 'train_gnn_torch'], capture_output=True, text=True)
     out = (r.stdout or '').strip()
     print(out if out else '  (no train_gnn_torch.py running)')
     for n in (3, 4, 5):
