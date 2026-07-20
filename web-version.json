@@ -1,7 +1,7 @@
 {
-  "web": 14,
+  "web": 15,
   "notes": [
-    "Mobile fix: Upgrade and Invest are now always-on buttons — tap one, then tap your states to build (tap elsewhere to cancel)"
+    "AI Brain panel on Nightmare+ now explains its reasoning in plain English, plus detailed stats: candidate move rankings, opponent-model confidence and predicted target, simultaneous-fronts count, and the tier's tempo dials"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 15,
+      "date": "2026-07-20",
+      "notes": [
+        "AI Brain panel on Nightmare+ now explains its reasoning in plain English, plus detailed stats: candidate move rankings, opponent-model confidence and predicted target, simultaneous-fronts count, and the tier's tempo dials"
+      ]
+    },
     {
       "web": 14,
       "date": "2026-07-19",
