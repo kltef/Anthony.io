@@ -1070,6 +1070,7 @@
   let rlVizDirty = false;   // redraw only when activations change
   let gnnViz = null;        // board-aware (Impossible) brain viz: { owner, s, h, srcs, nodeScore, best }
   let lastPlanBudget = {};  // owner -> { base, eff, soonestThreat } — the urgency-scaled search budget actually used for its last decision (Nightmare+ only; base===eff on every other tier)
+  let planDispatchT = {};   // owner -> performance.now() when its current in-flight plan request was sent — real elapsed-vs-budget progress for the loading screen, not a fake animation
   const nnHist = [];        // rolling [topProb, noopProb] samples for the confidence sparkline
   const NN_HIST_MAX = 140;
 
@@ -1394,7 +1395,7 @@
     // it doesn't clear the viz caches themselves, so without this the Planner/Brain tabs kept showing
     // the previous game's last decision (and the loading spinner never appeared, since it only shows
     // when planViz is null) until the new game's first real decision happened to overwrite it.
-    planViz = null; rlViz = null; gnnViz = null; planVizDirty = true; rlVizDirty = true;
+    planViz = null; rlViz = null; gnnViz = null; planDispatchT = {}; planVizDirty = true; rlVizDirty = true;
     startGameLog();
     OppModel.load(playerName);                          // load this player's learned opponent model
     if (netMode!=='host') myOwner = PLAYER;
@@ -2595,6 +2596,7 @@
     const group = workersFor(owner);                  // 1 or 2 workers, depending on the machine
     planAgg[owner] = { remaining: group.length, tally: {}, viz: null, vizIters: -1, totalIters: 0 };
     const req = buildPlanRequest(owner, 'worker');    // same board to every worker in the group
+    planDispatchT[owner] = performance.now();         // real elapsed-vs-budget progress for the loading screen
     const epoch = planEpoch;
     for (const w of group){ const id = ++planReqSeq; planJobs[id] = { owner, epoch }; w.postMessage({ type:'plan', id, req }); }
   }
@@ -3430,6 +3432,7 @@
   function plannerMoveServer(owner){
     if (planPending[owner]) return;                  // already thinking about this enemy
     planPending[owner] = true;
+    planDispatchT[owner] = performance.now();         // real elapsed-vs-budget progress for the loading screen
     api('/api/plan', buildPlanRequest(owner))
       .then(r => r.json())
       .then(res => {
@@ -4566,15 +4569,25 @@
     nnctx.fillText('MCTS · no sim/depth cap — runs as hard as your device can', pad, Y); Y+=18;
     if (!planViz){
       nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
-      nnctx.fillText('Waiting for the first search to finish…', pad, Y); Y+=24;
-      // animated spinner (this branch redraws every frame while waiting — see the render loop) so a
-      // long first search never reads as frozen. Scenario mode can have many AI teams sharing the
-      // same worker pool, so the busiest ones genuinely take longer to report their first plan.
-      const cx=PW/2, cy=Y+18, r=16, t=performance.now()/1000;
-      nnctx.strokeStyle='rgba(255,255,255,.12)'; nnctx.lineWidth=3;
-      nnctx.beginPath(); nnctx.arc(cx,cy,r,0,Math.PI*2); nnctx.stroke();
-      nnctx.strokeStyle='#46a6ef'; nnctx.beginPath(); nnctx.arc(cx,cy,r,(t*3)%(Math.PI*2),(t*3+1.6)%(Math.PI*2)); nnctx.stroke();
-      Y=cy+r+16;
+      nnctx.fillText('Waiting for the first search to finish…', pad, Y); Y+=22;
+      // Real progress, not a fake animation: elapsed time since the in-flight request was actually
+      // dispatched (planDispatchT), against the real budget computed for it (lastPlanBudget — the
+      // same urgency-scaled number the worker itself is bounded by, not a guess). This branch
+      // redraws every frame while waiting (see the render loop), so the bar advances live.
+      let owner=null, bestT=-Infinity;
+      for (const k in planDispatchT) if (planDispatchT[k]>bestT){ bestT=planDispatchT[k]; owner=+k; }
+      const budget = (owner!=null && lastPlanBudget[owner]) ? lastPlanBudget[owner].eff : (LEVELS[levelIdx].workerMs||250);
+      const elapsed = owner!=null ? Math.max(0, performance.now()-bestT) : 0;
+      const pct = budget>0 ? Math.max(0, Math.min(100, elapsed/budget*100)) : 0;
+
+      const bw=PW-2*pad, bh=8;
+      nnctx.fillStyle='rgba(255,255,255,.08)'; nnctx.fillRect(pad,Y,bw,bh);
+      nnctx.fillStyle='#46a6ef'; nnctx.fillRect(pad,Y,bw*(pct/100),bh);
+      Y+=bh+8;
+      nnctx.font='11px Segoe UI, sans-serif'; nnctx.textAlign='right'; nnctx.fillStyle='#c7cfd9';
+      nnctx.fillText(Math.round(pct)+'% · '+Math.round(elapsed)+'ms of '+Math.round(budget)+'ms budget', PW-pad, Y);
+      nnctx.textAlign='left'; Y+=20;
+
       let aiTeams=0; const seen={};
       for (const s of states) if (s.owner>=2 && !seen[s.owner]){ seen[s.owner]=1; aiTeams++; }
       if (aiTeams>1){
@@ -5564,7 +5577,7 @@
     troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; buildArmed=null; aiTimers={}; planSeq2={}; planPending={}; planEpoch++; resetCam();
     // see newGame()'s identical comment: planEpoch++ alone leaves the last match's AI-panel data
     // sitting stale (and the loading spinner suppressed, since it only shows when planViz is null).
-    planViz = null; rlViz = null; gnnViz = null; planVizDirty = true; rlVizDirty = true;
+    planViz = null; rlViz = null; gnnViz = null; planDispatchT = {}; planVizDirty = true; rlVizDirty = true;
     matchTrack = null;
 
     myOwner = PLAYER;
