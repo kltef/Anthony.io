@@ -579,6 +579,12 @@
   const NEUTRAL = 0, PLAYER = 1;
   const COLORS = { 0:'#b4bbc2', 1:'#46a6ef', 2:'#ef5b52', 3:'#f1a13a', 4:'#9b6cf0', 5:'#38c46f', 6:'#e36ec9', 7:'#46c7d6', 8:'#d9b53a' };
   const DARK   = { 0:'#8b939c', 1:'#2c7fc4', 2:'#c43d36', 3:'#c47d24', 4:'#7549c4', 5:'#27975a', 6:'#b94fa1', 7:'#2f9aa8', 8:'#b08f22' };
+  // Scenario mode has no cap on team count, so owners can run past 8 (the hand-picked palette above)
+  // — extend both palettes procedurally so every owner id still gets a real, visually distinct
+  // color instead of falling through to a fallback. Golden-angle hue spacing (137.508°) keeps
+  // consecutively-numbered owners from landing on similar hues.
+  for (let o=9; o<=64; o++){ const hue=Math.round((o*137.508)%360);
+    COLORS[o] = 'hsl('+hue+',68%,58%)'; DARK[o] = 'hsl('+hue+',68%,40%)'; }
   const COLORS_DEF = Object.assign({}, COLORS), DARK_DEF = Object.assign({}, DARK);   // pristine palette (cosmetics restore from here)
 
   // selectable regions (continental US only). list:null = all of the lower 48.
@@ -3826,7 +3832,7 @@
     if (showNN && vizMode==='brain' && rlViz && LEVELS[levelIdx]?.rl) drawMapPreview();
     if (showNN) {
       if (vizMode==='brain') { if (rlVizDirty) { drawNN(); rlVizDirty = false; } }
-      else if (planVizDirty) { drawPlanner(); planVizDirty = false; }
+      else if (planVizDirty || !planViz) { drawPlanner(); planVizDirty = false; }   // !planViz: keep animating the loading spinner
     }
   }
 
@@ -4547,8 +4553,26 @@
     }
     nnctx.fillStyle='#7c8794'; nnctx.font='10px Segoe UI, sans-serif';
     nnctx.fillText('MCTS · no sim/depth cap — runs as hard as your device can', pad, Y); Y+=18;
-    if (!planViz){ nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
-      nnctx.fillText('Waiting for the AI to plan…', pad, Y); return; }
+    if (!planViz){
+      nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
+      nnctx.fillText('Waiting for the first search to finish…', pad, Y); Y+=24;
+      // animated spinner (this branch redraws every frame while waiting — see the render loop) so a
+      // long first search never reads as frozen. Scenario mode can have many AI teams sharing the
+      // same worker pool, so the busiest ones genuinely take longer to report their first plan.
+      const cx=PW/2, cy=Y+18, r=16, t=performance.now()/1000;
+      nnctx.strokeStyle='rgba(255,255,255,.12)'; nnctx.lineWidth=3;
+      nnctx.beginPath(); nnctx.arc(cx,cy,r,0,Math.PI*2); nnctx.stroke();
+      nnctx.strokeStyle='#46a6ef'; nnctx.beginPath(); nnctx.arc(cx,cy,r,(t*3)%(Math.PI*2),(t*3+1.6)%(Math.PI*2)); nnctx.stroke();
+      Y=cy+r+16;
+      let aiTeams=0; const seen={};
+      for (const s of states) if (s.owner>=2 && !seen[s.owner]){ seen[s.owner]=1; aiTeams++; }
+      if (aiTeams>1){
+        nnctx.font='11px Segoe UI, sans-serif'; nnctx.fillStyle='#8a97a6'; nnctx.textAlign='center';
+        nnctx.fillText(aiTeams+' AI teams sharing the search — the busiest ones take a little longer', PW/2, Y);
+        nnctx.textAlign='left';
+      }
+      return;
+    }
     // controlling-enemy swatch
     nnctx.fillStyle=(COLORS[planViz.owner]||'#ef5b52'); nnctx.beginPath(); nnctx.arc(PW-20,18,6,0,Math.PI*2); nnctx.fill();
     nnctx.fillStyle='#9aa6b4'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.textAlign='right';
@@ -5397,7 +5421,10 @@
         x.title='Remove team'; x.onclick=()=>{ scnTeams.splice(i,1); renderScn(); }; row.appendChild(x); }
       scnTeamsEl.appendChild(row);
     });
-    if (scnTeams.length<6){ const add=document.createElement('button'); add.className='scn-add'; add.textContent='+ Add team';
+    // No arbitrary team-count ceiling — the real limit is the map: each team needs at least one
+    // seed state (allocateTerritory), so once teams >= the region's state count, another team would
+    // just come out empty. Cap on THAT, not a constant, so it scales with whatever map is selected.
+    if (scnTeams.length<Math.max(2,scnRegionStateCount())){ const add=document.createElement('button'); add.className='scn-add'; add.textContent='+ Add team';
       add.onclick=()=>{ scnTeams.push({ctrl:'ai',share:15}); renderScn(); }; scnTeamsEl.appendChild(add); }
     // proportion bar (per-team slices + neutral remainder)
     scnBarEl.innerHTML = '';
