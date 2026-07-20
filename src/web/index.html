@@ -990,7 +990,10 @@
     const FN = rlPolicy.feat_norm || 50;
     const srcs = []; for (let i=0;i<N;i++) if (s.owner[i]===mover && s.troops[i]>=5) srcs.push(i);
     const nodeScore = new Array(N).fill(null);   // null = no legal move reaches it
-    let best = { score: rlPolicy.noop_bias || 0, si:-1, ti:-1 };
+    const noop = rlPolicy.noop_bias || 0;
+    let best = { score: noop, si:-1, ti:-1 };
+    const cands = [];        // every scored (si,ti) pair — feeds the detailed candidate ranking below
+    const bestPerSrc = {};   // si -> best score reachable from it (Lever 2 "simultaneous fronts")
     for (const si of srcs) { const st = s.troops[si];
       for (let ti=0; ti<N; ti++) { if (ti===si || !snapLegal(s, si, ti, mover)) continue;
         const tt=s.troops[ti], dist=Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/rlDiag;
@@ -998,9 +1001,21 @@
         const sc = gnnMoveScore(h, si, ti, [ (st-tt)/FN, dist, st>tt?1:0, 1.0 ]);
         if (nodeScore[ti]===null || sc>nodeScore[ti]) nodeScore[ti]=sc;
         if (sc>best.score) best = { score:sc, si, ti };
+        cands.push({ si, ti, score:sc });
+        if (bestPerSrc[si]===undefined || sc>bestPerSrc[si]) bestPerSrc[si]=sc;
       }
     }
-    return { owner:mover, s, h, srcs, nodeScore, best };
+    // decision-distribution stats (same recipe as the flat net's rlSetViz), for the detailed panel
+    cands.sort((a,b)=>b.score-a.score);
+    const scores = cands.map(c=>c.score).concat([noop]);
+    const mx = Math.max(...scores);
+    let sum=0; for (const sc of scores) sum += Math.exp(sc-mx);
+    const prob = sc => Math.exp(sc-mx)/(sum||1);
+    let ent=0; for (const sc of scores){ const p=prob(sc); if (p>1e-9) ent -= p*Math.log(p); }
+    const fronts = Object.keys(bestPerSrc).filter(k => bestPerSrc[k]>noop).length;
+    const top5 = cands.slice(0,5).map(c => ({ si:c.si, ti:c.ti, score:c.score, prob:prob(c.score) }));
+    return { owner:mover, s, h, srcs, nodeScore, best, noop,
+      top5, entropy:ent, entropyNorm: ent/Math.log(scores.length||2), noopProb:prob(noop), fronts };
   }
 
   // ---- learned VALUE network (planner leaf evaluation) ----
@@ -1677,9 +1692,11 @@
       let learned=false;
       try { const j=JSON.parse(localStorage.getItem('oppmodel_'+name)||'null');
         if (j && Array.isArray(j.W) && j.W.length===this.D){ this.W=j.W.slice(); learned=true; } } catch(e){}
+      this.warmStart = false;
       if (LEVELS[levelIdx] && LEVELS[levelIdx].personal){
         if (!learned) this.W = this.PRIOR_W.slice();   // no history on this player yet -> human prior
         this.conf = this.PRIOR_CONF;                    // confident from move one (update() takes over)
+        this.warmStart = !learned;                      // true = running on the fitted prior, not a file on THIS player
       }
     },
     save(){ try { localStorage.setItem('oppmodel_'+(this.who||playerName||'Player'), JSON.stringify({W:this.W})); } catch(e){} },
@@ -3870,6 +3887,10 @@
     nnctx.fillStyle='#9aa6b4'; nnctx.font='10px Segoe UI, sans-serif'; nnctx.textAlign='right';
     nnctx.fillText('enemy '+(V.owner-1), PW-32, 11); nnctx.textAlign='left';
 
+    // ===== plain-language explanation, same convention as the Planner tab's "what I'm thinking" =====
+    const story = gnnStory(V);
+    if (story.length) Y = drawExplain(story, Y);
+
     // ===== the map as a graph =====
     sec('board embedding · graph attention');
     const gx=pad, gy=Y, gw=PW-2*pad, gh=232;
@@ -3934,6 +3955,49 @@
         nnctx.fillRect(pad+i*bw+0.5, mid-Math.max(0,bh), Math.max(1,bw-1), Math.abs(bh)); }
       Y=mid+H+8; nnctx.font='9px Segoe UI, sans-serif'; nnctx.textAlign='left'; nnctx.fillStyle='#8a97a6';
       nnctx.fillText('tanh activations after '+rlPolicy.hops+' hops of border attention', pad, Y); Y+=14;
+    }
+
+    // ===== Nightmare+ only: instrumentation for the four levers that actually drive this tier
+    // (nightmare_plus.md) — the base GNN panel above is shared with Nightmare/Impossible, so all of
+    // this is gated on `personal`, the flag unique to Nightmare+'s LEVELS entry. =====
+    const lv = LEVELS[levelIdx];
+    if (lv && lv.personal){
+      const pct1 = p => (p*100).toFixed(1)+'%';
+      const barRow = (label, p, col) => {
+        nnctx.font='10px Segoe UI, sans-serif'; nnctx.textAlign='left'; nnctx.fillStyle='#c7cfd9';
+        nnctx.fillText(label, pad, Y); nnctx.textAlign='right'; nnctx.fillText(pct1(p), PW-pad, Y); Y+=12;
+        const bw=PW-2*pad, bh=5; nnctx.fillStyle='rgba(255,255,255,.08)'; nnctx.fillRect(pad,Y,bw,bh);
+        nnctx.fillStyle=col; nnctx.fillRect(pad,Y,bw*Math.min(1,Math.max(0,p)),bh); Y+=bh+7;
+      };
+
+      sec('candidate ranking · lever 1/2');
+      const top5 = V.top5 || [];
+      if (!top5.length){ nnctx.font='11px Segoe UI, sans-serif'; nnctx.fillStyle='#9aa6b4'; nnctx.fillText('no legal attack beats waiting', pad, Y); Y+=16; }
+      else top5.forEach((c,i) => barRow(tr(states[c.si].name)+' → '+tr(states[c.ti].name), c.prob, i===0?'rgba(95,208,122,0.85)':'rgba(120,150,190,0.65)'));
+      kv('decision entropy (0=certain, 1=torn)', (V.entropyNorm||0).toFixed(2));
+      kv('P(waiting beats every attack)', pct1(V.noopProb||0));
+      kv('simultaneous fronts open', String(V.fronts||0));
+      nnctx.font='9px Segoe UI, sans-serif'; nnctx.textAlign='left'; nnctx.fillStyle='#8a97a6';
+      nnctx.fillText('fronts = your territories it currently sees a profitable attack from — Lever 2 biases search toward more of these than you can answer at once', pad, Y); Y+=14;
+
+      sec('opponent model · lever 4 ("has read your file")');
+      const conf = OppModel.conf||0;
+      kv('live confidence', pct1(conf), conf>0.5?'#5fd07a':(conf>0?'#f0c24a':'#8a97a6'));
+      kv('weights', OppModel.warmStart ? 'fitted human prior (no file on you yet)' : 'learned from your saved history');
+      const pr = OppModel.predict ? OppModel.predict(PLAYER) : null;
+      kv('predicted next move', (pr && pr.conf>0 && pr.topSrc && pr.topTgt) ? (tr(pr.topSrc.name)+' → '+tr(pr.topTgt.name)) : 'no read yet');
+      const recent = (OppModel.hits||[]).slice(-5);
+      kv('last 5 reads, hit rate', recent.length ? Math.round(recent.reduce((a,b)=>a+b,0)/recent.length*100)+'%' : '—');
+      if (recent.length===5 && recent.reduce((a,b)=>a+b,0)<=1){
+        nnctx.font='9px Segoe UI, sans-serif'; nnctx.fillStyle='#f0c24a'; nnctx.textAlign='left';
+        nnctx.fillText('Ω3 armor tripped: confidence just reset to 0 (style-pivot detected)', pad, Y); Y+=14;
+      }
+
+      sec('tempo · lever 1 (mechanics past parity)');
+      kv('decision cadence', lv.aiSpeed.toFixed(2)+'s');
+      kv('search budget per decision', (lv.workerMs||0)+'ms');
+      kv('salvo width (multiMove)', String(lv.multiMove||1));
+      kv('attention-pressure bias', (lv.attnPressure||0).toFixed(2));
     }
   }
 
@@ -4322,6 +4386,87 @@
       'It weighed '+v.numMoves+' possible move'+(v.numMoves===1?'':'s')+' and is '+sure+' about this one ('+Math.round(c.prob*100)+'% of its vote); '+v.beatNoop+' beat just waiting.',
       'Out of '+v.numMoves+' option'+(v.numMoves===1?'':'s')+' it’s '+sure+', giving this '+Math.round(c.prob*100)+'% of the vote, with '+v.beatNoop+' scoring above a pass.'
     ],2));
+    return lines;
+  }
+
+  // Same idea again for the board-aware GNN net (Impossible/Nightmare/Nightmare+'s "AI Brain" tab) —
+  // the planner tab and the flat-net brain tab both narrate their reasoning in English; this was the
+  // one view that only ever showed raw numbers. On personal (Nightmare+) tiers it also folds in the
+  // attention-pressure and opponent-model reads driving the search, so the narration matches what
+  // the detailed stats panel below it is showing.
+  function gnnStory(V){
+    if (!V) return [];
+    const lv = LEVELS[levelIdx];
+    const s = V.s;
+    if (V.best.si<0 || V.best.ti<0){
+      const pk = nnVary(nnHash('gwait'+V.owner+(V.fronts||0)));
+      const lines = [pk([
+        'Nothing I can reach beats sitting still right now, so I’m holding this turn and letting my troops grow.',
+        'Every attack I can see loses ground compared to waiting, so I’m banking troops instead.'
+      ],0)];
+      if (lv && lv.personal) lines.push(pk([
+        'I’m still watching for the moment you commit — the second you move, I’ll have somewhere to strike.',
+        'Patience costs me nothing here; I’d rather punish your next move than force a bad one of my own.'
+      ],1));
+      return lines;
+    }
+    const si=V.best.si, ti=V.best.ti;
+    const srcName=states[si].name, tgtName=states[ti].name;
+    const srcT=Math.round(s.troops[si]), tgtT=Math.round(s.troops[ti]);
+    const tgtOwner = s.owner[ti];
+    const pk = nnVary(nnHash(srcName+'>'+tgtName+'#'+V.owner));
+    const lines = [];
+
+    lines.push(pk([
+      'I’m sending '+srcName+'’s troops into '+tgtName+'.',
+      'My move: attack '+tgtName+', launched from '+srcName+'.'
+    ],0));
+
+    if (tgtOwner===PLAYER) lines.push(pk([
+      tgtName+' is yours — you’re the one I have to slow down, so that’s where the whole-board read points me.',
+      'Every territory embedding I computed still comes back to '+tgtName+' as your weak point.'
+    ],1));
+    else if (tgtOwner===NEUTRAL) lines.push(pk([
+      tgtName+' is unclaimed — free growth, and nothing stronger is reachable yet.',
+      'Grabbing neutral '+tgtName+' expands me before anyone else gets there.'
+    ],1));
+    else lines.push(pk([
+      tgtName+' belongs to a rival — bleeding them there keeps the board from tipping toward one opponent.',
+      'I’d rather grind a rival at '+tgtName+' than spend this army on you yet.'
+    ],1));
+
+    lines.push(pk(
+      srcT>tgtT ? [
+        'I outnumber it, '+srcT+' to '+tgtT+' — the whole-map attention pass rates this a clean take.',
+        srcT+' against '+tgtT+' is comfortable; every territory embedding around it agrees this holds.'
+      ] : [
+        'It’s defended, '+srcT+' of mine against '+tgtT+' — riskier, but the graph-attention read still rates it above every safer option.',
+        'I’m behind on paper ('+srcT+' vs '+tgtT+'), yet the net’s whole-board view still likes this strike.'
+      ], 2));
+
+    if (V.entropyNorm!=null && V.top5 && V.top5.length){
+      const sure = V.entropyNorm<=0.3 ? 'very sure' : (V.entropyNorm<=0.6 ? 'fairly sure' : 'a bit torn');
+      const topPct = Math.round((V.top5[0].prob||0)*100), waitPct = Math.round((V.noopProb||0)*100);
+      lines.push(pk([
+        'I’m '+sure+' about this ('+topPct+'% of my attention on it), and waiting only got '+waitPct+'%.',
+        'Confidence here is '+sure+' — this move is carrying '+topPct+'% of the vote against every alternative, including doing nothing.'
+      ],3));
+    }
+
+    if (lv && lv.personal){
+      if ((V.fronts||0)>=2) lines.push(pk([
+        'I’ve actually opened '+V.fronts+' profitable attacks at once this tick — you can only answer one, so the rest land free.',
+        'Right now '+V.fronts+' of my fronts all score above waiting; that’s deliberate — one attention spotlight can’t cover them all.'
+      ],4));
+      const conf = OppModel.conf||0;
+      if (conf>0.15){
+        const pr = OppModel.predict ? OppModel.predict(PLAYER) : null;
+        if (pr && pr.topTgt) lines.push(pk([
+          'Your own habits say you’re about to move on '+pr.topTgt.name+' — I’m factoring that read into this.',
+          'I’m '+Math.round(conf*100)+'% confident I know your next target ('+pr.topTgt.name+'), and it’s shaping what I do here.'
+        ],5));
+      }
+    }
     return lines;
   }
 
