@@ -1,7 +1,7 @@
 {
-  "web": 23,
+  "web": 24,
   "notes": [
-    "Rollout Planner's loading screen now shows a real percentage (elapsed time vs. its actual search budget) instead of a generic spinner"
+    "Fixed the AI-teams loading progress being wildly inaccurate in Scenario matches — it now tracks whichever real search is actually closest to finishing, and says honestly when no search is running at all"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 24,
+      "date": "2026-07-20",
+      "notes": [
+        "Fixed the AI-teams loading progress being wildly inaccurate in Scenario matches — it now tracks whichever real search is actually closest to finishing, and says honestly when no search is running at all"
+      ]
+    },
     {
       "web": 23,
       "date": "2026-07-20",
