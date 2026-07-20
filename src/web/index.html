@@ -1159,6 +1159,12 @@
     const activeNames = new Set(states.map(s => s.name));
     for (const f of allFeatures) {
       if (activeNames.has(f.properties.name)) continue;
+      // Never draw Alaska/Hawaii/DC/territories here — they're not part of ANY playable region
+      // (EXCLUDE), and this background is fit to the mainland's projection, so their real position
+      // lands them badly clipped at the map's edge instead of reading as helpful geographic context.
+      // Small regions never showed this (their real position falls entirely off-canvas), but
+      // Continental U.S.'s much wider fit brings the clipped patch into view.
+      if (EXCLUDE.has(f.properties.name)) continue;
       const d = geoPath(f);
       if (!d) continue;
       const p = new Path2D(d);
