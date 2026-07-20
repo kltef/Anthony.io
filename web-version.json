@@ -1,7 +1,7 @@
 {
-  "web": 21,
+  "web": 22,
   "notes": [
-    "Fixed a weird dotted background patch that appeared in the corner of the Continental U.S. (50-state) map — it was Alaska/Hawaii rendering badly clipped since they're not part of any playable region"
+    "Fixed the AI Brain / Rollout Planner tabs showing the previous match's last decision at the start of a new game instead of the loading spinner"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 22,
+      "date": "2026-07-20",
+      "notes": [
+        "Fixed the AI Brain / Rollout Planner tabs showing the previous match's last decision at the start of a new game instead of the loading spinner"
+      ]
+    },
     {
       "web": 21,
       "date": "2026-07-20",
