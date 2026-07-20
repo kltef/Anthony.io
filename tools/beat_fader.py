@@ -67,7 +67,10 @@ def detach(argv, log, env_extra=None):
     fh = open(log, 'a')
     fh.write('\n===== launched %s =====\n$ %s\n' % (time.strftime('%Y-%m-%d %H:%M:%S'), ' '.join(argv)))
     fh.flush()
-    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    # CREATE_NO_WINDOW (not DETACHED_PROCESS): a fully console-less parent makes every node
+    # arena child allocate a VISIBLE console — 16 windows popping per round. A hidden console
+    # is inherited by all children (no popups) and still survives our terminal closing.
+    flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     p = subprocess.Popen(argv, cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT,
                          creationflags=flags, close_fds=False)
     print('  detached pid %d -> %s' % (p.pid, log))
