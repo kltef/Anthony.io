@@ -1,7 +1,7 @@
 {
-  "web": 16,
+  "web": 17,
   "notes": [
-    "Nightmare+ now scales its search budget to the situation: it thinks less and reacts faster when one of your attacks is about to flip a state of its own, and spends its full budget when nothing is urgent"
+    "Nightmare+'s urgency-scaled search budget now ranges 50ms-1000ms (was 400ms-1000ms) for a snappier reaction when one of its states is about to fall"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 17,
+      "date": "2026-07-20",
+      "notes": [
+        "Nightmare+'s urgency-scaled search budget now ranges 50ms-1000ms (was 400ms-1000ms) for a snappier reaction when one of its states is about to fall"
+      ]
+    },
     {
       "web": 16,
       "date": "2026-07-20",
