@@ -2464,10 +2464,16 @@
     // constant every decision. Real in-flight armies already computed above give a concrete (not
     // predicted) threat signal: an incoming army that isn't mine, heading to a state that IS mine,
     // big enough to actually flip it. The sooner that lands, the less time it's worth spending on a
-    // deep search versus just reacting. NEVER exceeds lv.workerMs — Nightmare+'s base budget is
-    // already tuned to exactly fill the cadence window (see the tier's LEVELS comment), so there is
-    // no headroom to search LONGER than that; a calm board just spends the full tier-configured
-    // budget instead of shrinking it.
+    // deep search versus just reacting.
+    // Ceiling is hard-capped at lv.workerMs, never higher — Nightmare+'s base budget is ALREADY
+    // tuned to exactly fill the cadence window (workerMs 1000 == aiSpeed 1.0s here), so there is
+    // zero headroom left. Going past it reintroduces the exact regression nightmare_plus.md already
+    // measured and fixed: planWorkerMove() drops a cadence tick outright while a plan is still
+    // pending (`if (planPending[owner]) return;`), so a budget that overruns the cadence makes the
+    // AI decide on a steadily staler board and lets a fast human out-tempo it (play-data 2026-07-04:
+    // 442 moves in 243s beat it at workerMs 1000 vs a faster cadence). Floor is a flat 50ms — a
+    // near-instant reaction, not a fraction of base, since "state falls in <1s" calls for the same
+    // fast reflex regardless of what the tier's base budget happens to be.
     let effWorkerMs = pp.workerMs;
     if (lv.personal){
       let soonestThreat = Infinity;
@@ -2476,12 +2482,12 @@
         if (a.count < tr[a.ti]) continue;                    // only count it if it would actually flip the state
         if (a.ttotal < soonestThreat) soonestThreat = a.ttotal;
       }
-      const URGENT_T=1.5, CALM_T=4.0, MIN_FRAC=0.4;           // seconds / budget floor as a fraction of base
-      const frac = soonestThreat<=URGENT_T ? MIN_FRAC
-                 : soonestThreat>=CALM_T ? 1.0
-                 : MIN_FRAC + (1.0-MIN_FRAC) * (soonestThreat-URGENT_T)/(CALM_T-URGENT_T);
-      effWorkerMs = Math.max(150, Math.round(pp.workerMs * frac));
-      lastPlanBudget[owner] = { base:pp.workerMs, eff:effWorkerMs, soonestThreat };
+      const URGENT_T=1.5, CALM_T=4.0, MIN_MS=50, maxMs=pp.workerMs;   // seconds / absolute ms floor / hard ceiling
+      const frac = soonestThreat<=URGENT_T ? 0
+                 : soonestThreat>=CALM_T ? 1
+                 : (soonestThreat-URGENT_T)/(CALM_T-URGENT_T);
+      effWorkerMs = Math.round(MIN_MS + (maxMs-MIN_MS)*frac);
+      lastPlanBudget[owner] = { base:maxMs, eff:effWorkerMs, soonestThreat };
     } else {
       lastPlanBudget[owner] = { base:pp.workerMs, eff:pp.workerMs, soonestThreat:Infinity };
     }
@@ -4033,7 +4039,7 @@
       kv('salvo width (multiMove)', String(lv.multiMove||1));
       kv('attention-pressure bias', (lv.attnPressure||0).toFixed(2));
       nnctx.font='9px Segoe UI, sans-serif'; nnctx.textAlign='left'; nnctx.fillStyle='#8a97a6';
-      nnctx.fillText('budget scales 40%-100% of base on how soon an incoming attack could actually flip one of my states', pad, Y); Y+=14;
+      nnctx.fillText('budget scales 50ms-'+(pb?pb.base:lv.workerMs||0)+'ms on how soon an incoming attack could actually flip one of my states', pad, Y); Y+=14;
     }
   }
 
