@@ -1063,6 +1063,7 @@
   let rlViz = null;         // { acts:[...], src, tgt, owner, score } from the last RL decision
   let rlVizDirty = false;   // redraw only when activations change
   let gnnViz = null;        // board-aware (Impossible) brain viz: { owner, s, h, srcs, nodeScore, best }
+  let lastPlanBudget = {};  // owner -> { base, eff, soonestThreat } — the urgency-scaled search budget actually used for its last decision (Nightmare+ only; base===eff on every other tier)
   const nnHist = [];        // rolling [topProb, noopProb] samples for the confidence sparkline
   const NN_HIST_MAX = 140;
 
@@ -2459,6 +2460,31 @@
     // Folding supply in here means the search naturally hunts cut-off exclaves (they read as
     // cheaper captures) with zero extra worker plumbing. Root-static, like the rest of TERR.
     const terr = depth ? states.map(s => terrMult(s.id) * (s.offSupply ? OFFSUP_DEF : 1)) : null;
+    // Nightmare+ only: scale the search budget to situational urgency instead of spending a flat
+    // constant every decision. Real in-flight armies already computed above give a concrete (not
+    // predicted) threat signal: an incoming army that isn't mine, heading to a state that IS mine,
+    // big enough to actually flip it. The sooner that lands, the less time it's worth spending on a
+    // deep search versus just reacting. NEVER exceeds lv.workerMs — Nightmare+'s base budget is
+    // already tuned to exactly fill the cadence window (see the tier's LEVELS comment), so there is
+    // no headroom to search LONGER than that; a calm board just spends the full tier-configured
+    // budget instead of shrinking it.
+    let effWorkerMs = pp.workerMs;
+    if (lv.personal){
+      let soonestThreat = Infinity;
+      for (const a of armies){
+        if (a.owner===owner || ow[a.ti]!==owner) continue;   // only armies not mine, aimed at a state that IS mine
+        if (a.count < tr[a.ti]) continue;                    // only count it if it would actually flip the state
+        if (a.ttotal < soonestThreat) soonestThreat = a.ttotal;
+      }
+      const URGENT_T=1.5, CALM_T=4.0, MIN_FRAC=0.4;           // seconds / budget floor as a fraction of base
+      const frac = soonestThreat<=URGENT_T ? MIN_FRAC
+                 : soonestThreat>=CALM_T ? 1.0
+                 : MIN_FRAC + (1.0-MIN_FRAC) * (soonestThreat-URGENT_T)/(CALM_T-URGENT_T);
+      effWorkerMs = Math.max(150, Math.round(pp.workerMs * frac));
+      lastPlanBudget[owner] = { base:pp.workerMs, eff:effWorkerMs, soonestThreat };
+    } else {
+      lastPlanBudget[owner] = { base:pp.workerMs, eff:pp.workerMs, soonestThreat:Infinity };
+    }
     return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies, adj, oppBias, oppW, explore, ponder, freeMove, depth, terr,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
       hunt:aiHunt(), desp:lv.desp||0, infight:aiInfight(), valueBlend:VALUE_BLEND, attn:lv.attnPressure||0,
@@ -2468,7 +2494,7 @@
       // wantViz=false) plus a fresh cycle before anything showed. The main thread still only DISPLAYS
       // it on the planner tab (see onPlanWorkerMsg), so this just removes the switch-in latency.
       horizon:pp.horizon, dt:pp.dt, ownerId:owner, wantViz: showNN,
-      humans, mcts:{ tbudget: worker?pp.workerMs:pp.serverMs, maxIter: NO_ITER_CAP, cPuct:MCTS.cPuct, K:pp.K } };
+      humans, mcts:{ tbudget: worker?effWorkerMs:pp.serverMs, maxIter: NO_ITER_CAP, cPuct:MCTS.cPuct, K:pp.K } };
   }
   // The planner runs the heavy MCTS OFF the main thread. Preference order:
   //   1. a Web Worker (default — no server needed; lets Impossible search ~50× longer than the
@@ -3995,9 +4021,19 @@
 
       sec('tempo · lever 1 (mechanics past parity)');
       kv('decision cadence', lv.aiSpeed.toFixed(2)+'s');
-      kv('search budget per decision', (lv.workerMs||0)+'ms');
+      const pb = lastPlanBudget[V.owner];
+      if (pb && pb.eff!==pb.base){
+        kv('search budget this decision', pb.eff+'ms (base '+pb.base+'ms)', '#f0c24a');
+        const t = pb.soonestThreat;
+        kv('urgency', (isFinite(t) ? 'one of my states falls in '+t.toFixed(1)+'s — reacting fast' : '—'), '#f0c24a');
+      } else {
+        kv('search budget this decision', (pb?pb.eff:lv.workerMs||0)+'ms', '#5fd07a');
+        kv('urgency', 'nothing imminent — spending the full budget', '#5fd07a');
+      }
       kv('salvo width (multiMove)', String(lv.multiMove||1));
       kv('attention-pressure bias', (lv.attnPressure||0).toFixed(2));
+      nnctx.font='9px Segoe UI, sans-serif'; nnctx.textAlign='left'; nnctx.fillStyle='#8a97a6';
+      nnctx.fillText('budget scales 40%-100% of base on how soon an incoming attack could actually flip one of my states', pad, Y); Y+=14;
     }
   }
 
@@ -4454,6 +4490,11 @@
     }
 
     if (lv && lv.personal){
+      const pb = lastPlanBudget[V.owner];
+      if (pb && pb.eff<pb.base) lines.push(pk([
+        'One of my states falls in '+pb.soonestThreat.toFixed(1)+'s if I don’t answer it, so I cut my thinking time to '+pb.eff+'ms instead of the usual '+pb.base+'ms — reacting beats a deeper search right now.',
+        'I’m rushing this decision ('+pb.eff+'ms, down from '+pb.base+'ms) because something of mine is about to fall in '+pb.soonestThreat.toFixed(1)+'s.'
+      ],6));
       if ((V.fronts||0)>=2) lines.push(pk([
         'I’ve actually opened '+V.fronts+' profitable attacks at once this tick — you can only answer one, so the rest land free.',
         'Right now '+V.fronts+' of my fronts all score above waiting; that’s deliberate — one attention spotlight can’t cover them all.'
