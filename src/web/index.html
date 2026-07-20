@@ -1390,6 +1390,11 @@
     cfg = lv;
     selectPolicyForLevel();                             // Grandmaster -> flat MLP, Impossible -> GNN net
     troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; planSeq2={}; planPending={}; planEpoch++; resetCam();
+    // Clear the last match's AI-panel snapshots — planEpoch++ only invalidates stale WORKER REPLIES,
+    // it doesn't clear the viz caches themselves, so without this the Planner/Brain tabs kept showing
+    // the previous game's last decision (and the loading spinner never appeared, since it only shows
+    // when planViz is null) until the new game's first real decision happened to overwrite it.
+    planViz = null; rlViz = null; gnnViz = null; planVizDirty = true; rlVizDirty = true;
     startGameLog();
     OppModel.load(playerName);                          // load this player's learned opponent model
     if (netMode!=='host') myOwner = PLAYER;
@@ -5557,6 +5562,9 @@
     if (regionIdx !== scnRegionIdx){ regionIdx = scnRegionIdx; buildStatesForRegion(); buildRegionButtons(); }
     buildGeo();
     troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; buildArmed=null; aiTimers={}; planSeq2={}; planPending={}; planEpoch++; resetCam();
+    // see newGame()'s identical comment: planEpoch++ alone leaves the last match's AI-panel data
+    // sitting stale (and the loading spinner suppressed, since it only shows when planViz is null).
+    planViz = null; rlViz = null; gnnViz = null; planVizDirty = true; rlVizDirty = true;
     matchTrack = null;
 
     myOwner = PLAYER;
