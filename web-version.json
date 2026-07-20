@@ -1,7 +1,7 @@
 {
-  "web": 22,
+  "web": 23,
   "notes": [
-    "Fixed the AI Brain / Rollout Planner tabs showing the previous match's last decision at the start of a new game instead of the loading spinner"
+    "Rollout Planner's loading screen now shows a real percentage (elapsed time vs. its actual search budget) instead of a generic spinner"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 23,
+      "date": "2026-07-20",
+      "notes": [
+        "Rollout Planner's loading screen now shows a real percentage (elapsed time vs. its actual search budget) instead of a generic spinner"
+      ]
+    },
     {
       "web": 22,
       "date": "2026-07-20",
