@@ -1,7 +1,7 @@
 {
-  "web": 15,
+  "web": 16,
   "notes": [
-    "AI Brain panel on Nightmare+ now explains its reasoning in plain English, plus detailed stats: candidate move rankings, opponent-model confidence and predicted target, simultaneous-fronts count, and the tier's tempo dials"
+    "Nightmare+ now scales its search budget to the situation: it thinks less and reacts faster when one of your attacks is about to flip a state of its own, and spends its full budget when nothing is urgent"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -17,6 +17,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 16,
+      "date": "2026-07-20",
+      "notes": [
+        "Nightmare+ now scales its search budget to the situation: it thinks less and reacts faster when one of your attacks is about to flip a state of its own, and spends its full budget when nothing is urgent"
+      ]
+    },
     {
       "web": 15,
       "date": "2026-07-20",
