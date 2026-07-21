@@ -35,8 +35,12 @@ BASELINE_PATH = os.path.join(SCR, 'fader_baseline.json')
 LEAGUE = ['script:turtle', 'script:rush', 'script:econ', 'script:farmer', 'script:human']
 
 
-def arena(a, b, games, budget, gamecap=None, extra_env=None):
-    """Run one arena match, return side A's win-rate (parses 'FINAL: A won X/N')."""
+from concurrent.futures import ThreadPoolExecutor
+
+WORKERS = max(1, (os.cpu_count() or 4) - 1)
+
+
+def _one_arena(a, b, games, budget, gamecap, extra_env):
     env = os.environ.copy()
     env['DEPTH_RULES'] = '1'   # gate under the SHIPPED game's rules (depth v2, build 13+)
     if gamecap:
@@ -49,7 +53,21 @@ def arena(a, b, games, budget, gamecap=None, extra_env=None):
     if not m:
         print(r.stdout[-2000:], file=sys.stderr)
         raise RuntimeError('arena produced no FINAL line (%s vs %s)' % (a, b))
-    return int(m.group(1)) / int(m.group(2))
+    return int(m.group(1)), int(m.group(2))
+
+
+def arena(a, b, games, budget, gamecap=None, extra_env=None):
+    """A vs B win-rate, FANNED OUT across cores: split `games` into per-worker chunks run in
+    parallel, then pool the wins. The arena itself plays one game at a time, so a serial gate
+    used ~1/Ncores of the machine — this is the ~Ncores speedup."""
+    n = max(1, min(WORKERS, games))
+    chunks = [games // n + (1 if i < games % n else 0) for i in range(n)]
+    chunks = [c for c in chunks if c > 0]
+    wins = total = 0
+    with ThreadPoolExecutor(max_workers=len(chunks)) as ex:
+        for w, t in ex.map(lambda g: _one_arena(a, b, g, budget, gamecap, extra_env), chunks):
+            wins += w; total += t
+    return wins / total
 
 
 def main():
