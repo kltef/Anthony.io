@@ -382,7 +382,7 @@
 
   <div class="who">Playing as <b id="playerNameDisp">Player</b>
     <button class="mini2" id="changeNameBtn" title="Change your name">✎</button>
-    <button class="mini2" id="settingsBtn" title="Settings">⚙</button>
+    <button class="mini2" id="settingsBtn" title="Settings">⚙</button><button class="mini2" id="tutBtn" title="How to play">❓</button>
     <button class="mini2" id="lbBtn">🏆 Leaderboard</button>
     <button class="mini2" id="shopBtn">🪙 Shop</button>
     <button class="mini2" id="exportBtn" title="Export your recorded play data">⬇ Data</button>
@@ -468,6 +468,18 @@
   <p class="hint" id="buildTag" style="opacity:.55;font-size:12px;margin-top:2px"></p>
 </div>
 
+<div id="tutPanel" class="gone" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;background:var(--white);border:3px solid var(--ink);border-radius:18px;padding:22px 24px;box-shadow:0 6px 0 rgba(46,58,74,.28),0 14px 34px rgba(21,68,88,.32);width:min(360px,92vw);text-align:center;pointer-events:auto">
+  <h2 id="tutTitle" style="font-family:var(--font-display);color:var(--ink);font-size:19px;margin-bottom:8px"></h2>
+  <canvas id="tutCanvas" style="width:100%;height:auto;display:block;margin:0 0 10px;border-radius:10px;background:#eef4fa"></canvas>
+  <p id="tutBody" class="hint" style="color:var(--ink);opacity:.85;font-size:14px;line-height:1.55;min-height:96px;text-align:left"></p>
+  <p id="tutStep" class="hint" style="opacity:.5;font-size:12px;margin:10px 0 14px"></p>
+  <div style="display:flex;gap:10px;justify-content:center">
+    <button class="btn" id="tutPrev" style="opacity:.75">Back</button>
+    <button class="btn" id="tutNext">Next</button>
+  </div>
+  <button id="tutSkip" style="position:absolute;top:7px;right:11px;background:none;border:none;font-size:18px;cursor:pointer;color:var(--slate)">×</button>
+</div>
+<div id="tutToast" class="gone" style="position:fixed;left:50%;bottom:76px;transform:translateX(-50%);z-index:35;background:var(--ink);color:#fff;border-radius:12px;padding:10px 16px;font-size:14px;max-width:88vw;box-shadow:0 6px 18px rgba(0,0,0,.35);pointer-events:none;text-align:center"></div>
 <div id="settingsPanel" class="gone" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:30;background:var(--white);border:3px solid var(--ink);border-radius:18px;padding:22px 24px;box-shadow:0 6px 0 rgba(46,58,74,.28),0 14px 34px rgba(21,68,88,.32);width:min(330px,92vw);text-align:center;pointer-events:auto">
   <h2 style="font-family:var(--font-display);color:var(--ink);font-size:19px;margin-bottom:16px">⚙ Settings</h2>
   <label style="display:flex;align-items:center;gap:12px;justify-content:center;cursor:pointer;color:var(--ink);font-weight:700">
@@ -604,7 +616,10 @@
       'Montana','Wyoming','Colorado','New Mexico' ] },
     { name:'Continental U.S.', list:null },
   ];
-  let regionIdx = 0;
+  // Continental U.S. (the full 50-state map) is the default game everywhere now. Found by its
+  // list:null marker, not a hardcoded index — region entries get added over time.
+  const DEFAULT_REGION = Math.max(0, REGIONS.findIndex(r => r.list === null));
+  let regionIdx = DEFAULT_REGION;
   function buildStatesForRegion(){
     const r = REGIONS[regionIdx], set = r.list ? new Set(r.list) : null;
     const idxs = allFeatures.map((f,i)=>i).filter(i => {
@@ -715,15 +730,21 @@
 
   const LEVELS = [
     // Easy: weak neutrals, fast player growth, slow & passive AI that grows slower than you
-    { name:'Easy',   enemies:1, aiSpeed:2.6, aiAggro:0.30, neutralMin:5,  neutralMax:18, growRate:1.7, playerStart:45, enemyStart:22, enemyGrow:0.65 },
-    { name:'Medium', enemies:2, aiSpeed:1.4, aiAggro:0.70, neutralMin:10, neutralMax:34, growRate:1.2, playerStart:35, enemyStart:30, enemyGrow:0.9  },
-    { name:'Hard',   enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:36, enemyGrow:1.0  },
+    // ONE BRAIN, GRADED (2026-07-21): every tier now runs the trained counter-net planner, tuned
+    // down for the lower tiers via think-budget (workerMs), cadence (aiSpeed) and salvo width
+    // (multiMove) — plus the existing economy handicaps (enemyGrow). New players face the SAME
+    // strategy the top tiers play (expand, invest, stay connected, strike concentrated), just
+    // slower and shallower — so the game teaches correct play from Easy up.
+    { name:'Easy',   enemies:1, aiSpeed:2.6, aiAggro:0.30, neutralMin:5,  neutralMax:18, growRate:1.7, playerStart:45, enemyStart:22, enemyGrow:0.65, rl:true, plan:true, planDt:0.5,  mctsK:5, tbudget:1500, workerMs:30,  multiMove:1 },
+    { name:'Medium', enemies:2, aiSpeed:1.4, aiAggro:0.70, neutralMin:10, neutralMax:34, growRate:1.2, playerStart:35, enemyStart:30, enemyGrow:0.9,  rl:true, plan:true, planDt:0.45, mctsK:7, tbudget:2000, workerMs:60,  multiMove:1 },
+    { name:'Hard',   enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:36, enemyGrow:1.0,  rl:true, plan:true, planDt:0.4,  mctsK:9, tbudget:2500, workerMs:120, multiMove:2 },
     // Grandmaster: the trained RL policy net playing on INSTINCT. It scores every move with the
     // neural net and plays the best one immediately — NO planner lookahead, NO coordinated salvos.
     // Smart per-move (threat-aware target selection), fast and reactive, but it doesn't think ahead
     // or gang up — that's Impossible's job. A genuinely different, lighter brain one notch below it.
     // `hunt` (0..1) = how willing the AI is to attack YOU before the neutral land is gone.
-    { name:'Grandmaster', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, hunt:0.6 },
+    { name:'Grandmaster', enemies:3, aiSpeed:0.85,aiAggro:0.92, neutralMin:15, neutralMax:50, growRate:1.0, playerStart:30, enemyStart:30, enemyGrow:1.0, rl:true, hunt:0.6,
+      plan:true, planDt:0.35, mctsK:9, tbudget:3000, workerMs:180, multiMove:2 },
     // (The old 'Impossible' tier — the planner at human-fair cadence — was folded into Nightmare
     // 2026-07-11: with Grandmaster below and Nightmare above it read as a redundant middle step.)
     // Nightmare: the full planner with the human-fairness caps removed (see nightmare.md).
@@ -897,9 +918,9 @@
   // workers so they re-init with the new policy (they cache it at construction — see ensurePlanWorkers).
   function selectPolicyForLevel() {
     const lv = LEVELS[levelIdx], nm = lv && lv.name;
-    let want = mlpPolicy;
-    if (gnnPolicy && (nm === 'Impossible' || nm === 'Nightmare' || nm === 'Nightmare+')) want = gnnPolicy;
-    if (lv && lv.xnet) want = xnetPolicy || gnnPolicy || mlpPolicy;   // hidden dev tier: the counter-net
+    // ONE BRAIN: the trained counter-net drives every tier (graded by budget/cadence in LEVELS),
+    // falling back to the previous champion, then the flat MLP, if it hasn't loaded yet.
+    let want = xnetPolicy || gnnPolicy || mlpPolicy;
     if (!want || want === rlPolicy) return;
     rlPolicy = want;
     if (Array.isArray(planWorkers)) { for (const w of planWorkers) { try { w.terminate(); } catch(e){} } }
@@ -1413,7 +1434,7 @@
     startGameLog();
     OppModel.load(playerName);                          // load this player's learned opponent model
     if (netMode!=='host') myOwner = PLAYER;
-    if (!netMode && regionIdx!==0){ regionIdx=0; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default map
+    if (!netMode && regionIdx!==DEFAULT_REGION){ regionIdx=DEFAULT_REGION; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default (50-state) map
     buildGeo();
 
     // Cap upgrades, special tiles & shop perks are single-player only (off in netplay → no desync).
@@ -1460,6 +1481,11 @@
     introText.style.display = 'none';
     resultText.textContent = won ? 'VICTORY!' : 'DEFEAT';
     resultText.style.color = won ? '#38c46f' : '#ef5b52';
+    if (lsGet('tutHints')==='on'){   // retire the first-game hints with one closing tip
+      lsSet('tutHints','done');
+      tutHint(won ? '🏆 That’s the loop: expand → invest → stay connected → strike as one. Try Medium next!'
+                  : '💪 Tip: invest early in safe states, keep your empire connected, and attack with everything at once.');
+    }
     if (typeof Music!=='undefined') Music.stinger(won);
     startBtn.textContent = 'Play Again';
     lastCoinAward = 0;
@@ -2488,7 +2514,9 @@
     // which feels like the whole game crawling (play-test 2026-07-16). Off unless it's the only AI.
     let aiTeams = 0; const seenAI = {};
     for (const s of states) if (s.owner>=2 && !seenAI[s.owner]){ seenAI[s.owner]=1; aiTeams++; }
-    const ponder = aiTeams <= 1;
+    // now that EVERY tier runs the planner, only the heavyweight tiers (workerMs>=200) ponder —
+    // Easy/Medium on a phone must not peg all cores between moves for a 30ms-budget opponent.
+    const ponder = aiTeams <= 1 && (lv.workerMs || 0) >= 200;
     const freeMove = !adjacencyMode && !netMode;   // classic-mode movement for the AI too (solo only)
     const depth = depthMode && !netMode;           // depth mechanics: worker models Lanchester+terrain+supply
     // TERR is the worker's per-state DEFENCE multiplier: terrain gradient x off-supply penalty.
@@ -3607,6 +3635,7 @@
     if (matchTrack){ snapClock += dt; if (snapClock >= 1.5){ snapClock = 0; ensureHeader(); if (matchTrack.snaps.length < 800) matchTrack.snaps.push(boardSnapshot()); } }
     aiSnow = humanSnowball();   // once per tick: drives enemy catch-up growth + anti-snowball hunt
     updateThreats();
+    tutHintsTick();             // first-game tutorial hint toasts (no-op unless armed)
     const depth = depthOn();
     if (depth){
       supplyClock += dt;
@@ -5013,6 +5042,144 @@
     if (settingsClose) settingsClose.onclick = () => settingsPanel.classList.add('gone');
   }
 
+  // ---- TUTORIAL (first-launch cards + first-game hint toasts) --------------------------------
+  // Auto-opens once for brand-new players (right after they save a name); replayable any time via
+  // the ❓ menu button. Finishing it arms one game's worth of live hint toasts (tutHints), which
+  // teach the depth loop (expand -> invest -> stay connected -> strike concentrated) in context.
+  const TUT_STEPS = [
+    { t:'🎯 The goal', b:'Own every active state on the map. Each circle is a state — the number is its troops. You are <b>blue</b>.' },
+    { t:'🕹 Moving troops', b:'<b>Drag</b> from your state to a neighbour to attack it (sweep across more of your states on the way to launch a joint attack from all of them).<br><br>Or <b>tap</b> your state, then tap a target. The <b>Send</b> button picks how much each move sends: All, Half or Quarter.' },
+    { t:'📈 Your economy', b:'States grow troops over time, up to a cap.<br><br><b>⬆ Upgrade</b> raises a state’s cap.<br><b>🌱 Invest</b> makes it grow +40% per tier — invest early in safe states and it compounds all game.' },
+    { t:'🗺 Territory matters', b:'You can only attack <b>neighbouring</b> states.<br><br>Keep your empire <b>connected</b>: a state cut off from your main territory (⚠) grows slowly and fights weaker.<br><br>States with few borders (⛰ highlands) are natural fortresses — they defend up to 1.4×.' },
+    { t:'⚔ How battles work', b:'One <b>concentrated strike</b> beats the same troops sent in dribbles — mass your force, then commit.<br><br>But don’t hoard: troops stacked above a state’s cap slowly <b>desert</b>. Turn armies into territory.' },
+    { t:'🤖 The AI', b:'Every difficulty runs the same trained AI, tuned down for the lower tiers — so even Easy teaches you real strategy.<br><br>Win and <b>Auto-adjust</b> moves you up. Good luck, commander!' },
+  ];
+  const tutPanel = document.getElementById('tutPanel');
+  let tutIdx = 0;
+  // ---- tutorial diagrams: drawn with the GAME'S OWN visual language (same node style, palette,
+  // pips, badges and attack arrows as the board render) so what the card shows is what you'll see.
+  function tnNode(c,x,y,r,count,owner,o){ o=o||{};
+    if (o.dim) c.globalAlpha = 0.65;
+    c.fillStyle='#fff'; c.beginPath(); c.arc(x,y,r,0,Math.PI*2); c.fill();
+    c.lineWidth=3; c.strokeStyle = owner===0?'#cfd4da':DARK[owner]; c.stroke();
+    c.fillStyle='#2b3440'; c.font='bold '+Math.round(r*0.82)+'px Segoe UI, sans-serif';
+    c.textAlign='center'; c.textBaseline='middle'; c.fillText(count,x,y+1);
+    if (o.inv){ c.fillStyle='#2e8b3d';
+      for(let i=0;i<o.inv;i++){ c.beginPath(); c.arc(x+r+5, y-((o.inv-1)*5.5)/2+i*5.5, 2.3,0,Math.PI*2); c.fill(); } }
+    if (o.lvl){ c.fillStyle=DARK[owner]||'#2b3440'; const gap=6, span=(o.lvl-1)*gap;
+      for(let i=0;i<o.lvl;i++){ c.beginPath(); c.arc(x-span/2+i*gap, y+r+6, 2.3,0,Math.PI*2); c.fill(); } }
+    if (o.terr){ const tx=x-r*1.15, ty=y-r*0.9, ts=r*0.42; c.fillStyle='#5b6c83';
+      c.beginPath(); c.moveTo(tx,ty-ts); c.lineTo(tx-ts,ty+ts*0.8); c.lineTo(tx+ts,ty+ts*0.8); c.closePath(); c.fill(); }
+    if (o.warn){ c.font=Math.round(r*0.75)+'px "Segoe UI Emoji",sans-serif'; c.fillText('⚠', x+r*1.18, y-r*0.92); }
+    c.globalAlpha = 1;
+  }
+  function tnArrow(c,x1,y1,x2,y2,color,dashed){
+    const ang=Math.atan2(y2-y1,x2-x1), ah=8;
+    c.strokeStyle=color; c.lineWidth=3.5; if (dashed) c.setLineDash([6,5]);
+    c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2-ah*Math.cos(ang),y2-ah*Math.sin(ang)); c.stroke(); c.setLineDash([]);
+    c.fillStyle=color; c.beginPath(); c.moveTo(x2,y2);
+    c.lineTo(x2-ah*1.7*Math.cos(ang-0.4), y2-ah*1.7*Math.sin(ang-0.4));
+    c.lineTo(x2-ah*1.7*Math.cos(ang+0.4), y2-ah*1.7*Math.sin(ang+0.4)); c.closePath(); c.fill();
+  }
+  function tnOrb(c,x,y,count,owner){ c.fillStyle=COLORS[owner]; c.beginPath(); c.arc(x,y,10,0,Math.PI*2); c.fill();
+    c.fillStyle='#fff'; c.font='bold 10px Segoe UI, sans-serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText(count,x,y); }
+  function tnLink(c,x1,y1,x2,y2){ c.strokeStyle='#cfd4da'; c.lineWidth=2; c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke(); }
+  function tnLabel(c,x,y,txt,color,size){ c.fillStyle=color||'#54636f'; c.font='bold '+(size||11)+'px Segoe UI, sans-serif';
+    c.textAlign='center'; c.textBaseline='middle'; c.fillText(txt,x,y); }
+  function tutDraw(i){
+    const cv = document.getElementById('tutCanvas'); if (!cv) return;
+    const Wd=316, Hd=128, dpr=window.devicePixelRatio||1;
+    cv.width=Wd*dpr; cv.height=Hd*dpr;
+    const c=cv.getContext('2d'); c.scale(dpr,dpr); c.clearRect(0,0,Wd,Hd);
+    if (i===0){            // the goal: a mini board, blue vs red over neutrals
+      tnLink(c,75,62,140,44); tnLink(c,140,44,205,80); tnLink(c,75,62,150,92); tnLink(c,150,92,205,80); tnLink(c,205,80,258,52);
+      tnNode(c,75,62,17,48,1); tnNode(c,140,44,14,30,1); tnNode(c,150,92,12,14,0); tnNode(c,205,80,12,9,0); tnNode(c,258,52,15,26,2);
+      tnLabel(c,158,116,'own every state on the map',null,12);
+    } else if (i===1){     // drag to attack: blue -> neutral, orb in flight
+      tnNode(c,62,58,18,45,1); tnNode(c,254,58,15,20,0);
+      tnArrow(c,84,58,232,58,DARK[1],true);
+      tnOrb(c,158,58,45,1);
+      tnLabel(c,158,102,'drag from your state → a neighbour',null,12);
+    } else if (i===2){     // economy: upgrade pips + invest pips
+      tnNode(c,90,58,20,96,1,{lvl:2,inv:2});
+      tnLabel(c,90,110,'⬆ higher cap · 🌱 +40% growth',null,12);
+      tnNode(c,235,58,15,42,1,{inv:3});
+      tnLabel(c,235,96,'invest early, it compounds',null,11);
+    } else if (i===3){     // territory: connected core vs cut-off ⚠, highland ⛰
+      tnLink(c,58,52,108,42); tnLink(c,58,52,96,88); tnLink(c,108,42,96,88);
+      tnNode(c,58,52,14,36,1); tnNode(c,108,42,13,28,1); tnNode(c,96,88,12,22,1);
+      tnNode(c,262,50,13,17,1,{warn:1,dim:1}); tnLabel(c,262,92,'cut off: weak + slow',null,11);
+      tnNode(c,178,84,13,25,0,{terr:1}); tnLabel(c,178,116,'⛰ defends 1.4×',null,11);
+    } else if (i===4){     // battles: joint strike wins, trickle fails, over-cap deserts
+      tnNode(c,48,40,13,60,1); tnNode(c,48,88,13,60,1); tnNode(c,150,64,16,100,2);
+      tnArrow(c,63,44,131,58,DARK[1]); tnArrow(c,63,84,131,70,DARK[1]);
+      tnLabel(c,99,110,'strike as one ✔','#27975a',12);
+      tnNode(c,230,44,12,20,1,{dim:1}); tnNode(c,292,44,13,80,2,{dim:1});
+      tnArrow(c,244,44,277,44,'#b06a63',true);
+      tnLabel(c,262,78,'dribbles bounce ✘','#c43d36',11);
+      tnLabel(c,262,102,'over-cap stacks desert',null,10);
+    } else {               // one brain, graded difficulty
+      const names=['E','M','H','GM','N','N+'];
+      for (let k=0;k<6;k++){ const x=42+k*40, a=0.25+k*0.15;
+        c.fillStyle='rgba(44,127,196,'+a.toFixed(2)+')';
+        if (c.roundRect){ c.beginPath(); c.roundRect(x-16,48,32,26,13); c.fill(); }
+        else { c.fillRect(x-16,48,32,26); }
+        c.fillStyle = k<2 ? '#2b3440' : '#fff';
+        c.font='bold 12px Segoe UI, sans-serif'; c.textAlign='center'; c.textBaseline='middle';
+        c.fillText(names[k],x,61);
+      }
+      tnLabel(c,158,100,'same trained brain — tuned down for lower tiers',null,11.5);
+    }
+  }
+  function tutRender(){
+    document.getElementById('tutTitle').textContent = TUT_STEPS[tutIdx].t;
+    document.getElementById('tutBody').innerHTML = TUT_STEPS[tutIdx].b;
+    document.getElementById('tutStep').textContent = (tutIdx+1)+' / '+TUT_STEPS.length;
+    document.getElementById('tutPrev').style.visibility = tutIdx===0 ? 'hidden' : '';
+    document.getElementById('tutNext').textContent = tutIdx===TUT_STEPS.length-1 ? "Let's play!" : 'Next';
+    tutDraw(tutIdx);
+  }
+  function tutOpen(){ tutIdx = 0; tutRender(); tutPanel.classList.remove('gone'); }
+  function tutClose(finished){
+    tutPanel.classList.add('gone'); lsSet('tutDone','1');
+    if (finished && lsGet('tutHints')!=='done') lsSet('tutHints','on');   // arm the first-game hints
+  }
+  if (tutPanel){
+    document.getElementById('tutBtn').onclick = tutOpen;
+    document.getElementById('tutSkip').onclick = () => tutClose(false);
+    document.getElementById('tutPrev').onclick = () => { if (tutIdx>0){ tutIdx--; tutRender(); } };
+    document.getElementById('tutNext').onclick = () => {
+      if (tutIdx < TUT_STEPS.length-1){ tutIdx++; tutRender(); } else tutClose(true);
+    };
+    // brand-new player: the name modal is up (no saved name) — open the tutorial once they save.
+    // (read the raw key: playerName's `let` lives later in this script — TDZ — and lsGet adds the
+    // 'stateio_' prefix while the name is stored under plain 'statio_player'.)
+    if (lsGet('tutDone')!=='1'){
+      let _nm = ''; try { _nm = localStorage.getItem('statio_player') || ''; } catch(e){}
+      if (!_nm) { const ps = document.getElementById('pnameSave');
+        if (ps) ps.addEventListener('click', () => setTimeout(tutOpen, 350), { once:true }); }
+    }
+  }
+  // in-game hint toasts (one game's worth, armed by finishing the tutorial)
+  const tutToastEl = document.getElementById('tutToast');
+  let _tutToastT = null;
+  function tutHint(msg){
+    if (!tutToastEl) return;
+    tutToastEl.textContent = msg; tutToastEl.classList.remove('gone');
+    if (_tutToastT) clearTimeout(_tutToastT);
+    _tutToastT = setTimeout(()=>tutToastEl.classList.add('gone'), 6500);
+  }
+  const tutFired = {};
+  function tutHintsTick(){                    // called each update() while a solo game runs
+    if (lsGet('tutHints')!=='on' || netMode) return;
+    let mine=0, cut=false;
+    for (const s of states) if (s.owner===myOwner){ mine++; if (s.offSupply) cut=true; }
+    if (!tutFired.start && gameElapsed>1){ tutFired.start=1; tutHint('🎯 Drag from your blue state to a neighbour to send troops'); }
+    else if (!tutFired.cap && mine>=2){ tutFired.cap=1; tutHint('🏰 Captured! States grow troops over time — keep expanding'); }
+    else if (!tutFired.invest && gameElapsed>=30 && depthOn()){ tutFired.invest=1; tutHint('🌱 Tip: press Invest, then tap a safe state — +40% growth compounds all game'); }
+    else if (!tutFired.supply && cut && depthOn()){ tutFired.supply=1; tutHint('⚠ A state is cut off from your main territory — it grows slowly and fights weaker'); }
+  }
+
   // ---- mode tabs ----
   modesEl.addEventListener('click', e => { const m = e.target.dataset.mode; if (m) setMode(m); });
   function setMode(m){
@@ -5396,7 +5563,7 @@
   // the AI into it. Teams are laid out as contiguous blobs grown from spread-out seed states so
   // the requested shares (e.g. 50 / 25 / 25) hold up visually as well as numerically.
   const COLOR_NAMES = { 1:'Blue', 2:'Red', 3:'Orange', 4:'Purple', 5:'Green', 6:'Pink', 7:'Cyan', 8:'Gold' };
-  let scnRegionIdx = 0;          // which map
+  let scnRegionIdx = DEFAULT_REGION;   // which map (default: the 50-state Continental U.S.)
   let scnLevelIdx = 3;           // which AI brain drives the AI teams (default: Grandmaster / planner)
   let scnTeams = [ {ctrl:'you',share:50}, {ctrl:'ai',share:25}, {ctrl:'ai',share:25} ];  // the user's example
   const scnTeamsEl   = document.getElementById('scnTeams');
@@ -6041,7 +6208,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 25;
+  const WEB_VERSION = 26;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;

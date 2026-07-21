@@ -1,7 +1,9 @@
 {
-  "web": 25,
+  "web": 26,
   "notes": [
-    "Internal: experimental AI test tier"
+    "The full 50-state map is now the game — every mode plays Continental U.S. by default",
+    "Every difficulty now runs the trained AI, tuned down for Easy/Medium/Hard — even beginners learn real strategy",
+    "New: interactive tutorial with in-game diagrams for first-time players (replay it any time with the ? button)"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -18,6 +20,15 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 26,
+      "date": "2026-07-21",
+      "notes": [
+        "The full 50-state map is now the game — every mode plays Continental U.S. by default",
+        "Every difficulty now runs the trained AI, tuned down for Easy/Medium/Hard — even beginners learn real strategy",
+        "New: interactive tutorial with in-game diagrams for first-time players (replay it any time with the ? button)"
+      ]
+    },
     {
       "web": 25,
       "date": "2026-07-21",
