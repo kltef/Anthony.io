@@ -1,12 +1,13 @@
 {
-  "web": 24,
+  "web": 25,
   "notes": [
-    "Fixed the AI-teams loading progress being wildly inaccurate in Scenario matches — it now tracks whichever real search is actually closest to finishing, and says honestly when no search is running at all"
+    "Internal: experimental AI test tier"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
     "index.html",
     "gnn_policy.json",
+    "gnn_policy_x.json",
     "rl_policy.json",
     "menu.mp3",
     "explore.mp3",
@@ -18,10 +19,17 @@
   ],
   "history": [
     {
+      "web": 25,
+      "date": "2026-07-21",
+      "notes": [
+        "Internal: experimental AI test tier"
+      ]
+    },
+    {
       "web": 24,
       "date": "2026-07-20",
       "notes": [
-        "Fixed the AI-teams loading progress being wildly inaccurate in Scenario matches — it now tracks whichever real search is actually closest to finishing, and says honestly when no search is running at all"
+        "Fixed the AI-teams loading progress being wildly inaccurate in Scenario matches â€” it now tracks whichever real search is actually closest to finishing, and says honestly when no search is running at all"
       ]
     },
     {
@@ -42,7 +50,7 @@
       "web": 21,
       "date": "2026-07-20",
       "notes": [
-        "Fixed a weird dotted background patch that appeared in the corner of the Continental U.S. (50-state) map — it was Alaska/Hawaii rendering badly clipped since they're not part of any playable region"
+        "Fixed a weird dotted background patch that appeared in the corner of the Continental U.S. (50-state) map â€” it was Alaska/Hawaii rendering badly clipped since they're not part of any playable region"
       ]
     },
     {
@@ -56,14 +64,14 @@
       "web": 19,
       "date": "2026-07-20",
       "notes": [
-        "Nightmare+'s urgency floor is now 250ms instead of 50ms — still a fast reaction under threat, just not quite as razor-thin"
+        "Nightmare+'s urgency floor is now 250ms instead of 50ms â€” still a fast reaction under threat, just not quite as razor-thin"
       ]
     },
     {
       "web": 18,
       "date": "2026-07-20",
       "notes": [
-        "Nightmare+'s root-move breadth now scales with the same urgency signal as its search budget — narrow and fast under threat, considers its whole legal-move list when the board is calm (was fixed at ~10-12 moves)"
+        "Nightmare+'s root-move breadth now scales with the same urgency signal as its search budget â€” narrow and fast under threat, considers its whole legal-move list when the board is calm (was fixed at ~10-12 moves)"
       ]
     },
     {
@@ -91,7 +99,7 @@
       "web": 14,
       "date": "2026-07-19",
       "notes": [
-        "Mobile fix: Upgrade and Invest are now always-on buttons — tap one, then tap your states to build (tap elsewhere to cancel)"
+        "Mobile fix: Upgrade and Invest are now always-on buttons â€” tap one, then tap your states to build (tap elsewhere to cancel)"
       ]
     },
     {
@@ -100,7 +108,7 @@
       "notes": [
         "Depth v2 balance: hoards above the cap now desert faster the bigger they are (a 1000-stack bleeds ~100/s)",
         "Highlands appear on more maps (gradient up to 1.4x) with a clearer mountain badge",
-        "Cut-off states also fight weaker (0.85x) — and the AI hunts them",
+        "Cut-off states also fight weaker (0.85x) â€” and the AI hunts them",
         "Neutral states slowly restock, so turtling has a clock",
         "AI opponents invest in their economy properly"
       ]
@@ -109,7 +117,7 @@
       "web": 12,
       "date": "2026-07-19",
       "notes": [
-        "New: Depth mechanics (Settings) — invest troops for permanent growth, highlands defend 1.35x, cut-off states grow slowly, concentrated attacks hit harder"
+        "New: Depth mechanics (Settings) â€” invest troops for permanent growth, highlands defend 1.35x, cut-off states grow slowly, concentrated attacks hit harder"
       ]
     },
     {
@@ -154,7 +162,7 @@
       "notes": [
         "Smarter music: the score now reads the whole board, not just raw troop counts",
         "Judges you against your strongest rival, so extra weak enemies don't sound like you're losing",
-        "Cinematic — moods hold instead of flip-flopping; a big incoming attack snaps to the last-stand theme",
+        "Cinematic â€” moods hold instead of flip-flopping; a big incoming attack snaps to the last-stand theme",
         "Battle theme lingers through a fight and eases back to exploration in the lulls"
       ]
     },
@@ -162,17 +170,17 @@
       "web": 5,
       "date": "2026-07-16",
       "notes": [
-        "🎵 New: adaptive music — the score shifts as the battle turns",
+        "ðŸŽµ New: adaptive music â€” the score shifts as the battle turns",
         "Menu, exploration, battle, triumph and last-stand themes",
         "Victory / defeat stings when a match ends",
-        "Music volume + on/off in Settings ⚙"
+        "Music volume + on/off in Settings âš™"
       ]
     },
     {
       "web": 4,
       "date": "2026-07-16",
       "notes": [
-        "New: Settings ⚙ — turn off Adjacent-only movement for classic send-anywhere play",
+        "New: Settings âš™ â€” turn off Adjacent-only movement for classic send-anywhere play",
         "Online now auto-detects the server (no more P2P toggle)",
         "Smoother Scenario mode",
         "Sharper Easy / Medium / Hard opponents"

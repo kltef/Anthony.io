@@ -752,6 +752,12 @@
     // not latency-bound (a latency-bound tier loses — measured 2026-07-04). Salvo 8 unchanged.
     { name:'Nightmare+', enemies:1, aiSpeed:1.0, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true,
       planDt:0.25, mctsK:9, tbudget:4000, workerMs:1000, hunt:0.7, multiMove:8, attnPressure:1.0, personal:true, noAuto:true },
+    // Nightmare-X: HIDDEN dev tier — identical to Nightmare but runs the experimental counter-net
+    // (gnn_policy_x.json, xnet:true) instead of the shipped GNN. Its button only appears when the
+    // secret is unlocked (localStorage stateio_xtier=1), so the play-tester never sees it; lets the
+    // owner A/B "does the trained net FEEL smarter" — the judgment the win-rate gate can't make.
+    { name:'Nightmare-X', enemies:1, aiSpeed:0.30, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true,
+      planDt:0.3, mctsK:9, tbudget:4000, workerMs:240, hunt:0.7, multiMove:4, xnet:true, noAuto:true, hidden:true },
   ];
   let levelIdx = 0;
 
@@ -871,6 +877,7 @@
   let rlPolicy = null;          // active net for the current match: mlpPolicy or gnnPolicy
   let mlpPolicy = null;         // flat 12-feature MLP  -> Grandmaster
   let gnnPolicy = null;         // board-aware GNN net  -> Impossible (falls back to MLP if absent)
+  let xnetPolicy = null;        // experimental counter-net -> the hidden Nightmare-X tier only
   let rlDiag = Math.SQRT2;       // distance normalizer (set from map bounds in buildGeo)
   fetch('rl_policy.json')
     .then(r => r.ok ? r.json() : null)
@@ -880,14 +887,19 @@
     .then(r => r.ok ? r.json() : null)
     .then(p => { if (p) gnnPolicy = p; })
     .catch(() => { /* Impossible falls back to the flat MLP if the GNN net is missing */ });
+  fetch('gnn_policy_x.json')
+    .then(r => r.ok ? r.json() : null)
+    .then(p => { if (p) xnetPolicy = p; })
+    .catch(() => { /* Nightmare-X falls back to the shipped GNN if the counter-net is missing */ });
 
   // Point the active net at the brain for `levelIdx`'s difficulty. Impossible gets the GNN (when
   // loaded); everything else gets the flat MLP. If the active net changes, tear down the plan
   // workers so they re-init with the new policy (they cache it at construction — see ensurePlanWorkers).
   function selectPolicyForLevel() {
-    const nm = LEVELS[levelIdx] && LEVELS[levelIdx].name;
+    const lv = LEVELS[levelIdx], nm = lv && lv.name;
     let want = mlpPolicy;
     if (gnnPolicy && (nm === 'Impossible' || nm === 'Nightmare' || nm === 'Nightmare+')) want = gnnPolicy;
+    if (lv && lv.xnet) want = xnetPolicy || gnnPolicy || mlpPolicy;   // hidden dev tier: the counter-net
     if (!want || want === rlPolicy) return;
     rlPolicy = want;
     if (Array.isArray(planWorkers)) { for (const w of planWorkers) { try { w.terminate(); } catch(e){} } }
@@ -1188,8 +1200,9 @@
       if (!el) continue;
       el.innerHTML = '';
       LEVELS.forEach((lv,i) => {
+        if (lv.hidden && lsGet('xtier') !== '1') return;   // Nightmare-X: owner-only until unlocked
         const b = document.createElement('div');
-        b.className = 'lvl' + (i===levelIdx?' active':'');
+        b.className = 'lvl' + (i===levelIdx?' active':'') + (lv.hidden?' xlvl':'');
         b.textContent = lv.name;
         b.onclick = () => { levelIdx=i; buildLevelButtons(); };
         el.appendChild(b);
@@ -6028,10 +6041,17 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 24;
+  const WEB_VERSION = 25;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
-  { const bt = document.getElementById('buildTag'); if (bt) bt.textContent = 'web build ' + WEB_VERSION; }
+  { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
+      // secret unlock for the hidden Nightmare-X dev tier: tap the build tag 5x. Toggles it on/off.
+      let _xt=0, _xtT=0; bt.addEventListener('click', ()=>{
+        const now=Date.now(); _xt = (now-_xtT<800)?_xt+1:1; _xtT=now;
+        if (_xt>=5){ _xt=0; const on = lsGet('xtier')!=='1'; lsSet('xtier', on?'1':'0');
+          bt.textContent = on ? 'web build '+WEB_VERSION+'  ·  🧪 Nightmare-X unlocked' : 'web build '+WEB_VERSION;
+          buildLevelButtons(); }
+      }); } }
   (function initUpdates(){
     const banner = document.getElementById('updateBanner');
     const goBtn  = document.getElementById('updateGo');
