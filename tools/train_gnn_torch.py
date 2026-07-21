@@ -45,6 +45,39 @@ SCR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(SCR)
 
 
+def keep_awake():
+    """Keep this machine (and its display) awake for the whole run — a laptop must not sleep
+    mid-training. Windows: SetThreadExecutionState (no lasting change to the power plan, cleared
+    the instant the process exits). Linux: best-effort systemd-inhibit. macOS: caffeinate. All
+    failures are silent — never let power management block or crash a training run."""
+    try:
+        if os.name == 'nt':
+            import ctypes
+            ES_CONTINUOUS = 0x80000000
+            ES_SYSTEM_REQUIRED = 0x00000001
+            ES_DISPLAY_REQUIRED = 0x00000002   # also keeps the screen on; drop for lid-closed runs
+            ctypes.windll.kernel32.SetThreadExecutionState(
+                ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+            print("keep-awake: SetThreadExecutionState armed (released on exit)", flush=True)
+        elif sys.platform == 'darwin':
+            import atexit
+            import subprocess as _sp
+            p = _sp.Popen(['caffeinate', '-dimsu', '-w', str(os.getpid())])
+            atexit.register(lambda: p.terminate())
+            print("keep-awake: caffeinate armed", flush=True)
+        else:
+            import atexit
+            import shutil as _sh
+            import subprocess as _sp
+            if _sh.which('systemd-inhibit'):
+                p = _sp.Popen(['systemd-inhibit', '--what=sleep:idle', '--why=state.io training',
+                               '--mode=block', 'sleep', 'infinity'])
+                atexit.register(lambda: p.terminate())
+                print("keep-awake: systemd-inhibit armed", flush=True)
+    except Exception as e:
+        print(f"(keep-awake unavailable: {e} — training continues; check your power settings)", flush=True)
+
+
 # ---------------- board -> GNN scoring (Python-side, mirrors index.html's gnn* functions) ----------------
 def incoming_from_armies(armies, N, mover):
     inc_mine = [0.0] * N
@@ -673,6 +706,8 @@ def main():
     ap.add_argument('--out', default=None, help='path to write/resume the trained net '
                     '(default: tools/gnn_policy_new.json). Use a separate file to avoid touching the checkpoint.')
     args = ap.parse_args()
+
+    keep_awake()   # hold the machine awake for the whole run; released automatically on exit
 
     device = args.device or ('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"device={device}  cuda_available={torch.cuda.is_available()}  cores={os.cpu_count()}  "
