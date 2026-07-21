@@ -1,9 +1,8 @@
 {
-  "web": 26,
+  "web": 27,
   "notes": [
-    "The full 50-state map is now the game — every mode plays Continental U.S. by default",
-    "Every difficulty now runs the trained AI, tuned down for Easy/Medium/Hard — even beginners learn real strategy",
-    "New: interactive tutorial with in-game diagrams for first-time players (replay it any time with the ? button)"
+    "Shop: the player palette no longer offers enemy red (any saved red resets)",
+    "The AI-brain viewer moved into internal developer tooling"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -20,6 +19,14 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 27,
+      "date": "2026-07-21",
+      "notes": [
+        "Shop: the player palette no longer offers enemy red (any saved red resets)",
+        "The AI-brain viewer moved into internal developer tooling"
+      ]
+    },
     {
       "web": 26,
       "date": "2026-07-21",

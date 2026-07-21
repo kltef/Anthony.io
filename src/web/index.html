@@ -668,6 +668,9 @@
   const PK = 'stateio_';
   const lsGet = k => { try { return localStorage.getItem(PK+k); } catch(e){ return null; } };
   const lsSet = (k,v) => { try { localStorage.setItem(PK+k, v); } catch(e){} };
+  // DEVELOPER MODE — one key for all dev perks: the hidden Nightmare-X tier, the AI-brain panel,
+  // and the rainbow player skin. Toggled by tapping the "web build N" tag 5x (see initUpdates).
+  const devOn = () => lsGet('xtier') === '1';
   // v1.9: the shop is COSMETICS-ONLY. No item may touch the sim — that's what makes every
   // item safe in netplay (cosmetics are local-view rendering on this client only).
   const PERK = {
@@ -704,8 +707,8 @@
 
   // cosmetic player-colour palette (light, dark). The classic blue is the default/first entry.
   const SHOP_COLORS = [
+    // no Red: #ef5b52 is the ENEMY identity colour — the player must never wear it
     { hex:'#46a6ef', dark:'#2c7fc4', name:'Blue' },
-    { hex:'#ef5b52', dark:'#c43d36', name:'Red' },
     { hex:'#38c46f', dark:'#27975a', name:'Green' },
     { hex:'#9b6cf0', dark:'#7549c4', name:'Purple' },
     { hex:'#f1a13a', dark:'#c47d24', name:'Amber' },
@@ -721,6 +724,8 @@
     // Local-view only, so it is safe in EVERY mode (solo, Scenario, online): it recolours how
     // THIS client paints the team it controls (myOwner), never the shared sim or other clients.
     for (const k in COLORS_DEF){ COLORS[k]=COLORS_DEF[k]; DARK[k]=DARK_DEF[k]; }
+    // sanitize: Red was removed from the palette (enemy colour) — clear any previously-saved red
+    if (PERK.color && PERK.color.toLowerCase()==='#ef5b52'){ PERK.color=''; savePerk('color'); }
     const c = PERK.color ? SHOP_COLORS.find(x=>x.hex===PERK.color) : null;
     if (!c) return;
     // if another team already wears this colour in the current match, keep defaults (no confusion)
@@ -1129,6 +1134,7 @@
     for (const s of states) {
       s.d = geoPath(s.feature);
       s.path = new Path2D(s.d);
+      s._bb = null;                          // projection changed: invalidate the rainbow-skin bbox cache
       const c = geoPath.centroid(s.feature);
       s.cx = c[0]; s.cy = c[1];
       s.polys = projectedPolys(s.feature);   // for hit testing
@@ -3848,9 +3854,16 @@
     if (bgCanvas) ctx.drawImage(bgCanvas, 0,0, W,H);
     else { ctx.fillStyle='#e3e9ee'; ctx.fillRect(0,0,W,H); }
 
-    // active states
+    // active states — developer mode paints YOUR states with an animated rainbow gradient
+    // (local-view cosmetic like the shop colours: never touches the sim or other clients)
+    const rbT = devOn() ? (performance.now()/25)%360 : null;
     for (const s of states) {
-      ctx.fillStyle = COLORS[s.owner];
+      if (rbT!==null && s.owner===myOwner){
+        if (!s._bb) s._bb = geoPath.bounds(s.feature);
+        const b=s._bb, g=ctx.createLinearGradient(b[0][0],b[0][1],b[1][0],b[1][1]);
+        for (let i=0;i<=4;i++) g.addColorStop(i/4, 'hsl('+((rbT+i*48)%360)+',85%,62%)');
+        ctx.fillStyle = g;
+      } else ctx.fillStyle = COLORS[s.owner];
       ctx.fill(s.path);
       ctx.strokeStyle='#ffffff'; ctx.lineWidth=1.5; ctx.stroke(s.path);
     }
@@ -4942,6 +4955,7 @@
     });
   });
   const nnBtn = document.getElementById('nnBtn');
+  nnBtn.style.display = devOn() ? '' : 'none';   // AI-brain panel is a DEVELOPER tool now (5-tap unlock)
   nnBtn.addEventListener('click', ()=>{
     showNN = !showNN;
     nnBtn.classList.toggle('on', showNN);
@@ -6208,15 +6222,17 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 26;
+  const WEB_VERSION = 27;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
-      // secret unlock for the hidden Nightmare-X dev tier: tap the build tag 5x. Toggles it on/off.
+      // DEVELOPER MODE unlock: tap the build tag 5x. Toggles the whole dev bundle on/off —
+      // hidden Nightmare-X tier, the AI-brain panel, and the rainbow player skin.
       let _xt=0, _xtT=0; bt.addEventListener('click', ()=>{
         const now=Date.now(); _xt = (now-_xtT<800)?_xt+1:1; _xtT=now;
         if (_xt>=5){ _xt=0; const on = lsGet('xtier')!=='1'; lsSet('xtier', on?'1':'0');
-          bt.textContent = on ? 'web build '+WEB_VERSION+'  ·  🧪 Nightmare-X unlocked' : 'web build '+WEB_VERSION;
+          bt.textContent = on ? 'web build '+WEB_VERSION+'  ·  🛠 developer mode (X tier · AI brain · 🌈 skin)' : 'web build '+WEB_VERSION;
+          const nb=document.getElementById('nnBtn'); if (nb) nb.style.display = on ? '' : 'none';
           buildLevelButtons(); }
       }); } }
   (function initUpdates(){
