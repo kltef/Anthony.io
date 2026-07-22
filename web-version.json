@@ -1,8 +1,8 @@
 {
-  "web": 27,
+  "web": 28,
   "notes": [
-    "Shop: the player palette no longer offers enemy red (any saved red resets)",
-    "The AI-brain viewer moved into internal developer tooling"
+    "The AI's 'read you' banner is gone — it was leaking the AI's live model of your play",
+    "Internal: skin sync for online games"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -19,6 +19,14 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 28,
+      "date": "2026-07-21",
+      "notes": [
+        "The AI's 'read you' banner is gone — it was leaking the AI's live model of your play",
+        "Internal: skin sync for online games"
+      ]
+    },
     {
       "web": 27,
       "date": "2026-07-21",

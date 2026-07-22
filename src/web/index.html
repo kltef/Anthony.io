@@ -814,6 +814,8 @@
   let fps = 0, fpsFrames = 0, fpsT = 0;        // rendered frames-per-second
   let nnVizT = 0;                              // throttle clock for the per-frame NN viz recompute
   let lastTime = 0, selected = null, dragPos = null, pointerDown = false;
+  let netRB = new Set();  // multiplayer rainbow skins: OTHER owners whose dev skin we should render.
+                          // Guests flag it on their actions; the host relays the set in snapshots.
   let airArmed = false;   // 🪂 Airdrop is "armed": the next tap on one of your states drops reinforcements there
   let buildArmed = null;  // '⬆'/'🌱' build mode: 'upgrade'|'invest' — taps on your states apply it (mobile can't
                           // select-then-button: a state tap starts the drag/send flow, so the buttons arm instead)
@@ -1512,7 +1514,7 @@
     scenarioMode = false; scenarioObserver = false;
     upgradesOn = tilesOn = false; boomUntil = 0;
     if (NET.es) { NET.es.close(); NET.es = null; }
-    netMode = null; myOwner = PLAYER; mpEnemies = null;
+    netMode = null; myOwner = PLAYER; mpEnemies = null; netRB.clear();
     nnBtn.classList.remove('gone');
     overlay.classList.remove('hidden');
     introText.style.display = '';
@@ -1593,7 +1595,7 @@
     if (!from || !to || from===to) return;
     trackPlayerMove(from, to);
     const denom = currentSendDenom();
-    if (netMode==='guest') { api('/api/action?room='+NET.room, { cid:NET.cid, from:from.id, to:to.id, denom }); return; }
+    if (netMode==='guest') { api('/api/action?room='+NET.room, { cid:NET.cid, from:from.id, to:to.id, denom, rb: devOn()?1:0 }); return; }
     sendTroops(from, to, denom);
   }
   // ---- rich play-data recorder -------------------------------------------------------------
@@ -3854,11 +3856,12 @@
     if (bgCanvas) ctx.drawImage(bgCanvas, 0,0, W,H);
     else { ctx.fillStyle='#e3e9ee'; ctx.fillRect(0,0,W,H); }
 
-    // active states — developer mode paints YOUR states with an animated rainbow gradient
-    // (local-view cosmetic like the shop colours: never touches the sim or other clients)
-    const rbT = devOn() ? (performance.now()/25)%360 : null;
+    // active states — developer mode paints YOUR states with an animated rainbow gradient, and in
+    // multiplayer the skin is synced (guests flag it on their actions, the host relays via snapshot
+    // rb[]) so everyone SEES a dev's rainbow. Cosmetic only: never touches the sim.
+    const rbT = (devOn() || netRB.size) ? (performance.now()/25)%360 : null;
     for (const s of states) {
-      if (rbT!==null && s.owner===myOwner){
+      if (rbT!==null && ((s.owner===myOwner && devOn()) || netRB.has(s.owner))){
         if (!s._bb) s._bb = geoPath.bounds(s.feature);
         const b=s._bb, g=ctx.createLinearGradient(b[0][0],b[0][1],b[1][0],b[1][1]);
         for (let i=0;i<=4;i++) g.addColorStop(i/4, 'hsl('+((rbT+i*48)%360)+',85%,62%)');
@@ -5297,6 +5300,7 @@
     let owner = null;
     for (const k in slotControl){ const sc=slotControl[k]; if (sc && sc!=='ai' && sc.cid===a.cid){ owner=+k; break; } }
     if (owner==null) return;
+    if (a.rb) netRB.add(owner); else netRB.delete(owner);   // guest's dev-skin flag rides its actions
     const from = states.find(s=>s.id===a.from), to = states.find(s=>s.id===a.to);
     if (!from || !to || from.owner!==owner) return;
     if (!isLegalMove(from, to, owner)) return;   // fail fast on illegal guest actions (anti-cheat boundary for raw /api/action POSTs)
@@ -5335,6 +5339,7 @@
   let guestSpeed = 1;   // the host's gameSpeed (orbs travel at 70*guestSpeed units/sec)
   function guestApplySnapshot(snap){
     if (!ready || netMode!=='guest') return;
+    netRB = new Set((snap.rb||[]).filter(o => o !== myOwner));   // others' rainbow skins (own is local via devOn)
     for (const st of snap.states){ const s=states[st.i] || states.find(x=>x.id===st.i); if (s){ if (s.owner!==st.o) s.pulse=1; s.owner=st.o; s.troops=st.t; } }
     guestSpeed = snap.speed || 1;
     const now = performance.now();
@@ -5388,6 +5393,7 @@
     const lv = LEVELS[levelIdx];
     const snap = { tick:gameTick, t:+gameElapsed.toFixed(1), states:st, orbs, bar:{player,enemy,neutral},
       names: states.map(s=>s.name),   // lets the spectator rebuild whatever region/map the host is playing
+      rb: (devOn() ? [PLAYER] : []).concat([...netRB]),   // owners wearing the dev rainbow skin (host + flagged guests)
       status: running?'playing':'over', speed:gameSpeed, level:lv.name, rl:!!lv.rl, players:rosterForSnap() };
     if (lv.rl && rlPolicy && rlViz){
       const v=rlViz;
@@ -5906,19 +5912,10 @@
       if (aShow){ airdropBtn.textContent = airArmed ? '🪂 Tap a state ('+PERK.airdrops+')' : '🪂 Airdrop ('+PERK.airdrops+')';
                   airdropBtn.disabled=false; airdropBtn.classList.toggle('armed', airArmed); } }
     // 🧠 Adaptive AI read-out: confidence in its model of you + what it expects you to do next
-    if (adaptHud){
-      const lvA = LEVELS[levelIdx];
-      if (lvA && lvA.adapt && running && !scenarioObserver){
-        const now = performance.now();
-        if (now - _adaptHudT > 300){
-          _adaptHudT = now;
-          const pr = OppModel.predict(myOwner); const pct = Math.round((pr.conf||0)*100);
-          adaptHud.textContent = pct<=0 ? '🧠 learning you…'
-            : '🧠 read '+pct+'%'+(pr.topTgt ? ' · expecting → '+pr.topTgt.name : '');
-        }
-        adaptHud.style.display='';
-      } else if (adaptHud.style.display!=='none'){ adaptHud.style.display='none'; }
-    }
+    // RETIRED (2026-07-21): the '🧠 read N% · expecting → X' banner is disabled for EVERYONE —
+    // it leaked the AI's live model of the player mid-game. Developers see the same read (and
+    // far more) in the AI-brain panel; the OppModel itself still runs and drives the AI.
+    if (adaptHud && adaptHud.style.display!=='none') adaptHud.style.display='none';
   }
   // press = apply to the selected state (desktop flow) OR toggle build-arm (mobile flow)
   if (upgradeBtn) upgradeBtn.addEventListener('click', ()=>{
@@ -6222,7 +6219,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 27;
+  const WEB_VERSION = 28;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
