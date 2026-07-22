@@ -1,7 +1,7 @@
 {
-  "web": 30,
+  "web": 31,
   "notes": [
-    "Internal: experimental AI candidate rotation"
+    "Anti-hoard tune: parked mega-stacks now bleed ~3x faster (a 300-stack loses ~9/s instead of 3/s), so sitting on a doom-stack costs real troops — convert it into territory or lose it. Brief staging for a strike stays cheap."
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -18,6 +18,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 31,
+      "date": "2026-07-22",
+      "notes": [
+        "Anti-hoard tune: parked mega-stacks now bleed ~3x faster (a 300-stack loses ~9/s instead of 3/s), so sitting on a doom-stack costs real troops — convert it into territory or lose it. Brief staging for a strike stays cheap."
+      ]
+    },
     {
       "web": 30,
       "date": "2026-07-22",

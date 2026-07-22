@@ -1265,10 +1265,12 @@
   const depthOn = () => depthMode && !netMode;
   const LANCH = 1.5;                                        // concentration exponent (CONTRACT: worker copy)
   // over-cap attrition curve (anti-hoard): decay/s = ATTRITION_Q * excess^2 / cap — QUADRATIC in
-  // the excess, so a small tactical buffer above cap is nearly free (200 @cap150 -> 0.3/s) but a
-  // warehoused doom-stack bleeds hard (300 -> 3/s, 1000 -> ~96/s). Mass-then-strike stays viable;
-  // hoard-forever does not. (CONTRACT: mirrored in both snapStep copies at the flat 150 cap.)
-  const ATTRITION_Q = 0.02;
+  // the excess, so a small tactical buffer above cap is nearly free (200 @cap150 -> 1.0/s) but a
+  // warehoused doom-stack bleeds hard (300 -> 9/s, 400 -> 25/s, 1000 -> ~289/s). Brief mass-then-
+  // strike staging stays viable; PARKING a hoard does not — a 300-stack held for a minute costs
+  // ~540 troops, so the AI/player must convert it into territory instead of sitting on it.
+  // (CONTRACT: mirrored in both snapStep copies at the flat 150 cap and in selfplay_arena.js.)
+  const ATTRITION_Q = 0.06;
   const OFFSUP_DEF = 0.85;                                  // off-supply states defend at 0.85x
   // terrain gradient: true chokepoints (<=2 neighbours) 1.4x, minor highlands (3) 1.2x. The
   // v1 <=2 rule produced zero highlands on the well-connected default map.
@@ -2158,7 +2160,7 @@
         snap.troops[i] = Math.min(MAX_TROOPS, snap.troops[i] + growRateFor(snap.owner[i])*dt);
       else if (depthOn() && snap.owner[i]!==NEUTRAL && snap.troops[i]>MAX_TROOPS){  // quadratic over-cap attrition mirror (flat-150 approx, CONTRACT)
         const _ex = snap.troops[i]-MAX_TROOPS;
-        snap.troops[i] = Math.max(MAX_TROOPS, snap.troops[i] - (0.02*_ex*_ex/MAX_TROOPS)*dt);
+        snap.troops[i] = Math.max(MAX_TROOPS, snap.troops[i] - (0.06*_ex*_ex/MAX_TROOPS)*dt);
       }
     const still = [];
     for (const a of snap.armies) {
@@ -2955,7 +2957,7 @@
           snap.troops[i]=Math.min(MAX_TROOPS, snap.troops[i]+growRateFor(snap.owner[i])*dt);
         else if (DEPTH && snap.owner[i]!==NEUTRAL && snap.troops[i]>MAX_TROOPS){   // quadratic over-cap attrition mirror (CONTRACT)
           var _ex=snap.troops[i]-MAX_TROOPS;
-          snap.troops[i]=Math.max(MAX_TROOPS, snap.troops[i]-(0.02*_ex*_ex/MAX_TROOPS)*dt);
+          snap.troops[i]=Math.max(MAX_TROOPS, snap.troops[i]-(0.06*_ex*_ex/MAX_TROOPS)*dt);
         }
       }
       var still=[];
@@ -6236,7 +6238,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 30;
+  const WEB_VERSION = 31;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;

@@ -225,9 +225,9 @@ function step(env, dt){
       if (DEPTH_RULES && sup && sup[i]) g *= 0.4;                         // off-supply growth
       env.troops[i]=Math.min(150, env.troops[i]+g);
     }
-    else if (DEPTH_RULES && env.owner[i]!==0 && env.troops[i]>150){       // quadratic over-cap attrition
+    else if (DEPTH_RULES && env.owner[i]!==0 && env.troops[i]>150){       // quadratic over-cap attrition (CONTRACT: index.html ATTRITION_Q)
       const ex=env.troops[i]-150;
-      env.troops[i]=Math.max(150, env.troops[i]-(0.02*ex*ex/150)*dt);
+      env.troops[i]=Math.max(150, env.troops[i]-(0.06*ex*ex/150)*dt);
     }
     if (DEPTH_RULES && env.owner[i]===0 && env.troops[i]<30) env.troops[i]+=0.2*dt;   // neutral restock
   }
@@ -455,9 +455,61 @@ const SCRIPTS = {
           if (!atk || sc>atk[0]) atk=[sc,si,ti]; } } }
     return atk ? [[atk[1],atk[2],frac()]] : grabNeutral();
   },
+  // patient — the exploit a real human runs against a passive AI (reported 2026-07-22): the AI
+  // grabs ~2 states then parks a hoard and shuffles it, so the human just OUT-FARMS it with
+  // unlimited time and rolls one overwhelming stack in late. This bot is that human: it (1) grabs
+  // EVERY affordable neutral each turn (multi-move economic expansion, no time pressure), (2) will
+  // NOT touch the enemy until its total troops crush the enemy's (warRatio, default 2.6 — much more
+  // patient than fader's 3.0-with-defense), and (3) when finally ahead, sends a MAX joint salvo of
+  // every adjacent stack at the weakest enemy border state. No defensive fold, no early trading —
+  // pure snowball. Beating THIS is the real target: the net must learn a static hoard loses to
+  // someone who simply grows bigger. PATIENT_PROFILE env overrides the numbers.
+  patient(env, owner){
+    const P = SCRIPTS._patientProfile || (SCRIPTS._patientProfile =
+      Object.assign({ warRatio:2.6, jointMax:6, neutralAfford:0.8, minStack:8 },
+                    process.env.PATIENT_PROFILE ? JSON.parse(process.env.PATIENT_PROFILE) : {}));
+    const mine=[], en=[];
+    for (let i=0;i<env.n;i++){ if (env.owner[i]===owner) mine.push(i); else if (env.owner[i]!==0) en.push(i); }
+    if (!mine.length) return null;
+    const myT=mine.reduce((a,i)=>a+env.troops[i],0), enT=en.reduce((a,i)=>a+env.troops[i],0);
+    // WAR: crushing lead banked -> one overwhelming joint salvo at the weakest border enemy.
+    if (en.length && myT >= P.warRatio*enT){
+      let tgt=-1, tt=Infinity;
+      for (const si of mine) for (const j of env.adj[si])
+        if (env.owner[j]!==owner && env.owner[j]!==0 && env.troops[j]<tt){ tt=env.troops[j]; tgt=j; }
+      if (tgt>=0){
+        const srcs=mine.filter(si=>env.adj[si].indexOf(tgt)>=0 && env.troops[si]>=P.minStack)
+                       .sort((a,b)=>env.troops[b]-env.troops[a]).slice(0, P.jointMax);
+        if (srcs.length) return srcs.map(si=>[si, tgt, 1.0]);
+      }
+    }
+    // FARM: grab every affordable neutral this turn (one move per source, joint expansion).
+    const grabs=[]; const usedSrc=new Set();
+    for (const si of mine){ const st=env.troops[si]; if (st<P.minStack || usedSrc.has(si)) continue;
+      let bj=-1, bd=Infinity;
+      for (const ti of env.adj[si]){ if (env.owner[ti]!==0 || env.troops[ti]>=st*P.neutralAfford) continue;
+        const d=Math.hypot(env.cx[ti]-env.cx[si], env.cy[ti]-env.cy[si]);
+        if (d<bd){ bd=d; bj=ti; } }
+      if (bj>=0){ grabs.push([si,bj,1.0]); usedSrc.add(si); } }
+    if (grabs.length) return grabs;
+    // BANK: no neutral to take and not yet crushing — consolidate rear stacks toward the frontier
+    // so a staging army is always ready to convert the moment the lead is there.
+    const frontier=mine.filter(si=>env.adj[si].some(j=>env.owner[j]!==owner));
+    if (frontier.length){
+      let bank=frontier[0]; for (const si of frontier) if (env.troops[si]>env.troops[bank]) bank=si;
+      let best=null;
+      for (const si of mine){ if (si===bank || env.troops[si]<P.minStack) continue;
+        const dSelf=Math.hypot(env.cx[bank]-env.cx[si], env.cy[bank]-env.cy[si]);
+        for (const ti of env.adj[si]){ if (env.owner[ti]!==owner) continue;
+          const d=Math.hypot(env.cx[bank]-env.cx[ti], env.cy[bank]-env.cy[ti]);
+          if (d<dSelf-1e-6){ const sc=env.troops[si]; if (!best || sc>best[0]) best=[sc,si,ti]; } } }
+      if (best) return [[best[1],best[2],1.0]];
+    }
+    return null;
+  },
 };
 function makeScripted(kind){
-  if (!SCRIPTS[kind]) { console.error(`unknown scripted opponent "${kind}" (script:turtle|rush|econ|farmer|human|fader)`); process.exit(1); }
+  if (!SCRIPTS[kind]) { console.error(`unknown scripted opponent "${kind}" (script:turtle|rush|econ|farmer|human|fader|patient)`); process.exit(1); }
   const fn = (env, owner) => SCRIPTS[kind](env, owner);
   fn.scripted = true; fn.kind = kind;
   return fn;
