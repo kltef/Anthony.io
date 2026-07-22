@@ -121,6 +121,10 @@
     background: #c3ced8; display: flex; border: 2px solid var(--ink); box-shadow: 0 2px 0 rgba(46,58,74,.3);
   }
   #bar > div { height: 100%; transition: width .25s ease; }
+  /* dev rainbow skin: the owner's strength-bar segment animates through the same gradient */
+  #bar > div.rbseg { background: linear-gradient(90deg,#ff5252,#ffb52e,#ffe83a,#5be05b,#43b7ff,#b06bff,#ff52b0,#ff5252);
+    background-size: 300% 100%; animation: rbslide 3s linear infinite; }
+  @keyframes rbslide { from { background-position: 0% 0; } to { background-position: 300% 0; } }
 
   #overlay {
     position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
@@ -3746,7 +3750,8 @@
     const r = (markR + (pulse||0)*2) * k;
     if (sel){ ctx.strokeStyle='#2b3440'; ctx.lineWidth=3*k; ctx.beginPath(); ctx.arc(x,y,r+6*k,0,Math.PI*2); ctx.stroke(); }
     ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-    ctx.lineWidth=3*k; ctx.strokeStyle = owner===NEUTRAL ? '#cfd4da' : DARK[owner];
+    ctx.lineWidth=3*k; ctx.strokeStyle = owner===NEUTRAL ? '#cfd4da'
+      : isRB(owner) ? rbGrad(x-r,y-r,x+r,y+r,48) : DARK[owner];   // dev skin: rainbow number-ring too
     ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
     ctx.fillStyle='#2b3440'; ctx.font='bold '+(markR*0.85*k)+'px Segoe UI, sans-serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -3851,6 +3856,15 @@
     }
   }
 
+  // dev rainbow skin helpers — used for state fills, marker rings and orbs of any rainbow owner
+  // (self with dev mode on, or a multiplayer owner synced via netRB). Cosmetic only.
+  const isRB = o => (o===myOwner && devOn()) || netRB.has(o);
+  function rbGrad(x0,y0,x1,y1,light){
+    const t=(performance.now()/25)%360, g=ctx.createLinearGradient(x0,y0,x1,y1);
+    for (let i=0;i<=4;i++) g.addColorStop(i/4, 'hsl('+((t+i*48)%360)+',85%,'+(light||62)+'%)');
+    return g;
+  }
+
   function render() {
     ctx.setTransform(DPR*cam.scale, 0, 0, DPR*cam.scale, DPR*cam.ox, DPR*cam.oy);
     if (bgCanvas) ctx.drawImage(bgCanvas, 0,0, W,H);
@@ -3859,13 +3873,10 @@
     // active states — developer mode paints YOUR states with an animated rainbow gradient, and in
     // multiplayer the skin is synced (guests flag it on their actions, the host relays via snapshot
     // rb[]) so everyone SEES a dev's rainbow. Cosmetic only: never touches the sim.
-    const rbT = (devOn() || netRB.size) ? (performance.now()/25)%360 : null;
     for (const s of states) {
-      if (rbT!==null && ((s.owner===myOwner && devOn()) || netRB.has(s.owner))){
+      if (isRB(s.owner)){
         if (!s._bb) s._bb = geoPath.bounds(s.feature);
-        const b=s._bb, g=ctx.createLinearGradient(b[0][0],b[0][1],b[1][0],b[1][1]);
-        for (let i=0;i<=4;i++) g.addColorStop(i/4, 'hsl('+((rbT+i*48)%360)+',85%,62%)');
-        ctx.fillStyle = g;
+        const b=s._bb; ctx.fillStyle = rbGrad(b[0][0],b[0][1],b[1][0],b[1][1]);
       } else ctx.fillStyle = COLORS[s.owner];
       ctx.fill(s.path);
       ctx.strokeStyle='#ffffff'; ctx.lineWidth=1.5; ctx.stroke(s.path);
@@ -3885,8 +3896,9 @@
       if (t.owner===myOwner && PERK.trail) drawTrail(t, r, tk);   // cosmetic (shop), local-view only
       const shaped = (t.owner===myOwner && PERK.orbShape) ? drawOrbShape(t, r, tk) : false;
       if (!shaped){
-        ctx.fillStyle=DARK[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r+2*tk,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle=COLORS[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r,0,Math.PI*2); ctx.fill();
+        const rb = isRB(t.owner);   // dev skin: rainbow orbs (dark halo ring, gradient body)
+        ctx.fillStyle = rb ? '#2b3440' : DARK[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r+2*tk,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = rb ? rbGrad(t.x-r,t.y-r,t.x+r,t.y+r) : COLORS[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r,0,Math.PI*2); ctx.fill();
       }
       if (t.count>1){ ctx.fillStyle='#fff'; ctx.font='bold '+(t.r*tk)+'px Segoe UI, sans-serif';
         ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -4763,11 +4775,14 @@
     // segment order: YOU first, then enemies by colour id; the grey neutral remainder always last
     const owners = Object.keys(tally).map(Number).sort((a,b)=> a===PLAYER?-1 : b===PLAYER?1 : a-b);
     const segKeys = owners.concat([NEUTRAL]);     // NEUTRAL (0) marks the grey remainder
-    const sig = segKeys.join(',');
+    // sig includes each owner's rainbow status so the bar rebuilds when a skin toggles mid-game
+    const sig = segKeys.join(',') + '|' + segKeys.map(o => o!==NEUTRAL && isRB(o) ? 1 : 0).join('');
     if (sig!==barSig || !barSegs || !barSegs.length || barSegs[0].parentNode!==barEl){
       barEl.innerHTML='';
       barSegs = segKeys.map(o => { const d=document.createElement('div');
-        d.style.background = o===NEUTRAL ? '#b7bdc4' : (COLORS[o]||'#888'); barEl.appendChild(d); return d; });
+        if (o!==NEUTRAL && isRB(o)) d.className = 'rbseg';   // dev skin: animated rainbow segment
+        else d.style.background = o===NEUTRAL ? '#b7bdc4' : (COLORS[o]||'#888');
+        barEl.appendChild(d); return d; });
       barSig = sig; barLast = segKeys.map(()=> '');
     }
     let total = neutral; for (const o of owners) total += tally[o];
@@ -6219,7 +6234,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 28;
+  const WEB_VERSION = 29;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;

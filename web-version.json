@@ -1,8 +1,7 @@
 {
-  "web": 28,
+  "web": 29,
   "notes": [
-    "The AI's 'read you' banner is gone — it was leaking the AI's live model of your play",
-    "Internal: skin sync for online games"
+    "Internal: dev skin now covers orbs, number rings and the strength bar"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -19,6 +18,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 29,
+      "date": "2026-07-21",
+      "notes": [
+        "Internal: dev skin now covers orbs, number rings and the strength bar"
+      ]
+    },
     {
       "web": 28,
       "date": "2026-07-21",
