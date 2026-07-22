@@ -929,9 +929,11 @@
   // workers so they re-init with the new policy (they cache it at construction — see ensurePlanWorkers).
   function selectPolicyForLevel() {
     const lv = LEVELS[levelIdx], nm = lv && lv.name;
-    // ONE BRAIN: the trained counter-net drives every tier (graded by budget/cadence in LEVELS),
-    // falling back to the previous champion, then the flat MLP, if it hasn't loaded yet.
-    let want = xnetPolicy || gnnPolicy || mlpPolicy;
+    // ONE BRAIN: gnn_policy.json (the promoted champion) drives every tier, graded by budget in
+    // LEVELS. gnn_policy_x.json is the EXPERIMENTAL slot: only the hidden Nightmare-X dev tier
+    // reads it, so a candidate can be play-tested without touching what users face.
+    let want = gnnPolicy || mlpPolicy;
+    if (lv && lv.xnet) want = xnetPolicy || want;
     if (!want || want === rlPolicy) return;
     rlPolicy = want;
     if (Array.isArray(planWorkers)) { for (const w of planWorkers) { try { w.terminate(); } catch(e){} } }
@@ -6234,7 +6236,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 29;
+  const WEB_VERSION = 30;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;

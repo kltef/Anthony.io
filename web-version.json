@@ -1,7 +1,7 @@
 {
-  "web": 29,
+  "web": 30,
   "notes": [
-    "Internal: dev skin now covers orbs, number rings and the strength bar"
+    "Internal: experimental AI candidate rotation"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -18,6 +18,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 30,
+      "date": "2026-07-22",
+      "notes": [
+        "Internal: experimental AI candidate rotation"
+      ]
+    },
     {
       "web": 29,
       "date": "2026-07-21",
