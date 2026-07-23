@@ -2594,11 +2594,13 @@
   }
 
   // ---- off-thread planner: a POOL of Web Workers running the MCTS over a board snapshot ----
-  // One worker per CPU core (up to 8): each enemy gets a GROUP of workers (2 when the machine has
-  // the cores to spare), so on the hard tiers every AI plans HARD and CONCURRENTLY. When an enemy
-  // owns 2 workers they run independent searches and the main thread MERGES their root-move visit
-  // counts (root parallelization) — roughly doubling the effective simulation budget at the SAME
-  // think-time. null = not built yet · false = unavailable/disabled · [Worker,…] = ready.
+  // One worker per CPU core minus one (the one core held back keeps the render/input thread its own
+  // core instead of fighting the OS scheduler with the planner pool): each enemy gets a GROUP of
+  // workers (2 when the machine has the cores to spare), so on the hard tiers every AI plans HARD
+  // and CONCURRENTLY. When an enemy owns multiple workers they run independent searches and the main
+  // thread MERGES their root-move visit counts (root parallelization) — scaling the effective
+  // simulation budget with core count at the SAME think-time. null = not built yet · false =
+  // unavailable/disabled · [Worker,…] = ready.
   let planWorkers = null, planReqSeq = 0;
   const planJobs = {};   // request id -> owner awaiting a move
   const planAgg = {};    // owner -> { remaining, tally:{moveKey:{move,visits}}, viz, vizIters } while a worker GROUP runs
@@ -2634,7 +2636,10 @@
     try {
       const src = '(' + planWorkerMain.toString() + ')()';
       const url = URL.createObjectURL(new Blob([src], { type:'application/javascript' }));
-      const n = Math.max(1, Math.min(8, navigator.hardwareConcurrency || 4));
+      // Every core but one: hold back a single core for the main (render/input) thread and hand the
+      // planner every other core the device reports. No upper cap — a phone reporting 8, 12 or 16
+      // logical cores gets 7, 11 or 15 planner workers.
+      const n = Math.max(1, (navigator.hardwareConcurrency || 5) - 1);
       planWorkers = [];
       for (let i=0;i<n;i++){
         const w = new Worker(url);
@@ -3755,7 +3760,7 @@
     if (sel){ ctx.strokeStyle='#2b3440'; ctx.lineWidth=3*k; ctx.beginPath(); ctx.arc(x,y,r+6*k,0,Math.PI*2); ctx.stroke(); }
     ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
     ctx.lineWidth=3*k; ctx.strokeStyle = owner===NEUTRAL ? '#cfd4da'
-      : isRB(owner) ? rbGrad(x-r,y-r,x+r,y+r,48) : DARK[owner];   // dev skin: rainbow number-ring too
+      : isRB(owner) ? rbGrad(st._rbRing || (st._rbRing={}), x-r,y-r,x+r,y+r,48) : DARK[owner];   // dev skin: rainbow number-ring too
     ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
     ctx.fillStyle='#2b3440'; ctx.font='bold '+(markR*0.85*k)+'px Segoe UI, sans-serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -3863,10 +3868,18 @@
   // dev rainbow skin helpers — used for state fills, marker rings and orbs of any rainbow owner
   // (self with dev mode on, or a multiplayer owner synced via netRB). Cosmetic only.
   const isRB = o => (o===myOwner && devOn()) || netRB.has(o);
-  function rbGrad(x0,y0,x1,y1,light){
-    const t=(performance.now()/25)%360, g=ctx.createLinearGradient(x0,y0,x1,y1);
+  // createLinearGradient + 5x addColorStop is real per-call cost, and this used to run fresh EVERY
+  // frame for every rainbow state, marker ring and orb (same class of jank the NN-viz throttle below
+  // already avoids for the AI panel). `cache` is a small {g,t} bag owned by the caller (state/troop
+  // object) so the gradient is rebuilt at most ~12x/sec and just reused on the frames in between —
+  // the ~5px of positional drift that admits for a moving orb is imperceptible.
+  function rbGrad(cache, x0,y0,x1,y1,light){
+    const now = performance.now();
+    if (cache.g && now - cache.t < 80) return cache.g;
+    cache.t = now;
+    const t=(now/25)%360, g=ctx.createLinearGradient(x0,y0,x1,y1);
     for (let i=0;i<=4;i++) g.addColorStop(i/4, 'hsl('+((t+i*48)%360)+',85%,'+(light||62)+'%)');
-    return g;
+    return cache.g = g;
   }
 
   function render() {
@@ -3880,7 +3893,7 @@
     for (const s of states) {
       if (isRB(s.owner)){
         if (!s._bb) s._bb = geoPath.bounds(s.feature);
-        const b=s._bb; ctx.fillStyle = rbGrad(b[0][0],b[0][1],b[1][0],b[1][1]);
+        const b=s._bb; ctx.fillStyle = rbGrad(s._rbFill || (s._rbFill={}), b[0][0],b[0][1],b[1][0],b[1][1]);
       } else ctx.fillStyle = COLORS[s.owner];
       ctx.fill(s.path);
       ctx.strokeStyle='#ffffff'; ctx.lineWidth=1.5; ctx.stroke(s.path);
@@ -3902,7 +3915,7 @@
       if (!shaped){
         const rb = isRB(t.owner);   // dev skin: rainbow orbs (dark halo ring, gradient body)
         ctx.fillStyle = rb ? '#2b3440' : DARK[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r+2*tk,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle = rb ? rbGrad(t.x-r,t.y-r,t.x+r,t.y+r) : COLORS[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = rb ? rbGrad(t._rb || (t._rb={}), t.x-r,t.y-r,t.x+r,t.y+r) : COLORS[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,r,0,Math.PI*2); ctx.fill();
       }
       if (t.count>1){ ctx.fillStyle='#fff'; ctx.font='bold '+(t.r*tk)+'px Segoe UI, sans-serif';
         ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -6238,7 +6251,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 31;
+  const WEB_VERSION = 32;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
