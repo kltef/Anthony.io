@@ -2636,10 +2636,13 @@
     try {
       const src = '(' + planWorkerMain.toString() + ')()';
       const url = URL.createObjectURL(new Blob([src], { type:'application/javascript' }));
-      // Every core but one: hold back a single core for the main (render/input) thread and hand the
-      // planner every other core the device reports. No upper cap — a phone reporting 8, 12 or 16
-      // logical cores gets 7, 11 or 15 planner workers.
-      const n = Math.max(1, (navigator.hardwareConcurrency || 5) - 1);
+      // Hold back TWO cores for the main (render/input/host snapshot broadcast) thread, not one —
+      // on a real Android WebView (vs. the desktop dev box this was tuned on) a single spare core
+      // wasn't enough headroom and multiMove tiers giving one AI the full pool (workersFor,
+      // nightmare.md Lever 1c) still read as freezing during the AI's turn (play-tester report
+      // 2026-07-23). Also re-capped at 8: high-core-count devices don't need 15 planner workers
+      // fighting the OS scheduler for diminishing search returns.
+      const n = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 2));
       planWorkers = [];
       for (let i=0;i<n;i++){
         const w = new Worker(url);
@@ -6251,7 +6254,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 32;
+  const WEB_VERSION = 33;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;

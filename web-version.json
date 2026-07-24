@@ -1,8 +1,7 @@
 {
-  "web": 32,
+  "web": 33,
   "notes": [
-    "Nightmare-X / dev-mode fix: stop rebuilding the rainbow-skin CanvasGradient every frame (was real per-frame jank on top of the AI, which was already off-thread)",
-    "Planner worker pool now sizes to hardwareConcurrency-1 (every core but the render thread) instead of capping at 8"
+    "Give the planner worker pool more headroom: reserve 2 cores (not 1) for the render/input thread, re-cap at 8 workers - the single-core reservation in build 32 still froze during the AI's turn on Nightmare/Nightmare+"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -19,6 +18,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 33,
+      "date": "2026-07-23",
+      "notes": [
+        "Give the planner worker pool more headroom: reserve 2 cores (not 1) for the render/input thread, re-cap at 8 workers - the single-core reservation in build 32 still froze during the AI's turn on Nightmare/Nightmare+"
+      ]
+    },
     {
       "web": 32,
       "date": "2026-07-23",
