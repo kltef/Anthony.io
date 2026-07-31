@@ -6393,7 +6393,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 36;
+  const WEB_VERSION = 37;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
@@ -6465,6 +6465,23 @@
         host.installApk(pending.url); return;    // system install screen slides up
       }
       if (host && typeof host.updateWebAndReload === 'function'){
+        // WATCHDOG (2026-07-31): NativeHost.updateWebAndReload() reloads ONLY on success --
+        // UpdateManager.checkWebUpdate() returns false both when its SharedPreferences counter says
+        // we're already current AND on any download exception (swallowed by runCatching), and in
+        // neither case does anything call back into JS. Without this, the button sits at "Updating..."
+        // forever, which is exactly what a stale-CDN update did to the tester's device. If no reload
+        // has happened by the deadline, the update did NOT apply -- re-arm and say so.
+        setTimeout(() => {
+          if (!goBtn.isConnected) return;        // page already reloaded => it worked
+          goBtn.disabled = false; goBtn.textContent = 'Try again';
+          const n = document.getElementById('updateNotes');
+          if (n && !document.getElementById('updWarn')){
+            const li = document.createElement('li'); li.id = 'updWarn';
+            li.textContent = "That didn't apply — the server may still be serving the old files. Wait a few minutes and try again.";
+            li.style.cssText = 'list-style:none;margin-left:-18px;margin-top:7px;color:#c0392b;font-weight:700';
+            n.appendChild(li);
+          }
+        }, 45000);
         host.updateWebAndReload(); return;       // shell: download new web assets, then reload in place
       }
       setTimeout(() => location.reload(), 200);   // browser: the server already serves the latest
