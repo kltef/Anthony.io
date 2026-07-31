@@ -1,7 +1,8 @@
 {
-  "web": 33,
+  "web": 34,
   "notes": [
-    "Give the planner worker pool more headroom: reserve 2 cores (not 1) for the render/input thread, re-cap at 8 workers - the single-core reservation in build 32 still froze during the AI's turn on Nightmare/Nightmare+"
+    "Smarter AI across every difficulty (Easy through Nightmare+) - the trained brain was retrained and measured to beat the previous version in head-to-head play before shipping",
+    "Internal: experimental AI candidate staged in Nightmare-X for testing"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -18,6 +19,14 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 34,
+      "date": "2026-07-31",
+      "notes": [
+        "Smarter AI across every difficulty (Easy through Nightmare+) - the trained brain was retrained and measured to beat the previous version in head-to-head play before shipping",
+        "Internal: experimental AI candidate staged in Nightmare-X for testing"
+      ]
+    },
     {
       "web": 33,
       "date": "2026-07-23",

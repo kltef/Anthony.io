@@ -1012,6 +1012,50 @@
     const z = gnnTanh(gnnLin(rlPolicy.head1.W, rlPolicy.head1.b, x));
     return gnnLin(rlPolicy.head2.W, rlPolicy.head2.b, z)[0];
   }
+
+  // ---- candidate-set attention policy net (prototype, format==='mlp-attn-v1') — additive, gated
+  // via the real-planner arena before ever shipping. Unlike the flat MLP (each candidate scored in
+  // isolation) or gnn-v1 (per-territory embeddings), here the K candidate MOVES for a decision
+  // attend to each other once, so the net can directly represent "this attack is fine alone but
+  // worse than that one" instead of only implicitly through search comparing independent scores.
+  // Same 12-input feature vector as the flat MLP. Must stay numerically identical to
+  // tools/candidate_attn_net.py (verified via a fixed-decision parity test before gating).
+  function mlpTrunkEmbed(feats) {
+    let x = feats;
+    for (const layer of rlPolicy.trunk) x = gnnTanh(gnnLin(layer.W, layer.b, x));
+    return x;
+  }
+  function mlpAttnScoreAll(featList) {
+    const K = featList.length;
+    if (!K) return [];
+    const H = rlPolicy.hidden, heads = rlPolicy.heads, hd = H/heads, scale = Math.sqrt(hd), A = rlPolicy.attn;
+    const emb = featList.map(mlpTrunkEmbed);                          // K x H per-candidate embedding
+    const Q = new Array(K), Kx = new Array(K), V = new Array(K);
+    for (let i=0;i<K;i++){                                            // combined in-projection, split into q/k/v
+      const qkv = gnnLin(A.in_proj_W, A.in_proj_b, emb[i]);
+      Q[i]=qkv.slice(0,H); Kx[i]=qkv.slice(H,2*H); V[i]=qkv.slice(2*H,3*H);
+    }
+    const attnOut = Array.from({length:K}, () => new Array(H).fill(0));
+    for (let h=0; h<heads; h++){ const off=h*hd;                       // dense multi-head self-attention over
+      for (let i=0;i<K;i++){                                          // ALL candidates (no adjacency mask —
+        const scores = new Array(K);                                  // this attends over the move-candidate
+        for (let j=0;j<K;j++){ let sc=0; for (let d=0;d<hd;d++) sc+=Q[i][off+d]*Kx[j][off+d]; scores[j]=sc/scale; }
+        const mx=Math.max(...scores), exps=scores.map(sc=>Math.exp(sc-mx)), sum=exps.reduce((a,b)=>a+b,0);
+        for (let j=0;j<K;j++){ const w=exps[j]/sum; for (let d=0;d<hd;d++) attnOut[i][off+d]+=w*V[j][off+d]; }
+      }
+    }
+    const proj = attnOut.map(a => gnnLin(A.out_W, A.out_b, a));        // output projection
+    const ln = rlPolicy.ln, scores = new Array(K);
+    for (let i=0;i<K;i++){                                             // residual + LayerNorm + scalar head
+      const r = new Array(H); for (let d=0; d<H; d++) r[d]=emb[i][d]+proj[i][d];
+      const mean = r.reduce((a,b)=>a+b,0)/H;
+      let vs=0; for (let d=0; d<H; d++) vs += (r[d]-mean)*(r[d]-mean);
+      const invStd = 1/Math.sqrt(vs/H+1e-5);
+      const normed = new Array(H); for (let d=0; d<H; d++) normed[d] = (r[d]-mean)*invStd*ln.gamma[d]+ln.beta[d];
+      scores[i] = gnnLin(rlPolicy.head.W, rlPolicy.head.b, normed)[0];
+    }
+    return scores;
+  }
   // board VALUE from the gnn value head (rlPolicy.vhead): mean-pool the node embeddings, small tanh
   // MLP -> [-1,1]. Mirror of tools/gnn_net_torch.board_value; the worker copy pools a flat
   // Float32Array instead (its gnnEmbedBoard is flattened). KEEP IN SYNC.
@@ -2211,10 +2255,12 @@
     const myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
     const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(snap.cx[ti]-snap.cx[p], snap.cy[ti]-snap.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
     const useGNN = rlPolicy.format==='gnn-v1';
+    const useAttn = rlPolicy.format==='mlp-attn-v1';
     const doSplit = useGNN && (rlPolicy.move_features||3)>=4;
     const boardH = useGNN ? gnnEmbedBoard(snap, owner) : null;
     const comp = ownerComp(snap, owner);
     let best=noopEff, bs=null, bt=null, bf=1.0;
+    const attnPend = useAttn ? [] : null;   // candidate-set attention needs the WHOLE batch before scoring
     for (const si of srcs){ const st=snap.troops[si];
       for (let ti=0; ti<snap.n; ti++){ if (ti===si || !legalFrom(snap,comp,si,ti,owner)) continue;
         const tt=snap.troops[ti];
@@ -2234,6 +2280,10 @@
         } else if (useGNN){   // legacy 3-feature GNN net: all-in only
           const score = gnnMoveScore(boardH, si, ti, [ (st-tt)/FN, dist, st>tt?1:0 ]) + bias;
           if (score>best){ best=score; bs=si; bt=ti; bf=1.0; }
+        } else if (useAttn){
+          attnPend.push({ si, ti, bias, feat:[ st/FN, tt/FN, (st-tt)/FN, dist,
+                      snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+                      maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ] });
         } else {
           const score = rlScore([ st/FN, tt/FN, (st-tt)/FN, dist,
                       snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
@@ -2241,6 +2291,11 @@
           if (score>best){ best=score; bs=si; bt=ti; bf=1.0; }
         }
       }
+    }
+    if (useAttn && attnPend.length){
+      const raw = mlpAttnScoreAll(attnPend.map(p=>p.feat));
+      for (let i=0;i<attnPend.length;i++){ const score=raw[i]+attnPend[i].bias;
+        if (score>best){ best=score; bs=attnPend[i].si; bt=attnPend[i].ti; bf=1.0; } }
     }
     return bs==null ? null : (doSplit ? [bs, bt, bf] : [bs, bt]);
   }
@@ -2405,10 +2460,12 @@
     const myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
     const dToPlayer = ti => { let m=Infinity; for (const p of playerIdx){ const d=Math.hypot(s.cx[ti]-s.cx[p], s.cy[ti]-s.cy[p]); if (d<m) m=d; } return m===Infinity?9999:m; };
     const useGNN = rlPolicy.format==='gnn-v1';
+    const useAttn = rlPolicy.format==='mlp-attn-v1';
     const doSplit = useGNN && (rlPolicy.move_features||3)>=4;
     const boardH = useGNN ? gnnEmbedBoard(s, owner) : null;
     const comp = ownerComp(s, owner);
     const list=[];
+    const attnPend = useAttn ? [] : null;   // candidate-set attention needs the WHOLE batch before scoring
     for (const si of srcs){ const st=s.troops[si];
       for (let ti=0; ti<s.n; ti++){ if (ti===si || !legalFrom(s,comp,si,ti,owner)) continue; const tt=s.troops[ti];
         const dist=Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/rlDiag;
@@ -2428,12 +2485,20 @@
                       _st:st, _tt:tt, _dist:dist, _bias:bias });
         } else if (useGNN){   // legacy 3-feature GNN net: all-in only
           list.push({ mv:[si,ti], score: gnnMoveScore(boardH, si, ti, [ (st-tt)/FN, dist, st>tt?1:0 ]) + bias });
+        } else if (useAttn){   // candidate-set attention net: defer scoring until the whole batch is known
+          attnPend.push({ mv:[si,ti], bias, feat:[ st/FN, tt/FN, (st-tt)/FN, dist,
+                         s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+                         maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ] });
         } else {
           list.push({ mv:[si,ti], score: rlScore([ st/FN, tt/FN, (st-tt)/FN, dist,
                          s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
                          maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]) + bias });
         }
       }
+    }
+    if (useAttn && attnPend.length){
+      const raw = mlpAttnScoreAll(attnPend.map(p=>p.feat));
+      for (let i=0;i<attnPend.length;i++) list.push({ mv: attnPend[i].mv, score: raw[i]+attnPend[i].bias });
     }
     if (doSplit && list.length){   // lazy split expansion: partial fractions for the top pairs only
       const byScore=list.slice().sort((a,b)=>b.score-a.score);
@@ -2839,6 +2904,53 @@
       }
       return a[0];
     }
+    // ---- candidate-set attention policy net (prototype, format==='mlp-attn-v1') — mirror of the
+    // main-thread copy above rlEvaluate; see that copy's comment for the design rationale. Plain
+    // nested-array math (not the packed-typed-array FLAT/linInto path) since this is a research
+    // prototype gated before any speed investment, same posture as WASM being the "deferred lever"
+    // for the gnn net. CONTRACT: must stay numerically identical to tools/candidate_attn_net.py.
+    function mlpLin(W, b, x){
+      var out=new Array(b.length);
+      for (var o=0;o<b.length;o++){ var acc=b[o], row=W[o]; for (var i=0;i<row.length;i++) acc+=row[i]*x[i]; out[o]=acc; }
+      return out;
+    }
+    function mlpTanh(v){ var out=new Array(v.length); for (var i=0;i<v.length;i++) out[i]=Math.tanh(v[i]); return out; }
+    function mlpTrunkEmbed(feats){
+      var x=feats;
+      for (var l=0;l<POL.trunk.length;l++) x=mlpTanh(mlpLin(POL.trunk[l].W, POL.trunk[l].b, x));
+      return x;
+    }
+    function mlpAttnScoreAll(featList){
+      var K=featList.length; if (!K) return [];
+      var H=POL.hidden, heads=POL.heads, hd=H/heads, scale=Math.sqrt(hd), A=POL.attn;
+      var emb=featList.map(mlpTrunkEmbed);
+      var Q=new Array(K), Kx=new Array(K), V=new Array(K), i, j, d, h2;
+      for (i=0;i<K;i++){
+        var qkv=mlpLin(A.in_proj_W, A.in_proj_b, emb[i]);
+        Q[i]=qkv.slice(0,H); Kx[i]=qkv.slice(H,2*H); V[i]=qkv.slice(2*H,3*H);
+      }
+      var attnOut=new Array(K); for (i=0;i<K;i++) attnOut[i]=new Array(H).fill(0);
+      for (h2=0; h2<heads; h2++){ var off=h2*hd;
+        for (i=0;i<K;i++){
+          var scores=new Array(K);
+          for (j=0;j<K;j++){ var sc=0; for (d=0;d<hd;d++) sc+=Q[i][off+d]*Kx[j][off+d]; scores[j]=sc/scale; }
+          var mx=Math.max.apply(null,scores), exps=scores.map(function(s2){ return Math.exp(s2-mx); });
+          var sum=exps.reduce(function(a2,b3){ return a2+b3; },0);
+          for (j=0;j<K;j++){ var w=exps[j]/sum, vj=V[j]; for (d=0;d<hd;d++) attnOut[i][off+d]+=w*vj[off+d]; }
+        }
+      }
+      var proj=attnOut.map(function(a3){ return mlpLin(A.out_W, A.out_b, a3); });
+      var ln=POL.ln, scores2=new Array(K);
+      for (i=0;i<K;i++){
+        var r=new Array(H); for (d=0; d<H; d++) r[d]=emb[i][d]+proj[i][d];
+        var mean=0; for (d=0; d<H; d++) mean+=r[d]; mean/=H;
+        var vs=0; for (d=0; d<H; d++) vs+=(r[d]-mean)*(r[d]-mean);
+        var invStd=1/Math.sqrt(vs/H+1e-5);
+        var normed=new Array(H); for (d=0; d<H; d++) normed[d]=(r[d]-mean)*invStd*ln.gamma[d]+ln.beta[d];
+        scores2[i]=mlpLin(POL.head.W, POL.head.b, normed)[0];
+      }
+      return scores2;
+    }
     function gnnScratch(N, d, nf){
       if (SCR && SCR.N>=N && SCR.d===d && SCR.nf===nf) return SCR;
       var hn=FLAT.head1?FLAT.head1.ni:1, ho=FLAT.head1?FLAT.head1.no:1;
@@ -3020,10 +3132,12 @@
         if (oo!==NEUTRAL){ allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
       var myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
       var useGNN=POL.format==='gnn-v1';
+      var useAttn=POL.format==='mlp-attn-v1';
       var doSplit=useGNN && (POL.move_features||3)>=4;
       var boardH=useGNN ? gnnEmbedBoard(s, owner) : null;
       var best=POL.noop_bias||0, bs=-1, bt=-1, bf=1.0;
       var comp=ownerComp(s, owner);
+      var attnPend=useAttn ? [] : null;   // candidate-set attention needs the WHOLE batch before scoring
       for (var q=0;q<srcs.length;q++){ var si=srcs[q], st=s.troops[si];
         for (var ti=0; ti<s.n; ti++){ if (ti===si || !legalFrom(s,comp,si,ti,owner)) continue; var tt=s.troops[ti];
           var dist=Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/DIAG;
@@ -3035,12 +3149,21 @@
           } else if (useGNN){   // legacy 3-feature GNN net
             var scg = gnnMoveScore(boardH, si, ti, [ (st-tt)/FN, dist, st>tt?1:0 ]) + bias;
             if (scg>best){ best=scg; bs=si; bt=ti; bf=1.0; }
+          } else if (useAttn){
+            attnPend.push({ si:si, ti:ti, bias:bias, feat:[ st/FN, tt/FN, (st-tt)/FN, dist,
+              s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+              maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ] });
           } else {
             var sc = rlScore([ st/FN, tt/FN, (st-tt)/FN, dist,
               s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
               maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]) + bias;
             if (sc>best){ best=sc; bs=si; bt=ti; bf=1.0; }
           } } }
+      if (useAttn && attnPend.length){
+        var raw=mlpAttnScoreAll(attnPend.map(function(p){ return p.feat; }));
+        for (var ai=0;ai<attnPend.length;ai++){ var asc=raw[ai]+attnPend[ai].bias;
+          if (asc>best){ best=asc; bs=attnPend[ai].si; bt=attnPend[ai].ti; bf=1.0; } }
+      }
       return bs<0 ? null : (doSplit ? [bs,bt,bf] : [bs,bt]);
     }
     // Model the human IN THE ROLLOUTS as the opponent model sees him (nightmare_plus.md Lever 4c):
@@ -3191,10 +3314,12 @@
       var myShare=allTot>0?myTot/allTot:0, myAvg=myTot/Math.max(1,ownCount);
       function dToPlayer(ti){ var m=Infinity; for (var p=0;p<playerIdx.length;p++){ var d=Math.hypot(s.cx[ti]-s.cx[playerIdx[p]], s.cy[ti]-s.cy[playerIdx[p]]); if (d<m) m=d; } return m===Infinity?9999:m; }
       var useGNN=POL.format==='gnn-v1';
+      var useAttn=POL.format==='mlp-attn-v1';
       var doSplit=useGNN && (POL.move_features||3)>=4;   // only a split-trained (4-feature) net gets fractions
       var boardH=useGNN ? gnnEmbedBoard(s, owner) : null;
       var comp=ownerComp(s, owner);
       var list=[];
+      var attnPend=useAttn ? [] : null;   // candidate-set attention needs the WHOLE batch before scoring
       for (var q=0;q<srcs.length;q++){ var si=srcs[q], st=s.troops[si];
         for (var ti=0; ti<s.n; ti++){ if (ti===si || !legalFrom(s,comp,si,ti,owner)) continue; var tt=s.troops[ti];
           var dist=Math.hypot(s.cx[ti]-s.cx[si], s.cy[ti]-s.cy[si])/DIAG;
@@ -3224,11 +3349,19 @@
                         _st:st, _tt:tt, _dist:dist, _bias:bias });
           } else if (useGNN){   // legacy 3-feature GNN net: all-in only, exactly as before
             list.push({ mv:[si,ti], score: gnnMoveScore(boardH, si, ti, [ (st-tt)/FN, dist, st>tt?1:0 ]) + bias });
+          } else if (useAttn){   // candidate-set attention net: defer scoring until the whole batch is known
+            attnPend.push({ mv:[si,ti], bias:bias, feat:[ st/FN, tt/FN, (st-tt)/FN, dist,
+              s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
+              maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ] });
           } else {       // flat MLP (Grandmaster): all-in only, 12-feature vector unchanged
             list.push({ mv:[si,ti], score: rlScore([ st/FN, tt/FN, (st-tt)/FN, dist,
               s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
               maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ]) + bias });
           } } }
+      if (useAttn && attnPend.length){
+        var attnRaw=mlpAttnScoreAll(attnPend.map(function(p){ return p.feat; }));
+        for (var ap=0;ap<attnPend.length;ap++) list.push({ mv: attnPend[ap].mv, score: attnRaw[ap]+attnPend[ap].bias });
+      }
       if (doSplit && list.length){   // lazy split expansion: partial fractions for the top pairs only
         var bySc=list.slice().sort(function(a,b){ return b.score-a.score; });
         for (var e2=0;e2<Math.min(4,bySc.length);e2++){ var c2=bySc[e2]; if (c2._st==null) continue;
@@ -3514,8 +3647,9 @@
   }
 
   function plannerMove(owner){
-    // flat-MLP-only brain capture; the GNN net has no .layers so skip it (its viz comes from updateNNViz).
-    const ev = rlPolicy.format==='gnn-v1' ? null : rlEvaluate(owner, true);
+    // flat-MLP-only brain capture; the GNN/candidate-attn nets have no .layers so skip them (their
+    // viz, where it exists, comes from updateNNViz instead).
+    const ev = (rlPolicy.format==='gnn-v1' || rlPolicy.format==='mlp-attn-v1') ? null : rlEvaluate(owner, true);
     if (ev && showNN && vizMode==='brain') rlSetViz(owner, ev);   // keep the AI-brain panel live
     const base = takeSnapshot();
     const root = { snap:base, time:0, N:0, W:0, children:[], untried:computeUntried(base, owner), move:null, prior:1, events:[], terminal:isTerminal(base) };
@@ -3562,6 +3696,7 @@
     if (rlPolicy.format==='gnn-v1') {   // board-aware net has no flat-MLP layers — build the graph viz instead
       gnnViz = gnnEvaluate(owner); rlVizDirty = true; return;
     }
+    if (rlPolicy.format==='mlp-attn-v1') return;   // prototype net: no brain-panel viz yet, just skip
     rlSetViz(owner, rlEvaluate(owner, true));
   }
 
@@ -4194,6 +4329,10 @@
     // ===== header =====
     // Board-aware net (Impossible): render the graph-attention view instead of the flat-MLP diagram.
     if (rlPolicy && rlPolicy.format==='gnn-v1' && LEVELS[levelIdx]?.rl){ drawGNN(); return; }
+    if (rlPolicy && rlPolicy.format==='mlp-attn-v1' && LEVELS[levelIdx]?.rl){   // prototype net: no viz yet
+      nnctx.fillStyle='#9aa6b4'; nnctx.font='12px Segoe UI, sans-serif';
+      nnctx.fillText('Candidate-attention net (prototype) — no brain viz yet.', pad, Y); return;
+    }
     nnctx.fillStyle='#e7edf3'; nnctx.font='bold 13px Segoe UI, sans-serif';
     nnctx.fillText('Grandmaster AI · policy network', pad, Y);
     if (!rlPolicy || !LEVELS[levelIdx]?.rl){
@@ -6254,7 +6393,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 33;
+  const WEB_VERSION = 34;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
