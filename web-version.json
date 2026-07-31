@@ -1,9 +1,9 @@
 {
-  "web": 36,
+  "web": 37,
   "notes": [
-    "Data export now also tries saving a real file to Downloads for large histories, alongside the on-screen fallback from the last build"
+    "Fixes the in-app updater getting stuck on \"Updating...\" - it now pins each release to an exact snapshot so it can never download a half-stale mix of old and new files"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/4f9b7559fb2caa0dbf340af8cd85522b92ea4add/src/web/",
   "files": [
     "index.html",
     "gnn_policy.json",
@@ -18,6 +18,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 37,
+      "date": "2026-07-31",
+      "notes": [
+        "Fixes the in-app updater getting stuck on \"Updating...\" - it now pins each release to an exact snapshot so it can never download a half-stale mix of old and new files"
+      ]
+    },
     {
       "web": 36,
       "date": "2026-07-31",
