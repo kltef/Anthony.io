@@ -1,8 +1,7 @@
 {
-  "web": 34,
+  "web": 35,
   "notes": [
-    "Smarter AI across every difficulty (Easy through Nightmare+) - the trained brain was retrained and measured to beat the previous version in head-to-head play before shipping",
-    "Internal: experimental AI candidate staged in Nightmare-X for testing"
+    "Fixed Data export silently losing your play history once it grew past a few MB - it now shows the full export directly on-screen instead of relying on share/clipboard, which Android was quietly truncating"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -19,6 +18,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 35,
+      "date": "2026-07-31",
+      "notes": [
+        "Fixed Data export silently losing your play history once it grew past a few MB - it now shows the full export directly on-screen instead of relying on share/clipboard, which Android was quietly truncating"
+      ]
+    },
     {
       "web": 34,
       "date": "2026-07-31",
