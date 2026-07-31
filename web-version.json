@@ -1,7 +1,7 @@
 {
-  "web": 35,
+  "web": 36,
   "notes": [
-    "Fixed Data export silently losing your play history once it grew past a few MB - it now shows the full export directly on-screen instead of relying on share/clipboard, which Android was quietly truncating"
+    "Data export now also tries saving a real file to Downloads for large histories, alongside the on-screen fallback from the last build"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/release/src/web/",
   "files": [
@@ -18,6 +18,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 36,
+      "date": "2026-07-31",
+      "notes": [
+        "Data export now also tries saving a real file to Downloads for large histories, alongside the on-screen fallback from the last build"
+      ]
+    },
     {
       "web": 35,
       "date": "2026-07-31",

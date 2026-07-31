@@ -6393,7 +6393,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 35;
+  const WEB_VERSION = 36;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
@@ -6477,14 +6477,28 @@
 
   async function shareFile(content, filename, mimeType) {
     const file = new File([content], filename, {type: mimeType});
-    // Large payloads (play-data export can be double-digit MB after ~200+ games) skip straight to
-    // the in-app modal (step 4): both the file-share and clipboard paths below report SUCCESS to JS
-    // even when the OS silently drops an oversized payload (Android's clipboard binder transaction
-    // has a real size ceiling well under 15MB) -- found 2026-07-31 pulling play data off the tester's
-    // device: the toast said "Copied to clipboard" while a native "Failed to copy" toast fired
-    // underneath it, and nothing was recoverable afterward. The modal is plain DOM, no OS IPC size
-    // limit, so it's the only path that's actually reliable at this size.
+    // Large payloads (play-data export can be double-digit MB after ~200+ games): ALSO try a real
+    // file download (Blob + <a download>) -- untested in this shell before 2026-07-31, and there is
+    // no click/download event we can observe to confirm it actually landed in Downloads vs. silently
+    // no-op'd (no DownloadListener registered). So this never claims success on its own -- it fires
+    // and falls straight into the guaranteed in-app modal below regardless, same lesson as the
+    // clipboard bug this whole change is fixing: don't show a success toast for something we can't
+    // verify. If a file DOES appear in Downloads, great, use that instead of the modal.
+    // Skips file-share/clipboard entirely above BIG because both report SUCCESS to JS even when the
+    // OS silently drops an oversized payload (Android's clipboard binder transaction has a real size
+    // ceiling well under 15MB) -- found 2026-07-31 pulling play data off the tester's device: the
+    // toast said "Copied to clipboard" while a native "Failed to copy" toast fired underneath it, and
+    // nothing was recoverable afterward.
     const BIG = 2 * 1024 * 1024;   // 2MB -- comfortably under every share/clipboard limit we've hit
+    if (content.length >= BIG) {
+      try {
+        const url = URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+      } catch(e) { /* no native download handling here -- modal below is still shown regardless */ }
+    }
     if (content.length < BIG) {
       // 1. File share (Android share sheet with Files/Drive/etc.)
       if (navigator.canShare && navigator.canShare({files: [file]})) {
