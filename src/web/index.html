@@ -966,6 +966,92 @@
     return x[0];
   }
 
+  // ---- EXTENDED (24-feature) flat-MLP input — additive, selected by rlPolicy.num_features>=24.
+  // The shipped 12-feature nets are untouched: features 0..11 are IDENTICAL to the legacy vector
+  // whenever frac===1, so a 24-feature net is a strict superset and the legacy literal stays the
+  // fast path for legacy nets.
+  //
+  // Why: FINDINGS.md Phase B added 4 bolt-on features and LOST (23%) — the post-mortem is that the
+  // distillation teacher's move choice came from the 12-input policy, so the labels barely depended
+  // on the new inputs. That failure mode is specific to bolt-on distillation: with visit-count
+  // distillation (train_rl_torch.py) the teacher IS the search running these features, so the
+  // targets do depend on them — but ONLY if the features exist here, in the worker, before any
+  // training data is generated. Adding them to the trainer alone reproduces Phase B exactly.
+  //
+  // Everything board-wide is precomputed ONCE per decision by rlBoardCtx() and indexed per
+  // candidate. MEASURED cost on the real 49-state map at the shipped 240ms budget: 1607 sims/
+  // decision vs the 12-feature net's 2471 — the extended net keeps ~65% of the search depth, and
+  // still searches ~5.9x deeper than gnn-v1 (271). Note the naive MAC estimate (24*64+64*64+64 =
+  // 5696 vs 4928, "+16%") badly understates it: the per-candidate JS array construction, not the
+  // matmul, dominates. Hoisting the board-wide terms out was tried and did not close the gap;
+  // if this ever needs to be cheaper the answer is a packed typed-array feature buffer, not
+  // fewer features.
+  // CONTRACT: must stay numerically identical to the worker copy (polBoardCtx/polMoveFeats inside
+  // planWorkerMain) and to tools/train_rl.py feats24() — verified by tools/test_feats24_parity.py.
+  const RL_NFEAT_EXT = 24;
+  function rlExtOn(){ return (rlPolicy && (rlPolicy.num_features||12) >= RL_NFEAT_EXT); }
+  // Per-board precompute. O(n + edges + armies), once per decision.
+  function rlBoardCtx(s, owner){
+    const n = s.n, adj = s.adj;
+    const deg = new Array(n), maxHost = new Array(n).fill(0), inflight = new Array(n).fill(0);
+    let neutrals = 0;
+    for (let i=0;i<n;i++){
+      const a = adj[i] || [];
+      deg[i] = a.length;
+      if (s.owner[i]===NEUTRAL) neutrals++;
+      let mh = 0;
+      for (let k=0;k<a.length;k++){ const j=a[k];
+        if (s.owner[j]!==owner && s.owner[j]!==NEUTRAL && s.troops[j]>mh) mh = s.troops[j]; }
+      maxHost[i] = mh;
+    }
+    // net hostile troops already in flight at each state (mine subtract, theirs add)
+    const arms = s.armies || [];
+    for (let k=0;k<arms.length;k++){ const a=arms[k];
+      if (a.ti==null || a.ti<0 || a.ti>=n) continue;
+      inflight[a.ti] += (a.owner===owner ? -a.count : a.count);
+    }
+    // frontier-length delta is a function of the TARGET only (not the source or the fraction),
+    // so it is hoisted here instead of being recomputed per candidate — it was measurably the
+    // most expensive part of the per-candidate vector.
+    const bdelta = new Array(n);
+    for (let i=0;i<n;i++){ const a=adj[i]||[]; let gain=0, lose=0;
+      for (let k=0;k<a.length;k++){ if (s.owner[a[k]]===owner) lose++; else gain++; }
+      bdelta[i] = (gain-lose)/8; }
+    return { deg, maxHost, inflight, bdelta, neutralsFrac: n ? neutrals/n : 0 };
+  }
+  // Change in MY frontier length (edges from a state I own to one I don't) if `owner` takes ti.
+  function rlBorderDelta(s, owner, ti){
+    const a = s.adj[ti] || []; let gain=0, lose=0;
+    for (let k=0;k<a.length;k++){ if (s.owner[a[k]]===owner) lose++; else gain++; }
+    return (gain - lose) / 8;
+  }
+  // The 24-wide candidate vector. `glob` carries the per-decision aggregates each caller already
+  // computed (ownFrac/maxEnemy/myShare/myAvg/bigIdx) so they are never recomputed per candidate.
+  function rlMoveFeats(s, owner, ctx, si, ti, frac, dist, glob, FN){
+    const st = s.troops[si], tt = s.troops[ti], sent = st*frac;
+    const cap = (s.caps && s.caps[ti]) || MAX_TROOPS;
+    // target growth while the orb is in flight (dist is rlDiag-normalised; convert back to px)
+    const flight = (dist*rlDiag) / (ORB_SPEED||70);
+    const gm = (s.gmul && s.gmul[ti]) || 1;
+    const grow = (s.owner[ti]!==NEUTRAL && tt<cap) ? growRateFor(s.owner[ti])*gm*flight : 0;
+    return [ st/FN, tt/FN, (sent-tt)/FN, dist,
+             s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, sent>tt?1:0, glob.ownFrac,
+             glob.maxEnemy/FN, glob.myShare, glob.myAvg/FN, (ti===glob.bigIdx?1:0),
+             // --- extended ---
+             (st-sent)/FN,                 // 12 residual garrison left at the source
+             frac,                         // 13 split fraction
+             ctx.maxHost[si]/FN,           // 14 biggest enemy stack bordering the SOURCE
+             ctx.maxHost[ti]/FN,           // 15 biggest enemy stack bordering the TARGET
+             (sent-(tt+grow))/FN,          // 16 delta at ARRIVAL, not at launch
+             ctx.inflight[ti]/FN,          // 17 net hostile troops already flying at the target
+             ctx.inflight[si]/FN,          // 18 net hostile troops already flying at my source
+             ctx.deg[ti]/8,                // 19 target border degree (corner seats are cheap to hold)
+             ctx.bdelta[ti],               // 20 frontier length change — consolidating vs stretching
+             ctx.deg[si]/8,                // 21 source border degree (a corner source is safe to empty)
+             ctx.neutralsFrac,             // 22 how much free land is left (game phase)
+             glob.myAvg/cap ];             // 23 cap pressure — how close I am to the attrition regime
+  }
+
   // ---- board-aware (GNN) policy net inference — additive to the flat MLP path above, selected by
   // rlPolicy.format==='gnn-v1' (FINDINGS.md future-path #1: "board-aware architecture"). Node
   // embeddings are computed ONCE per board (shared across every candidate move from that position)
@@ -2275,6 +2361,10 @@
     const useGNN = rlPolicy.format==='gnn-v1';
     const useAttn = rlPolicy.format==='mlp-attn-v1';
     const doSplit = useGNN && (rlPolicy.move_features||3)>=4;
+    // extended flat MLP (num_features>=24): board context precomputed once, split fractions enumerated
+    const useExt = !useGNN && !useAttn && rlExtOn();
+    const xctx = useExt ? rlBoardCtx(snap, owner) : null;
+    const xglob = useExt ? { ownFrac, maxEnemy, myShare, myAvg, bigIdx } : null;
     const boardH = useGNN ? gnnEmbedBoard(snap, owner) : null;
     const comp = ownerComp(snap, owner);
     let best=noopEff, bs=null, bt=null, bf=1.0;
@@ -2302,6 +2392,9 @@
           attnPend.push({ si, ti, bias, feat:[ st/FN, tt/FN, (st-tt)/FN, dist,
                       snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
                       maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ] });
+        } else if (useExt){   // extended MLP: all-in only here (CONTRACT: worker snapGreedyNet)
+          const score = rlScore(rlMoveFeats(snap, owner, xctx, si, ti, 1.0, dist, xglob, FN)) + bias;
+          if (score>best){ best=score; bs=si; bt=ti; bf=1.0; }
         } else {
           const score = rlScore([ st/FN, tt/FN, (st-tt)/FN, dist,
                       snap.owner[ti]===NEUTRAL?1:0, (snap.owner[ti]!==NEUTRAL&&snap.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
@@ -2315,7 +2408,7 @@
       for (let i=0;i<attnPend.length;i++){ const score=raw[i]+attnPend[i].bias;
         if (score>best){ best=score; bs=attnPend[i].si; bt=attnPend[i].ti; bf=1.0; } }
     }
-    return bs==null ? null : (doSplit ? [bs, bt, bf] : [bs, bt]);
+    return bs==null ? null : ((doSplit||useExt) ? [bs, bt, bf] : [bs, bt]);
   }
   // cheap (net-free) opponent model for inside the search tree — mirrors the heuristic AI.
   function snapHeuristic(s, owner) {
@@ -2480,6 +2573,9 @@
     const useGNN = rlPolicy.format==='gnn-v1';
     const useAttn = rlPolicy.format==='mlp-attn-v1';
     const doSplit = useGNN && (rlPolicy.move_features||3)>=4;
+    const useExt = !useGNN && !useAttn && rlExtOn();          // extended flat MLP (num_features>=24)
+    const xctx = useExt ? rlBoardCtx(s, owner) : null;        // board context: computed ONCE per decision
+    const xglob = useExt ? { ownFrac, maxEnemy, myShare, myAvg, bigIdx } : null;
     const boardH = useGNN ? gnnEmbedBoard(s, owner) : null;
     const comp = ownerComp(s, owner);
     const list=[];
@@ -2507,6 +2603,9 @@
           attnPend.push({ mv:[si,ti], bias, feat:[ st/FN, tt/FN, (st-tt)/FN, dist,
                          s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
                          maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ] });
+        } else if (useExt){   // extended MLP: all-in scored here, fractions expanded lazily below
+          list.push({ mv:[si,ti], score: rlScore(rlMoveFeats(s, owner, xctx, si, ti, 1.0, dist, xglob, FN)) + bias,
+                      _st:st, _tt:tt, _dist:dist, _bias:bias });
         } else {
           list.push({ mv:[si,ti], score: rlScore([ st/FN, tt/FN, (st-tt)/FN, dist,
                          s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
@@ -2523,6 +2622,13 @@
       for (let e=0;e<Math.min(4,byScore.length);e++){ const c=byScore[e]; if (c._st==null) continue;
         for (let fi=1; fi<FRACTIONS.length; fi++){ const fr=FRACTIONS[fi], sent=c._st*fr;
           list.push({ mv:[c.mv[0],c.mv[1],fr], score: gnnMoveScore(boardH, c.mv[0], c.mv[1], [ (sent-c._tt)/FN, c._dist, sent>c._tt?1:0, fr ]) + c._bias }); } }
+    }
+    if (useExt && list.length){   // same lazy split expansion, extended-MLP scoring
+      const byScore=list.slice().sort((a,b)=>b.score-a.score);
+      for (let e=0;e<Math.min(4,byScore.length);e++){ const c=byScore[e]; if (c._st==null) continue;
+        for (let fi=1; fi<FRACTIONS.length; fi++){ const fr=FRACTIONS[fi];
+          list.push({ mv:[c.mv[0],c.mv[1],fr],
+                      score: rlScore(rlMoveFeats(s, owner, xctx, c.mv[0], c.mv[1], fr, c._dist, xglob, FN)) + c._bias }); } }
     }
     const cornered = (LEVELS[levelIdx].desp || 0) > 0 && ownFrac < 0.22;
     list.push({ mv:null, score: (endgame ? noop-1 : noop) - (cornered ? 1.5 : 0) });   // no-op option
@@ -2933,6 +3039,55 @@
       }
       return a[0];
     }
+    // ---- EXTENDED (24-feature) input — worker mirror of the main thread's rlBoardCtx/rlMoveFeats.
+    // CONTRACT: numerically identical to those, and to tools/train_rl.py feats24(). This copy is
+    // the one that matters for TRAINING: selfplay_arena.js extracts planWorkerMain verbatim, so
+    // every training example the net ever sees comes from these exact lines. See the main-thread
+    // copy's comment for why the features must live here rather than only in the trainer.
+    // GA/GB are sized to max(ni,no) over the packed layers (>=64 for any real net), so a 24-wide
+    // input needs no scratch change.
+    var NFEAT_EXT=24;
+    function polExtOn(){ return (POL && (POL.num_features||12) >= NFEAT_EXT); }
+    function polBoardCtx(s, owner){
+      var n=s.n, adj=s.adj, deg=new Array(n), maxHost=new Array(n), inflight=new Array(n), neutrals=0, i, k;
+      for (i=0;i<n;i++){ inflight[i]=0; }
+      for (i=0;i<n;i++){
+        var a=adj[i]||[]; deg[i]=a.length;
+        if (s.owner[i]===NEUTRAL) neutrals++;
+        var mh=0;
+        for (k=0;k<a.length;k++){ var j=a[k];
+          if (s.owner[j]!==owner && s.owner[j]!==NEUTRAL && s.troops[j]>mh) mh=s.troops[j]; }
+        maxHost[i]=mh;
+      }
+      var arms=s.armies||[];
+      for (k=0;k<arms.length;k++){ var ar=arms[k];
+        if (ar.ti==null || ar.ti<0 || ar.ti>=n) continue;
+        inflight[ar.ti] += (ar.owner===owner ? -ar.count : ar.count); }
+      // frontier-length delta depends on the TARGET only — hoisted out of the per-candidate path
+      var bdelta=new Array(n);
+      for (i=0;i<n;i++){ var ab=adj[i]||[], gain=0, lose=0;
+        for (k=0;k<ab.length;k++){ if (s.owner[ab[k]]===owner) lose++; else gain++; }
+        bdelta[i]=(gain-lose)/8; }
+      return { deg:deg, maxHost:maxHost, inflight:inflight, bdelta:bdelta, neutralsFrac: n ? neutrals/n : 0 };
+    }
+    function polBorderDelta(s, owner, ti){
+      var a=s.adj[ti]||[], gain=0, lose=0;
+      for (var k=0;k<a.length;k++){ if (s.owner[a[k]]===owner) lose++; else gain++; }
+      return (gain-lose)/8;
+    }
+    function polMoveFeats(s, owner, ctx, si, ti, frac, dist, glob, FN){
+      var st=s.troops[si], tt=s.troops[ti], sent=st*frac;
+      var cap=(CAPS&&CAPS[ti])||MAX_TROOPS;
+      var flight=(dist*DIAG)/(ORB||70);
+      var gm=(GMUL&&GMUL[ti])||1;
+      var grow=(s.owner[ti]!==NEUTRAL && tt<cap) ? growRateFor(s.owner[ti])*gm*flight : 0;
+      return [ st/FN, tt/FN, (sent-tt)/FN, dist,
+               s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, sent>tt?1:0, glob.ownFrac,
+               glob.maxEnemy/FN, glob.myShare, glob.myAvg/FN, (ti===glob.bigIdx?1:0),
+               (st-sent)/FN, frac, ctx.maxHost[si]/FN, ctx.maxHost[ti]/FN,
+               (sent-(tt+grow))/FN, ctx.inflight[ti]/FN, ctx.inflight[si]/FN, ctx.deg[ti]/8,
+               ctx.bdelta[ti], ctx.deg[si]/8, ctx.neutralsFrac, glob.myAvg/cap ];
+    }
     // ---- candidate-set attention policy net (prototype, format==='mlp-attn-v1') — mirror of the
     // main-thread copy above rlEvaluate; see that copy's comment for the design rationale. Plain
     // nested-array math (not the packed-typed-array FLAT/linInto path) since this is a research
@@ -3178,6 +3333,9 @@
       var useGNN=POL.format==='gnn-v1';
       var useAttn=POL.format==='mlp-attn-v1';
       var doSplit=useGNN && (POL.move_features||3)>=4;
+      var useExt=!useGNN && !useAttn && polExtOn();          // extended flat MLP (num_features>=24)
+      var xctx=useExt ? polBoardCtx(s, owner) : null;        // board context: ONCE per decision
+      var xglob=useExt ? { ownFrac:ownFrac, maxEnemy:maxEnemy, myShare:myShare, myAvg:myAvg, bigIdx:bigIdx } : null;
       var boardH=useGNN ? gnnEmbedBoard(s, owner) : null;
       var best=POL.noop_bias||0, bs=-1, bt=-1, bf=1.0;
       var comp=ownerComp(s, owner);
@@ -3197,6 +3355,14 @@
             attnPend.push({ si:si, ti:ti, bias:bias, feat:[ st/FN, tt/FN, (st-tt)/FN, dist,
               s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
               maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ] });
+          } else if (useExt){   // extended MLP. ROLLOUT policy: all-in only, deliberately.
+            // Splits are enumerated at the ROOT (computeUntried's lazy expansion), not in the
+            // rollout opponent model — the standard cheap-rollout / full-root split. (Measured:
+            // this did NOT recover meaningful search depth; the extended vector's cost is its
+            // per-candidate construction, not the fraction enumeration. Kept because a cheap
+            // rollout policy is the right shape, not because it was a speed win.)
+            var xsc = rlScore(polMoveFeats(s, owner, xctx, si, ti, 1.0, dist, xglob, FN)) + bias;
+            if (xsc>best){ best=xsc; bs=si; bt=ti; bf=1.0; }
           } else {
             var sc = rlScore([ st/FN, tt/FN, (st-tt)/FN, dist,
               s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
@@ -3208,7 +3374,7 @@
         for (var ai=0;ai<attnPend.length;ai++){ var asc=raw[ai]+attnPend[ai].bias;
           if (asc>best){ best=asc; bs=attnPend[ai].si; bt=attnPend[ai].ti; bf=1.0; } }
       }
-      return bs<0 ? null : (doSplit ? [bs,bt,bf] : [bs,bt]);
+      return bs<0 ? null : ((doSplit||useExt) ? [bs,bt,bf] : [bs,bt]);
     }
     // Model the human IN THE ROLLOUTS as the opponent model sees him (nightmare_plus.md Lever 4c):
     // score his legal attack options with the LIVE conditional-logit weights (same 7 features as
@@ -3360,6 +3526,9 @@
       var useGNN=POL.format==='gnn-v1';
       var useAttn=POL.format==='mlp-attn-v1';
       var doSplit=useGNN && (POL.move_features||3)>=4;   // only a split-trained (4-feature) net gets fractions
+      var useExt=!useGNN && !useAttn && polExtOn();      // extended flat MLP: also split-capable
+      var xctx=useExt ? polBoardCtx(s, owner) : null;    // board context: ONCE per decision
+      var xglob=useExt ? { ownFrac:ownFrac, maxEnemy:maxEnemy, myShare:myShare, myAvg:myAvg, bigIdx:bigIdx } : null;
       var boardH=useGNN ? gnnEmbedBoard(s, owner) : null;
       var comp=ownerComp(s, owner);
       var list=[];
@@ -3397,6 +3566,9 @@
             attnPend.push({ mv:[si,ti], bias:bias, feat:[ st/FN, tt/FN, (st-tt)/FN, dist,
               s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
               maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ] });
+          } else if (useExt){   // extended MLP: all-in scored now, fractions expanded lazily below
+            list.push({ mv:[si,ti], score: rlScore(polMoveFeats(s, owner, xctx, si, ti, 1.0, dist, xglob, FN)) + bias,
+              _st:st, _tt:tt, _dist:dist, _bias:bias });
           } else {       // flat MLP (Grandmaster): all-in only, 12-feature vector unchanged
             list.push({ mv:[si,ti], score: rlScore([ st/FN, tt/FN, (st-tt)/FN, dist,
               s.owner[ti]===NEUTRAL?1:0, (s.owner[ti]!==NEUTRAL&&s.owner[ti]!==owner)?1:0, st>tt?1:0, ownFrac,
@@ -3405,6 +3577,13 @@
       if (useAttn && attnPend.length){
         var attnRaw=mlpAttnScoreAll(attnPend.map(function(p){ return p.feat; }));
         for (var ap=0;ap<attnPend.length;ap++) list.push({ mv: attnPend[ap].mv, score: attnRaw[ap]+attnPend[ap].bias });
+      }
+      if (useExt && list.length){   // same lazy split expansion, extended-MLP scoring
+        var byX=list.slice().sort(function(a,b){ return b.score-a.score; });
+        for (var ex2=0; ex2<Math.min(4,byX.length); ex2++){ var cx2=byX[ex2]; if (cx2._st==null) continue;
+          for (var xfi=1; xfi<FRACTIONS.length; xfi++){ var xfr2=FRACTIONS[xfi];
+            list.push({ mv:[cx2.mv[0],cx2.mv[1],xfr2],
+              score: rlScore(polMoveFeats(s, owner, xctx, cx2.mv[0], cx2.mv[1], xfr2, cx2._dist, xglob, FN)) + cx2._bias }); } }
       }
       if (doSplit && list.length){   // lazy split expansion: partial fractions for the top pairs only
         var bySc=list.slice().sort(function(a,b){ return b.score-a.score; });

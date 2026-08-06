@@ -182,6 +182,78 @@ def feats12(g, si, owner, tgts, glob):
         np.full(m,myAvg/FN),            # my avg troops/state (low => spread thin = turtle bait)
         (tgts==bigIdx).astype(np.float64),  # is THIS target the biggest threat? (pre-empt it)
     ],axis=1)
+FRACTIONS = (1.0, 0.75, 0.5, 0.25)   # CONTRACT: must match FRACTIONS in src/web/index.html
+def board_ctx(g, owner):
+    """Per-board precompute for feats24 — O(N + edges + armies), done ONCE per decision, exactly
+    like rlBoardCtx()/polBoardCtx() in src/web/index.html. Returns (deg, maxHost, inflight,
+    neutralsFrac)."""
+    o=g['owner']; t=g['troops']; N=g['N']; adj=g['adj']
+    deg=np.array([len(adj[i]) for i in range(N)], dtype=np.float64)
+    maxHost=np.zeros(N)
+    for i in range(N):
+        best=0.0
+        for j in adj[i]:
+            if o[j]!=owner and o[j]!=0 and t[j]>best: best=float(t[j])
+        maxHost[i]=best
+    inflight=np.zeros(N)
+    for a in g['armies']:
+        ti=a['ti']
+        if 0 <= ti < N: inflight[ti] += (-a['count'] if a['owner']==owner else a['count'])
+    neutralsFrac = float((o==0).sum())/N if N else 0.0
+    return deg, maxHost, inflight, neutralsFrac
+def border_delta(g, owner, tgts):
+    """Change in MY frontier length if `owner` captures each target. Mirrors rlBorderDelta()."""
+    o=g['owner']; adj=g['adj']
+    out=np.zeros(len(tgts))
+    for k,ti in enumerate(tgts):
+        gain=lose=0
+        for j in adj[ti]:
+            if o[j]==owner: lose+=1
+            else: gain+=1
+        out[k]=(gain-lose)/8.0
+    return out
+def feats24(g, si, owner, tgts, glob, ctx, frac=1.0):
+    """EXTENDED 24-feature vector. Features 0..11 are IDENTICAL to feats12 when frac==1.0, so a
+    24-feature net is a strict superset of the shipped 12-feature one.
+
+    CONTRACT: must stay numerically identical to rlMoveFeats() (main thread) and polMoveFeats()
+    (inside planWorkerMain) in src/web/index.html — verified by tools/test_feats24_parity.py.
+    Feature order and meaning:
+        0 st  1 tt  2 sent-tt  3 dist  4 isNeutral  5 isEnemy  6 sent>tt  7 ownFrac
+        8 maxEnemy  9 myShare  10 myAvg  11 isBiggestThreat
+       12 residual garrison   13 frac              14 maxHostileAdj(src)  15 maxHostileAdj(tgt)
+       16 delta at ARRIVAL    17 inflight(tgt)     18 inflight(src)       19 degree(tgt)
+       20 borderLenDelta      21 degree(src)       22 neutralsFrac        23 capPressure
+    """
+    o=g['owner']; t=g['troops']; pos=g['pos']
+    st=float(t[si]); tt=t[tgts]; m=len(tgts); sent=st*frac
+    dist=np.hypot(pos[tgts,0]-pos[si,0],pos[tgts,1]-pos[si,1])/g['rlDiag']
+    maxEnemy,myShare,myAvg,bigIdx,own_frac=glob
+    deg,maxHost,inflight,neutralsFrac=ctx
+    # target growth while the orb is in flight (dist is rlDiag-normalised; convert back)
+    flight=(dist*g['rlDiag'])/g['ORB']
+    grow=np.where((o[tgts]!=0)&(tt<CAP), 1.0*flight, 0.0)
+    return np.stack([
+        np.full(m,st/FN), tt/FN, (sent-tt)/FN, dist,
+        (o[tgts]==0).astype(np.float64),
+        ((o[tgts]!=0)&(o[tgts]!=owner)).astype(np.float64),
+        (sent>tt).astype(np.float64),
+        np.full(m,own_frac),
+        np.full(m,maxEnemy/FN), np.full(m,myShare), np.full(m,myAvg/FN),
+        (tgts==bigIdx).astype(np.float64),
+        np.full(m,(st-sent)/FN),
+        np.full(m,frac),
+        np.full(m,maxHost[si]/FN),
+        maxHost[tgts]/FN,
+        (sent-(tt+grow))/FN,
+        inflight[tgts]/FN,
+        np.full(m,inflight[si]/FN),
+        deg[tgts]/8.0,
+        border_delta(g, owner, tgts),
+        np.full(m,deg[si]/8.0),
+        np.full(m,neutralsFrac),
+        np.full(m,myAvg/CAP),
+    ],axis=1)
 def globals_for(g, owner):
     o=g['owner']; t=g['troops']; N=g['N']
     enemy=np.where((o!=owner)&(o!=0))[0]

@@ -532,6 +532,37 @@ function candFeats12(env, si, ti, owner){
     maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0) ];
 }
 
+// re-derive the EXTENDED 24-feature vector for a (source,target,frac) candidate. CONTRACT: must
+// stay numerically identical to rlMoveFeats()/polMoveFeats() in src/web/index.html and feats24()
+// in tools/train_rl.py — all four are checked by tools/test_feats24_parity.py. The arena's board
+// has no cap upgrades or special tiles (no seat uses them here), so caps are the flat 150 the
+// worker falls back to when a plan request carries none.
+function candFeats24(env, si, ti, frac, owner){
+  const FN = 50, CAPV = 150, n = env.n, adj = env.adj;
+  let ownCount=0; for (let i=0;i<n;i++) if (env.owner[i]===owner) ownCount++;
+  const ownFrac = ownCount/n;
+  let myTot=0, allTot=0, maxEnemy=0, bigIdx=-1, neutrals=0;
+  for (let i=0;i<n;i++){ const oo=env.owner[i], tr=env.troops[i];
+    if (oo===0) neutrals++;
+    else { allTot+=tr; if (oo===owner) myTot+=tr; else if (tr>maxEnemy){ maxEnemy=tr; bigIdx=i; } } }
+  const myShare = allTot>0 ? myTot/allTot : 0, myAvg = myTot/Math.max(1,ownCount);
+  const maxHost = i => { let m=0; for (const j of (adj[i]||[])) {
+    if (env.owner[j]!==owner && env.owner[j]!==0 && env.troops[j]>m) m=env.troops[j]; } return m; };
+  const inflight = new Array(n).fill(0);
+  for (const a of (env.armies||[])) if (a.ti>=0 && a.ti<n) inflight[a.ti] += (a.owner===owner ? -a.count : a.count);
+  let gain=0, lose=0; for (const j of (adj[ti]||[])) { if (env.owner[j]===owner) lose++; else gain++; }
+  const st=env.troops[si], tt=env.troops[ti], sent=st*frac;
+  const dist = Math.hypot(env.cx[ti]-env.cx[si], env.cy[ti]-env.cy[si]) / env.rlDiag;
+  const flight = (dist*env.rlDiag)/ORB;
+  const grow = (env.owner[ti]!==0 && tt<CAPV) ? 1.0*flight : 0;
+  return [ st/FN, tt/FN, (sent-tt)/FN, dist,
+    env.owner[ti]===0?1:0, (env.owner[ti]!==0 && env.owner[ti]!==owner)?1:0, sent>tt?1:0, ownFrac,
+    maxEnemy/FN, myShare, myAvg/FN, (ti===bigIdx?1:0),
+    (st-sent)/FN, frac, maxHost(si)/FN, maxHost(ti)/FN,
+    (sent-(tt+grow))/FN, inflight[ti]/FN, inflight[si]/FN, (adj[ti]||[]).length/8,
+    (gain-lose)/8, (adj[si]||[]).length/8, n?neutrals/n:0, myAvg/CAPV ];
+}
+
 // ---- visit-count capture, for training the policy net to imitate the real planner's own search
 // (--dump-visits / DUMP_VISITS env var). Off by default; zero cost to normal arena gating runs. ----
 // Decisions are BUFFERED per game and flushed at game end so every record carries the game's final
@@ -540,6 +571,14 @@ function candFeats12(env, si, ti, owner){
 // are subsampled (DUMP_KEEP_NOOP, default 0.1): ~93% of raw decisions are "sit still" (measured
 // 2026-07-11), which drowns the move-choice signal the policy distillation actually needs.
 const DUMP_STREAM = process.env.DUMP_VISITS ? fs.createWriteStream(process.env.DUMP_VISITS, {flags:'a'}) : null;
+// how wide the dumped feature vector must be — taken from the policy actually being captured
+// (side A), so a 12-feature run is byte-identical to before and a 24-feature run dumps the
+// extended vector. DUMP_NFEAT env overrides for offline re-captures.
+const DUMP_NFEAT = (() => {
+  if (process.env.DUMP_NFEAT) return +process.env.DUMP_NFEAT;
+  try { const p = JSON.parse(fs.readFileSync(pathA, 'utf8')); return +(p.num_features || 12); }
+  catch (e) { return 12; }
+})();
 const KEEP_NOOP = process.env.DUMP_KEEP_NOOP != null ? +process.env.DUMP_KEEP_NOOP : 0.1;
 let DUMP_GAME_SEQ = 0;   // per-process game id stamped into records — real-map games share board
                          // coordinates, so analysis code cannot infer game boundaries from geometry
@@ -549,7 +588,13 @@ function dumpDecision(env, owner, planFn, sink){
   if (!roots || !roots.length) return;
   // null feats entry = the no-op candidate (its "score" in the exported net is noop_bias alone,
   // it never goes through the 12-input MLP) — the training loop must special-case it, not skip it.
-  const feats = roots.map(r => r.move ? candFeats12(env, r.move[0], r.move[1], owner) : null);
+  // Feature width follows the net being captured: a 24-feature net must be trained on the SAME
+  // vector its worker scores with, or the training data silently describes a different function.
+  const ext = DUMP_NFEAT >= 24;
+  const feats = roots.map(r => r.move
+    ? (ext ? candFeats24(env, r.move[0], r.move[1], r.move.length>2 ? r.move[2] : 1.0, owner)
+           : candFeats12(env, r.move[0], r.move[1], owner))
+    : null);
   const visits = roots.map(r => r.visits);
   let chosen = 0; for (let i=1;i<visits.length;i++) if (visits[i]>visits[chosen]) chosen = i;
   // raw board snapshot too — the flat-MLP trainer (train_rl_torch.py) only needs `feats`/`visits`
