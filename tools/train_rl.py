@@ -299,6 +299,22 @@ def choose(layers, noop, g, owner):
         sc=forward(layers, feats12(g,si,owner,tgts,glob)); j=int(np.argmax(sc))
         if sc[j]>best: best=sc[j]; mv=(int(si),int(tgts[j]))
     return mv
+def choose24(layers, noop, g, owner):   # 24-feature variant; monkeypatch onto `choose` to eval an extended net
+    # Mirrors choose(), but with the EXTENDED vector and split-fraction candidates — the same move
+    # set the shipped planner enumerates (index.html FRACTIONS). Board context is computed once per
+    # decision, exactly as rlBoardCtx()/polBoardCtx() do.
+    o=g['owner']; t=g['troops']
+    srcs=np.where((o==owner)&(t>=5))[0]
+    if len(srcs)==0: return None
+    glob=globals_for(g, owner); ctx=board_ctx(g, owner)
+    best=noop; mv=None
+    for si in srcs:
+        tgts=legal_targets(g, si, owner)
+        if len(tgts)==0: continue
+        for frac in FRACTIONS:
+            sc=forward(layers, feats24(g,si,owner,tgts,glob,ctx,frac)); j=int(np.argmax(sc))
+            if sc[j]>best: best=sc[j]; mv=(int(si),int(tgts[j]),frac)
+    return mv
 def choose16(layers, noop, g, owner):   # 16-feature variant; monkeypatch onto `choose` to eval a 16-input net
     o=g['owner']; t=g['troops']
     srcs=np.where((o==owner)&(t>=5))[0]

@@ -262,6 +262,12 @@ def main():
                      'real game maps (tools/real_maps.json, 11-49 states) instead of synthetic boards')
     ap.add_argument('--classic-rules', action='store_true', help='use the OLD classic physics instead of '
                      'the shipped depth rules (Lanchester/terrain/supply/attrition). Old measurements only.')
+    ap.add_argument('--features', type=int, default=12, choices=(12, 24), help='policy input width. 24 '
+                     'selects the EXTENDED vector (board-derived features + split-send support, see '
+                     'train_rl.feats24 and rlMoveFeats/polMoveFeats in src/web/index.html). The two are '
+                     'not weight-compatible, so --features 24 starts from a FRESH net unless a '
+                     '24-feature checkpoint exists; run tools/test_feats24_parity.py first.')
+    ap.add_argument('--hidden', type=int, default=64, help='hidden width for both trunk layers')
     ap.add_argument('--gate-threshold', type=float, default=0.56, help='candidate win-rate required to promote')
     ap.add_argument('--buffer-cap', type=int, default=20000, help='max decisions kept in the rolling training buffer')
     ap.add_argument('--lr', type=float, default=3e-4)
@@ -290,10 +296,36 @@ def main():
         os.environ['DEPTH_RULES'] = '1'
         print("depth rules: ON for all arena subprocesses (matches the shipped game)", flush=True)
 
-    resume_path = os.path.join(SCR, 'policy_torch_new.json')
+    # Input width drives BOTH the net and make_batch's unpacking of the dumped feature vectors,
+    # so it must be set before anything reads P.ARCH. selfplay_arena.js sizes its --dump-visits
+    # vectors off the captured net's own num_features, so exporting a 24-feature net is all it
+    # takes to get 24-feature training data (see candFeats24 there).
+    P.ARCH = (args.features, args.hidden, args.hidden, 1)
+    print(f"policy arch: {P.ARCH}  (input width {args.features})", flush=True)
+    if args.features == 24:
+        # Same monkeypatch convention train_rl.choose16 documents: the no-forget screen and the
+        # value co-training data generator both go through T.choose(), which is hardcoded to
+        # feats12. Point them at the extended chooser so they evaluate the net they are training.
+        T.choose = T.choose24
+        print("train_rl.choose -> choose24 (extended features + split candidates)", flush=True)
+
+    resume_path = os.path.join(SCR, f'policy_torch_new{"" if args.features == 12 else "_f24"}.json')
     warm_path = resume_path if os.path.exists(resume_path) else T.POLICY
-    best = P.from_json(warm_path, device=device)
-    print(f"warm-started from {warm_path}", flush=True)
+    best = None
+    try:
+        cand = P.from_json(warm_path, device=device)
+        if cand.arch[0] == args.features:
+            best = cand
+            print(f"warm-started from {warm_path}", flush=True)
+        else:
+            print(f"{warm_path} is a {cand.arch[0]}-feature net; --features {args.features} is not "
+                  f"weight-compatible with it — starting FRESH", flush=True)
+    except Exception as e:
+        print(f"could not warm-start from {warm_path} ({e}) — starting FRESH", flush=True)
+    if best is None:
+        best = P.PolicyNet(P.ARCH).to(device)
+        print(f"fresh net {P.ARCH}: expect it to LOSE its first gates until it has trained",
+              flush=True)
 
     # The value net is co-trained (Monte-Carlo regression, same recipe as train_value.py) on self-play
     # generated with the CURRENT best policy — so as the policy improves, the value net keeps training
