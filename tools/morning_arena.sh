@@ -10,6 +10,13 @@ while true; do
   sleep 30
 done
 cp tools/gnn_policy_new.json tools/_morning_final.json
+# Gate under the rules the shipped game actually runs (depth mode + the real 50-state map).
+# Before 2026-08-06 these ran classic physics on 16-state synthetic boards at 60ms, which is
+# not a regime the game is ever played in. Override per-invocation if reproducing old numbers.
+export DEPTH_RULES=${DEPTH_RULES:-1}
+export REAL_MAPS=${REAL_MAPS:-1}
+export GAMECAP=${GAMECAP:-150}
+
 run_match () { # $1=polA $2=polB $3=tag
   TOTAL=280; PROCS=14; PER=$(( (TOTAL + PROCS - 1) / PROCS ))
   TMP=$(mktemp -d)

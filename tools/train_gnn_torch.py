@@ -650,7 +650,13 @@ def main():
                      'decision is worth more than more shallow decisions — train on a stronger expert '
                      'than you deploy.')
     ap.add_argument('--gate-games', type=int, default=40)
-    ap.add_argument('--gate-budget', type=int, default=50)
+    ap.add_argument('--gate-budget', type=int, default=240, help='ms/move for the promotion gate. '
+                     '240 == the shipped Nightmare tier (LEVELS workerMs). It used to default to 50, '
+                     'which measured candidates at ~4x the simulations-per-decision the real game '
+                     'affords on a 49-state map — a regime where a slower net is under-penalised.')
+    ap.add_argument('--classic-rules', action='store_true', help='run arena subprocesses under the OLD '
+                     'classic physics (no Lanchester/terrain/supply/attrition) instead of the shipped '
+                     'depth rules. Only for reproducing pre-2026-08 measurements.')
     ap.add_argument('--gate-threshold', type=float, default=0.56)
     ap.add_argument('--script-mix', type=float, default=0.3, help='fraction of data-generation games '
                      'played vs the scripted exploiter league (turtle/rush/farmer/econ/human-profile) '
@@ -716,6 +722,15 @@ def main():
     if args.real_maps > 0:
         os.environ['REAL_MAPS'] = str(args.real_maps)
         print(f"real-map mix: {args.real_maps:.0%} of arena games on tools/real_maps.json boards", flush=True)
+    # DEPTH RULES (2026-08-06): this loop never set DEPTH_RULES, so every net it has ever trained
+    # and promoted was generated AND gated under CLASSIC physics -- no Lanchester combat, no
+    # terrain, no supply penalty, no over-cap attrition, no neutral restock -- and then deployed
+    # into a game that runs depth mode by default (index.html: depthMode = lsGet('depthMode') !==
+    # 'off'). gate_fader.py/beat_fader.py already set this; this loop was the gap. Off only via
+    # --classic-rules, for reproducing an old measurement.
+    if not args.classic_rules:
+        os.environ['DEPTH_RULES'] = '1'
+        print("depth rules: ON for all arena subprocesses (matches the shipped game)", flush=True)
 
     if not args.no_viz:
         try:

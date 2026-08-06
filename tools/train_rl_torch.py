@@ -255,7 +255,13 @@ def main():
     ap.add_argument('--games-per-round', type=int, default=200, help='self-play games generated per round')
     ap.add_argument('--selfplay-budget', type=int, default=50, help='ms/move think budget during self-play data generation')
     ap.add_argument('--gate-games', type=int, default=40, help='games played in the real-planner promotion gate')
-    ap.add_argument('--gate-budget', type=int, default=50, help='ms/move think budget during the gate')
+    ap.add_argument('--gate-budget', type=int, default=240, help='ms/move during the gate. 240 == the '
+                     'shipped Nightmare tier (LEVELS workerMs); 50 measured in a regime the real game '
+                     'never runs in.')
+    ap.add_argument('--real-maps', type=float, default=0.5, help='fraction of arena games played on the '
+                     'real game maps (tools/real_maps.json, 11-49 states) instead of synthetic boards')
+    ap.add_argument('--classic-rules', action='store_true', help='use the OLD classic physics instead of '
+                     'the shipped depth rules (Lanchester/terrain/supply/attrition). Old measurements only.')
     ap.add_argument('--gate-threshold', type=float, default=0.56, help='candidate win-rate required to promote')
     ap.add_argument('--buffer-cap', type=int, default=20000, help='max decisions kept in the rolling training buffer')
     ap.add_argument('--lr', type=float, default=3e-4)
@@ -271,6 +277,18 @@ def main():
 
     device = args.device or ('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"device={device}  cuda_available={torch.cuda.is_available()}  cores={os.cpu_count()}", flush=True)
+
+    # Match the shipped game in every arena subprocess (data-gen AND gates) — inherited via
+    # os.environ.copy(). Before 2026-08-06 this loop set neither, so candidates were trained and
+    # promoted on 16-state synthetic boards under classic physics, then deployed onto the 50-state
+    # US map under depth rules. See FINDINGS.md; index.html defaults both adjacencyMode and
+    # depthMode ON for solo.
+    if args.real_maps > 0:
+        os.environ['REAL_MAPS'] = str(args.real_maps)
+        print(f"real-map mix: {args.real_maps:.0%} of arena games on tools/real_maps.json boards", flush=True)
+    if not args.classic_rules:
+        os.environ['DEPTH_RULES'] = '1'
+        print("depth rules: ON for all arena subprocesses (matches the shipped game)", flush=True)
 
     resume_path = os.path.join(SCR, 'policy_torch_new.json')
     warm_path = resume_path if os.path.exists(resume_path) else T.POLICY

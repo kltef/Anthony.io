@@ -766,7 +766,13 @@
     // cadence = ~3 fresh salvo decisions per second, still deep via the parallel worker group.
     // (adapt:true — the OppModel that powered the retired Adaptive tier now feeds Nightmare:
     // it learns the human across sessions and best-responds, on top of everything else.)
-    { name:'Nightmare', enemies:1, aiSpeed:0.30, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true,
+    // aiCap 250 (2026-08-06): capOf() has always read `cfg.aiCap`, documented as "hard tiers stack
+    // higher so shop upgrades can't out-muscle them" — but NO tier ever set it, so the AI sat at
+    // MAX_TROOPS 150 while a solo player upgrades to 250 (+40 on a capital/fortress = 290) and,
+    // under depth rules, only bleeds over-cap attrition past HIS cap while the AI bled past 150.
+    // 250 == a fully-upgraded player's base, which is what the comment always intended. Hard tiers
+    // only — Easy/Medium/Hard stay at 150 so the lower ladder remains beatable.
+    { name:'Nightmare', enemies:1, aiSpeed:0.30, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true, aiCap:250,
       planDt:0.3, mctsK:9, tbudget:4000, workerMs:240, hunt:0.7, multiMove:4 },
     // Nightmare Plus: the ASYMPTOTE tier (see nightmare_plus.md). Everything Nightmare has with the
     // remaining human-fairness margins spent: 0.20s cadence with plans sized to FIT it (workerMs
@@ -780,13 +786,13 @@
     // fast-cadence identity for DEPTH — a ~1s search per decision so it looks far enough ahead to
     // see the recapture. Cadence raised in lockstep (aiSpeed 0.15 -> 1.0) so it stays PLAN-bound,
     // not latency-bound (a latency-bound tier loses — measured 2026-07-04). Salvo 8 unchanged.
-    { name:'Nightmare+', enemies:1, aiSpeed:1.0, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true,
+    { name:'Nightmare+', enemies:1, aiSpeed:1.0, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true, aiCap:250,
       planDt:0.25, mctsK:9, tbudget:4000, workerMs:1000, hunt:0.7, multiMove:8, attnPressure:1.0, personal:true, noAuto:true },
     // Nightmare-X: HIDDEN dev tier — identical to Nightmare but runs the experimental counter-net
     // (gnn_policy_x.json, xnet:true) instead of the shipped GNN. Its button only appears when the
     // secret is unlocked (localStorage stateio_xtier=1), so the play-tester never sees it; lets the
     // owner A/B "does the trained net FEEL smarter" — the judgment the win-rate gate can't make.
-    { name:'Nightmare-X', enemies:1, aiSpeed:0.30, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true,
+    { name:'Nightmare-X', enemies:1, aiSpeed:0.30, aiAggro:1.0, neutralMin:18, neutralMax:55, growRate:1.0, playerStart:22, enemyStart:22, enemyGrow:1.0, rl:true, plan:true, adapt:true, aiCap:250,
       planDt:0.3, mctsK:9, tbudget:4000, workerMs:240, hunt:0.7, multiMove:4, xnet:true, noAuto:true, hidden:true },
   ];
   let levelIdx = 0;
@@ -2147,7 +2153,12 @@
     const n = states.length;
     // adj MUST be present: snapLegal()/the GNN embedder read snap.adj (mirrors buildPlanRequest's adj).
     const snap = { n, cx:[], cy:[], owner:[], troops:[], armies:[], idToIdx:{},
-                   adj: states.map(s => Array.from(adjacency[s.id] || [])) };
+                   adj: states.map(s => Array.from(adjacency[s.id] || [])),
+                   // CONTRACT: mirrors buildPlanRequest's caps/gmul/fort — the in-page fallback
+                   // search must model the same board the worker does (see snapStep below).
+                   caps: (upgradesOn || tilesOn) ? states.map(s => capOf(s)) : null,
+                   gmul: tilesOn ? states.map(s => (s.type ? TILE[s.type].grow : 1)) : null,
+                   fort: tilesOn ? states.map(s => (s.type === 'fortress' ? 1 : 0)) : null };
     states.forEach((s,i) => { snap.cx[i]=s.cx; snap.cy[i]=s.cy; snap.owner[i]=s.owner; snap.troops[i]=s.troops; snap.idToIdx[s.id]=i; });
     for (const t of troops) {                       // fold in-flight armies into the sim
       const ti = snap.idToIdx[t.targetId]; if (ti==null) continue;
@@ -2158,7 +2169,8 @@
   }
   function cloneSnap(s) {
     return { n:s.n, cx:s.cx, cy:s.cy, owner:s.owner.slice(), troops:s.troops.slice(),
-             armies:s.armies.map(a=>({...a})), idToIdx:s.idToIdx, adj:s.adj };   // adj is immutable per game, no slice needed
+             armies:s.armies.map(a=>({...a})), idToIdx:s.idToIdx, adj:s.adj,
+             caps:s.caps, gmul:s.gmul, fort:s.fort };   // adj/caps/gmul/fort are immutable per game, no slice needed
   }
   // struct-of-arrays counterpart of isLegalMove(), for snapshot-based (AI planner) board representations.
   function snapLegal(snap, si, ti, owner) {
@@ -2199,13 +2211,17 @@
     return (s.owner[ti] !== owner) ? s.adj[si].indexOf(ti) >= 0 : comp[ti] === comp[si];
   }
   function snapStep(snap, dt) {
-    for (let i=0;i<snap.n;i++)
-      if (snap.owner[i]!==NEUTRAL && snap.troops[i]<MAX_TROOPS)
-        snap.troops[i] = Math.min(MAX_TROOPS, snap.troops[i] + growRateFor(snap.owner[i])*dt);
-      else if (depthOn() && snap.owner[i]!==NEUTRAL && snap.troops[i]>MAX_TROOPS){  // quadratic over-cap attrition mirror (flat-150 approx, CONTRACT)
-        const _ex = snap.troops[i]-MAX_TROOPS;
-        snap.troops[i] = Math.max(MAX_TROOPS, snap.troops[i] - (0.06*_ex*_ex/MAX_TROOPS)*dt);
+    // CONTRACT: mirrors the worker's snapStep — real per-state caps and tile growth when solo
+    // supplies them (snap.caps/snap.gmul from takeSnapshot), flat 150 / flat growth otherwise.
+    for (let i=0;i<snap.n;i++) {
+      const cp = (snap.caps && snap.caps[i]) || MAX_TROOPS;
+      if (snap.owner[i]!==NEUTRAL && snap.troops[i]<cp)
+        snap.troops[i] = Math.min(cp, snap.troops[i] + growRateFor(snap.owner[i])*((snap.gmul && snap.gmul[i])||1)*dt);
+      else if (depthOn() && snap.owner[i]!==NEUTRAL && snap.troops[i]>cp){  // quadratic over-cap attrition mirror (CONTRACT)
+        const _ex = snap.troops[i]-cp;
+        snap.troops[i] = Math.max(cp, snap.troops[i] - (0.06*_ex*_ex/cp)*dt);
       }
+    }
     const still = [];
     for (const a of snap.armies) {
       a.t += dt;
@@ -2215,8 +2231,10 @@
           // Depth #4/#2/#3 mirror (CONTRACT: matches arrive() and the worker's snapStep;
           // offSupply read from the live board — static-root approximation, like TERR)
           const tm = terrMult(a.ti) * (states[a.ti] && states[a.ti].offSupply ? OFFSUP_DEF : 1), dE = snap.troops[a.ti]*tm;
-          if (a.count > dE){ snap.owner[a.ti]=a.owner; snap.troops[a.ti]=Math.pow(Math.pow(a.count,LANCH)-Math.pow(dE,LANCH),1/LANCH); }
-          else snap.troops[a.ti] = Math.pow(Math.pow(dE,LANCH)-Math.pow(a.count,LANCH),1/LANCH)/tm;
+          // fortress absorption, exactly as arrive() applies it (CONTRACT: worker snapStep)
+          const dmg = (snap.fort && snap.fort[a.ti] && snap.troops[a.ti] > 0) ? a.count*0.75 : a.count;
+          if (dmg > dE){ snap.owner[a.ti]=a.owner; snap.troops[a.ti]=Math.pow(Math.pow(dmg,LANCH)-Math.pow(dE,LANCH),1/LANCH); }
+          else snap.troops[a.ti] = Math.pow(Math.pow(dE,LANCH)-Math.pow(dmg,LANCH),1/LANCH)/tm;
         }
         else { snap.troops[a.ti] -= a.count; if (snap.troops[a.ti]<0){ snap.owner[a.ti]=a.owner; snap.troops[a.ti]=-snap.troops[a.ti]; } }
       } else still.push(a);
@@ -2604,6 +2622,14 @@
     // Folding supply in here means the search naturally hunts cut-off exclaves (they read as
     // cheaper captures) with zero extra worker plumbing. Root-static, like the rest of TERR.
     const terr = depth ? states.map(s => terrMult(s.id) * (s.offSupply ? OFFSUP_DEF : 1)) : null;
+    // Solo-only board state the search was previously blind to (see the worker's snapStep): real
+    // per-state caps (player upgrades reach 250, +40 with a capital/fortress tile, while the AI
+    // sits at aiCap), special-tile growth multipliers, and fortress damage absorption. Sent only
+    // when the matching feature is actually on, so netplay/scenario snapshots are byte-identical
+    // to before and the worker falls back to its flat-150 model.
+    const caps = (upgradesOn || tilesOn) ? states.map(s => capOf(s)) : null;
+    const gmul = tilesOn ? states.map(s => (s.type ? TILE[s.type].grow : 1)) : null;
+    const fort = tilesOn ? states.map(s => (s.type === 'fortress' ? 1 : 0)) : null;
     // Nightmare+ only: scale the search budget to situational urgency instead of spending a flat
     // constant every decision. Real in-flight armies already computed above give a concrete (not
     // predicted) threat signal: an incoming army that isn't mine, heading to a state that IS mine,
@@ -2635,7 +2661,7 @@
     } else {
       lastPlanBudget[owner] = { base:pp.workerMs, eff:pp.workerMs, soonestThreat:Infinity };
     }
-    return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies, adj, oppBias, oppW, explore, ponder, freeMove, depth, terr,
+    return { n:states.length, cx, cy, owner:ow, troops:tr, names, armies, adj, oppBias, oppW, explore, ponder, freeMove, depth, terr, caps, gmul, fort,
       aiSpeed:lv.aiSpeed, rlDiag, orbSpeed:ORB_SPEED, growRate:cfg.growRate, enemyGrow:cfg.enemyGrow,
       hunt:aiHunt(), desp:lv.desp||0, infight:aiInfight(), valueBlend:VALUE_BLEND, attn:lv.attnPressure||0,
       // Build the planner viz whenever the panel is open (either tab), NOT only when the planner tab
@@ -2785,6 +2811,9 @@
     var NEUTRAL=0, PLAYER=1, MAX_TROOPS=150;
     var POL=null;                                   // trained policy (set on init)
     var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, INF=1, VBLEND=0.5, ATTN=0, OPPB=null, OPPW=null, FREEMOVE=false, DEPTH=false, TERR=null, names=[];
+    // Per-state cap / growth-multiplier / fortress flags (solo only; null everywhere else, which
+    // restores the old flat-150, flat-growth, no-fortress forward model exactly). See snapStep.
+    var CAPS=null, GMUL=null, FORT=null;
     var LB=1.5;   // Lanchester concentration exponent — CONTRACT: mirrors LANCH in the main thread
     // Unit-splitting fractions the GNN planner enumerates per (source,target). MUST match FRACTIONS in
     // gnn_net_torch.py / the arena / the main thread. GNN/Impossible only; the flat MLP stays all-in.
@@ -3073,11 +3102,19 @@
     }
     function snapStep(snap, dt){
       for (var i=0;i<snap.n;i++){
-        if (snap.owner[i]!==NEUTRAL && snap.troops[i]<MAX_TROOPS)
-          snap.troops[i]=Math.min(MAX_TROOPS, snap.troops[i]+growRateFor(snap.owner[i])*dt);
-        else if (DEPTH && snap.owner[i]!==NEUTRAL && snap.troops[i]>MAX_TROOPS){   // quadratic over-cap attrition mirror (CONTRACT)
-          var _ex=snap.troops[i]-MAX_TROOPS;
-          snap.troops[i]=Math.max(MAX_TROOPS, snap.troops[i]-(0.06*_ex*_ex/MAX_TROOPS)*dt);
+        // CAPS/GMUL (req.caps/req.gmul, solo only): the search used to model EVERY state as
+        // capping at a flat 150 and growing at a flat rate. In solo the player upgrades states to
+        // 250 (+40 on a capital/fortress = 290) and factory/capital tiles grow 1.6x/1.35x, so the
+        // planner was forecasting a different game than the one being played -- it under-valued
+        // the human's economy and over-valued parking on its own 150-capped states. Now it plans
+        // against the real caps. Falls back to the flat 150 when the request carries no caps
+        // (netplay, the arena, and any older host).
+        var cp=(CAPS&&CAPS[i])||MAX_TROOPS;
+        if (snap.owner[i]!==NEUTRAL && snap.troops[i]<cp)
+          snap.troops[i]=Math.min(cp, snap.troops[i]+growRateFor(snap.owner[i])*((GMUL&&GMUL[i])||1)*dt);
+        else if (DEPTH && snap.owner[i]!==NEUTRAL && snap.troops[i]>cp){   // quadratic over-cap attrition mirror (CONTRACT)
+          var _ex=snap.troops[i]-cp;
+          snap.troops[i]=Math.max(cp, snap.troops[i]-(0.06*_ex*_ex/cp)*dt);
         }
       }
       var still=[];
@@ -3087,9 +3124,16 @@
             // depth-mode combat mirror (CONTRACT: matches arrive() / main snapStep): Lanchester
             // superlinear casualties + terrain defence via TERR — so the search predicts fights
             // under the same rules the real sim resolves them with.
+            // FORT (req.fort, solo only): a fortress tile absorbs 25% of an incoming attack in
+            // arrive(); the search never modelled that, so it kept throwing stacks at fortresses
+            // it could not actually take. Applied to the ATTACKER exactly as arrive() does (not
+            // folded into TERR — the Lanchester remainder differs depending on which side is
+            // scaled). arrive() rounds the damage; the forward model deliberately doesn't, since
+            // it never rounds troops anywhere else.
             var tm=(TERR&&TERR[ar.ti])||1, dE=snap.troops[ar.ti]*tm;
-            if (ar.count>dE){ snap.owner[ar.ti]=ar.owner; snap.troops[ar.ti]=Math.pow(Math.pow(ar.count,LB)-Math.pow(dE,LB),1/LB); }
-            else snap.troops[ar.ti]=Math.pow(Math.pow(dE,LB)-Math.pow(ar.count,LB),1/LB)/tm;
+            var dmg=(FORT&&FORT[ar.ti]&&snap.troops[ar.ti]>0) ? ar.count*0.75 : ar.count;
+            if (dmg>dE){ snap.owner[ar.ti]=ar.owner; snap.troops[ar.ti]=Math.pow(Math.pow(dmg,LB)-Math.pow(dE,LB),1/LB); }
+            else snap.troops[ar.ti]=Math.pow(Math.pow(dE,LB)-Math.pow(dmg,LB),1/LB)/tm;
           }
           else { snap.troops[ar.ti]-=ar.count; if (snap.troops[ar.ti]<0){ snap.owner[ar.ti]=ar.owner; snap.troops[ar.ti]=-snap.troops[ar.ti]; } } }
         else still.push(ar); }
@@ -3501,6 +3545,7 @@
       HOR=req.horizon; DT=req.dt; AISP=req.aiSpeed; names=req.names||[];
       CPUCT=(req.mcts&&req.mcts.cPuct)||1.3; K=(req.mcts&&req.mcts.K)||5; HUNT=req.hunt||0; DESP=req.desp||0; INF=(req.infight==null?1:req.infight); VBLEND=(req.valueBlend==null?0.5:req.valueBlend);
       ATTN=req.attn||POL.attnPressure||0; OPPB=req.oppBias||null; OPPW=req.oppW||null; FREEMOVE=!!req.freeMove; DEPTH=!!req.depth; TERR=req.terr||null;   // Nightmare+ levers 2/3/4c — inert (0/null) on
+      CAPS=req.caps||null; GMUL=req.gmul||null; FORT=req.fort||null;   // solo cap-upgrade / special-tile state (null => flat-150 legacy model)
       // every other tier. POL.attnPressure is an experiment hook (like POL.rawOnly): lets the arena
       // A/B the attention bias per SIDE, since env vars necessarily hit both seats.
       var tbudget=(req.mcts&&req.mcts.tbudget)||250, owner=req.ownerId;
