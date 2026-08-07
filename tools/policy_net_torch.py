@@ -69,6 +69,10 @@ def to_json(net):
         })
     return {
         "format": "mlp-v1",
+        # splits: whether the live planner may enumerate partial-stack candidates for this net.
+        # OFF unless the net was actually trained on them — a widened net has zeroed weights on the
+        # split features and cannot score a fraction, and the candidates still consume root-cut slots.
+        "splits": bool(getattr(net, "splits", False)),
         "feat_norm": 50.0,
         "num_features": net.arch[0],
         "noop_bias": float(net.noop_bias.item()),

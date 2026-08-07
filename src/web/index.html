@@ -2623,7 +2623,13 @@
         for (let fi=1; fi<FRACTIONS.length; fi++){ const fr=FRACTIONS[fi], sent=c._st*fr;
           list.push({ mv:[c.mv[0],c.mv[1],fr], score: gnnMoveScore(boardH, c.mv[0], c.mv[1], [ (sent-c._tt)/FN, c._dist, sent>c._tt?1:0, fr ]) + c._bias }); } }
     }
-    if (useExt && list.length){   // same lazy split expansion, extended-MLP scoring
+    // Splits are OPT-IN (rlPolicy.splits === true). A net widened from a 12-feature checkpoint has
+    // ZEROED weights on the split-describing features, so it cannot score a partial stack — and the
+    // split candidates still consume root-cut slots (measured: 2-5 of 12), crowding out all-in moves
+    // it CAN score. That cost a widened net ~20 points vs the net it was widened from (18/60 = 30.0%
+    // +/-11.6); an identically-scoring UNTRAINED net measured 17/60 = 28.3%, proving the cost is
+    // structural, not a training regression. Enable only once a net is actually trained on splits.
+    if (useExt && rlPolicy.splits === true && list.length){   // lazy split expansion, extended-MLP scoring
       const byScore=list.slice().sort((a,b)=>b.score-a.score);
       for (let e=0;e<Math.min(4,byScore.length);e++){ const c=byScore[e]; if (c._st==null) continue;
         for (let fi=1; fi<FRACTIONS.length; fi++){ const fr=FRACTIONS[fi];
@@ -3578,7 +3584,8 @@
         var attnRaw=mlpAttnScoreAll(attnPend.map(function(p){ return p.feat; }));
         for (var ap=0;ap<attnPend.length;ap++) list.push({ mv: attnPend[ap].mv, score: attnRaw[ap]+attnPend[ap].bias });
       }
-      if (useExt && list.length){   // same lazy split expansion, extended-MLP scoring
+      // opt-in splits — CONTRACT: mirrors the main-thread copy; see its comment for the measurement
+      if (useExt && POL.splits === true && list.length){   // lazy split expansion, extended-MLP scoring
         var byX=list.slice().sort(function(a,b){ return b.score-a.score; });
         for (var ex2=0; ex2<Math.min(4,byX.length); ex2++){ var cx2=byX[ex2]; if (cx2._st==null) continue;
           for (var xfi=1; xfi<FRACTIONS.length; xfi++){ var xfr2=FRACTIONS[xfi];
