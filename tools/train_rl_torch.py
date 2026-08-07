@@ -94,6 +94,33 @@ def planner_gate(cand_net, best_net, value_json, games, budget, cand_path, best_
     return (int(m.group(1)) / int(m.group(2))) if m else None
 
 
+def planner_screen(net, value_json, opp, games, budget, net_path, gamecap=38):
+    """No-forget screen played through the REAL planner instead of the greedy chooser.
+
+    vs_script() above evaluates the net with T.choose (argmax-vs-noop, no search). Every tier in
+    index.html's LEVELS has plan:true, so the shipped game NEVER takes that path — the greedy screen
+    measures a policy the product does not use. That is the same proxy misalignment FINDINGS.md
+    Phase D records (a cheap gate that drifted away from planner strength), and it bit again during
+    the 24-feature bring-up: a visit-distilled net scores near 0 greedily because the no-op wins a
+    large share of the visit mass, while its search play is unaffected.
+
+    Short games at a small budget keep this cheap enough to run every round; it is still a FILTER,
+    with the full --gate-games/--gate-budget run remaining the promotion decision.
+    """
+    write_net(net, value_json, net_path)
+    env = os.environ.copy()          # inherits DEPTH_RULES / REAL_MAPS set in main()
+    env['GAMECAP'] = str(gamecap)
+    try:
+        out = subprocess.run(['node', 'tools/selfplay_arena.js', net_path, f'script:{opp}',
+                              str(games), str(budget)],
+                             capture_output=True, text=True, cwd=REPO_ROOT, timeout=1800, env=env).stdout
+    except Exception as e:
+        print("  screen error:", e, flush=True)
+        return None
+    m = re.search(r'A won (\d+)/(\d+)', out)
+    return (int(m.group(1)) / int(m.group(2))) if m else None
+
+
 def self_play_dump(net, value_json, games, budget, dump_path, net_path):
     write_net(net, value_json, net_path)
     env = os.environ.copy()
@@ -268,6 +295,12 @@ def main():
                      'not weight-compatible, so --features 24 starts from a FRESH net unless a '
                      '24-feature checkpoint exists; run tools/test_feats24_parity.py first.')
     ap.add_argument('--hidden', type=int, default=64, help='hidden width for both trunk layers')
+    ap.add_argument('--screen', choices=('planner', 'greedy'), default='planner', help='how the cheap '
+                     'no-forget screen evaluates a candidate. planner = short real-planner games vs the '
+                     'scripted opponents (aligned with how the game actually plays); greedy = the old '
+                     'T.choose argmax-vs-noop screen, which no shipped tier uses.')
+    ap.add_argument('--screen-games', type=int, default=12)
+    ap.add_argument('--screen-budget', type=int, default=40, help='ms/move for the planner screen')
     ap.add_argument('--gate-threshold', type=float, default=0.56, help='candidate win-rate required to promote')
     ap.add_argument('--buffer-cap', type=int, default=20000, help='max decisions kept in the rolling training buffer')
     ap.add_argument('--lr', type=float, default=3e-4)
@@ -357,8 +390,22 @@ def main():
     print(f"value net: warm-started from {value_warm_path}  co-train={value_cotrain}", flush=True)
 
     rng = np.random.default_rng(7)
-    base_turtle = vs_script(best, 'turtle', rng, 60)
-    base_rush = vs_script(best, 'rush', rng, 60)
+    screen_net_path = os.path.join(SCR, '_torch_screen_net.json')
+
+    def screen(net, opp, n):
+        """Cheap no-forget filter. Planner-based by default so it measures the same policy path the
+        shipped game uses (every LEVELS tier has plan:true); --screen greedy restores the old
+        T.choose behaviour for reproducing earlier numbers."""
+        if args.screen == 'greedy':
+            return vs_script(net, opp, rng, n)
+        v = planner_screen(net, value_json, opp, args.screen_games, args.screen_budget, screen_net_path)
+        return 0.0 if v is None else v
+
+    print(f"no-forget screen: {args.screen}"
+          + (f" ({args.screen_games} games @ {args.screen_budget}ms/move)" if args.screen == 'planner' else ""),
+          flush=True)
+    base_turtle = screen(best, 'turtle', 60)
+    base_rush = screen(best, 'rush', 60)
     print(f"baseline vs scripts: turtle {base_turtle:.2f} rush {base_rush:.2f}", flush=True)
 
     dump_path = os.path.join(SCR, '_visits_dump.jsonl')
@@ -392,8 +439,8 @@ def main():
             cand, avg_loss = train_round(best, buf, device, args.lr, args.batch_size, args.epochs_per_round, rng)
 
             # 3) cheap no-forget screen (skip the expensive real-planner gate on an obvious regression)
-            tt = vs_script(cand, 'turtle', rng, 40)
-            rs = vs_script(cand, 'rush', rng, 40)
+            tt = screen(cand, 'turtle', 40)
+            rs = screen(cand, 'rush', 40)
             if tt < base_turtle - 0.06 or rs < base_rush - 0.08:
                 print(f"r{rnd:3d} t={time.time()-t0:6.0f}s buf={len(buf)} loss={avg_loss:.4f} "
                       f"tt={tt:.2f} rs={rs:.2f} no-forget-FAIL (skip gate)", flush=True)
@@ -440,7 +487,7 @@ def main():
         if vpool is not None:
             vpool.close()
             vpool.join()
-        for p in (dump_path, cand_path, best_path, selfplay_net_path):
+        for p in (dump_path, cand_path, best_path, selfplay_net_path, screen_net_path):
             if os.path.exists(p):
                 try:
                     os.remove(p)
