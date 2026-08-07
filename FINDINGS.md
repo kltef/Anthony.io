@@ -177,6 +177,71 @@ scorer with a small **graph-attention net** (`tools/gnn_net_torch.py`, `format:"
   real-planner gate against the tuned flat-MLP net is exactly the open question this tooling exists
   to answer, not a settled result.
 
+## 2026-08-06/07: what actually limits this AI (measured, not argued)
+
+Every number below is a real-planner arena run at the **shipped** conditions — real 49-state maps,
+depth rules ON, 240 ms/move (the Nightmare `workerMs`) — which is itself a change: `train_gnn_torch.py`
+never set `DEPTH_RULES`, so every net promoted before this was generated *and* gated under classic
+physics and then deployed into depth mode.
+
+### The planner was forecasting a different game than solo plays
+
+`snapStep` (both copies) hardcoded `MAX_TROOPS` 150 for every state and ignored special tiles, while
+the live sim uses `capOf(s)`/`tileGrowMult(s)`. In solo the player upgrades to 250 (+40 on a
+capital/fortress = 290) and the AI sat at 150 — and `capOf` has always read `cfg.aiCap`, documented as
+"hard tiers stack higher so shop upgrades can't out-muscle them", which **no tier ever set**.
+
+Forecast error vs the real sim over 30 s (20 states, player fully upgraded, tiles on):
+**mean 25.9 troops/state → 0.0, worst 61.8 → 0.0.** Sharpest single case: 140 troops attacking a
+100-troop fortress — the search predicted 75.5 survivors, the real sim gives 17.9, a **4.2x
+over-estimate of what it could hold**. That is a concrete mechanism for the long-standing play-test
+report that the AI "grabs territory it can't hold".
+
+### Candidate QUALITY dominates candidate QUANTITY, which dominates search DEPTH
+
+| change | result | games |
+|---|---|---|
+| Wider planner: `srcCap` scaled with owned states, root cut scaled with board size, opponent model given 6 sources | **43.5% ±6.9** (loses) | 200 |
+| Split candidates the net has zeroed weights for | **30.0% ±11.6** → **48.3% ±12.6** once removed | 60 + 60 |
+| 37% fewer sims/decision, policy function held EXACTLY fixed | **48.3% ±12.6** (no measurable cost) | 60 |
+
+The first is the important negative result: the AI *is* blindfolded — on a 49-state map `srcCap`
+lets it move from only 5 of ~22 owned states, and it expands 12 of ~485 legal moves — but **removing
+the blindfold makes it worse**. Giving the search more options it ranks poorly is a regression, twice
+over, by two unrelated mechanisms.
+
+Meanwhile a net can lose more than a third of its thinking time with no measurable loss. This is why
+the 4.3x-more-expensive `gnn-v1` never showed up as weaker than the flat MLP: **58/112 pooled =
+51.8% ±9.3, a tie**. Cost was never the problem, and neither was depth.
+
+**Consequence for future work:** stop buying search and start buying ranking. A heavier net is
+affordable; a wider candidate set is not, unless the net can actually score what you add.
+
+### Visit-count distillation cannot cold-start
+
+A fresh net's own search is *correct* to sit still — a random prior makes every move look bad — so it
+no-ops on **640/1650 (39%)** of decisions, and distilling those visits teaches "do nothing": mean move
+logit fell −0.079 → −0.673 against a `noop_bias` that stayed at ~0, greedy move rate 0.017 → 0.000,
+and the next round's data is more no-op heavy still. Not merely a bad screen — measured under the real
+planner the trained net scored **12/24 = 50.0%** vs the fresh net it came from.
+
+Fix: `policy_net_torch.widen_inputs()`, net2net along the **input** axis. Exact only because
+`feats24[0:12]` is identical to `feats12` at `frac==1` by design, so copying 12 columns and zeroing 12
+reproduces the source net bit-for-bit (**max abs diff 0**). Same 10-minute budget, before → after:
+`tt=0.00 rs=0.00 no-forget-FAIL` for 9 straight rounds → a real gate running by round 1 and a
+promotion by round 2.
+
+**Caveat worth remembering:** "function-preserving" preserved per-candidate *scores*, not the
+planner's *policy* — the candidate set changed underneath it, which is what the split-crowding row
+above cost. Verify the policy, not just the function.
+
+### The no-forget screen measured a policy the game does not have
+
+`vs_script` evaluated candidates with `T.choose` — argmax-vs-noop, no search — while **every tier in
+`LEVELS` has `plan:true`**. Baseline on the shipped net: greedy **0.02/0.22** (noise) vs planner
+**1.00/1.00**. Now `--screen planner` by default, ~34 s on ~230 s rounds. Same Phase D lesson as
+above: the in-loop objective must match what ships.
+
 ## Tooling produced (in `tools/`)
 
 - `selfplay_arena.js` — headless real-planner arena (the measurement bedrock); now also derives a
