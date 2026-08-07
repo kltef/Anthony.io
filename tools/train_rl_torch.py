@@ -317,9 +317,20 @@ def main():
         if cand.arch[0] == args.features:
             best = cand
             print(f"warm-started from {warm_path}", flush=True)
+        elif cand.arch[0] < args.features and tuple(cand.arch[1:]) == tuple(P.ARCH[1:]):
+            # Function-preserving widen instead of a cold start. MEASURED: a cold-started net's
+            # own search sits still on 39% of decisions, so distilling its visits teaches "do
+            # nothing" (move logits fell 0.6 below noop_bias; greedy move rate 0.017 -> 0.000) and
+            # the next round's data is more no-op heavy still. Visit-count distillation needs a
+            # competent teacher; it cannot bootstrap from noise. Widening starts the extended net
+            # at EXACTLY the shipped net's strength (verified 0 difference at frac=1) so round 1
+            # already has a real teacher.
+            best = P.widen_inputs(cand, P.ARCH, device=device)
+            print(f"widened {warm_path} ({cand.arch[0]} -> {args.features} features, "
+                  f"function-preserving: identical scores on all-in candidates)", flush=True)
         else:
-            print(f"{warm_path} is a {cand.arch[0]}-feature net; --features {args.features} is not "
-                  f"weight-compatible with it — starting FRESH", flush=True)
+            print(f"{warm_path} is {cand.arch}; cannot reach {P.ARCH} by input-widening "
+                  f"— starting FRESH (expect it to lose until trained)", flush=True)
     except Exception as e:
         print(f"could not warm-start from {warm_path} ({e}) — starting FRESH", flush=True)
     if best is None:

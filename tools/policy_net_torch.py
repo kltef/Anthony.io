@@ -27,6 +27,38 @@ class PolicyNet(nn.Module):
         return x.squeeze(-1)
 
 
+def widen_inputs(src, arch, device="cpu"):
+    """Function-preserving widen of a narrower net onto a wider input (net2net style, same idea as
+    tools/grow_net.py but along the INPUT axis).
+
+    This exists because visit-count distillation cannot cold-start: a randomly-initialised net's
+    search concludes most moves are bad and sits still (measured: the no-op wins 39% of decisions),
+    so distilling its own visits teaches "do nothing", which makes the next round's data more no-op
+    heavy still. Warm-starting removes the bootstrap problem entirely.
+
+    It is exact ONLY because the extended feature layout was designed for it: features 0..11 of
+    feats24 are IDENTICAL to feats12 whenever frac==1 (see train_rl.feats24). Copying the first
+    src.arch[0] input columns and ZEROING the new ones therefore reproduces the source net's output
+    bit-for-bit on every all-in candidate; the new features start with no influence and the trainer
+    grows it from there. Hidden widths must match — a hidden-size change is grow_net.py's job.
+    """
+    if tuple(arch[1:]) != tuple(src.arch[1:]):
+        raise ValueError(f"widen_inputs only widens the INPUT axis: {src.arch} -> {tuple(arch)} "
+                         f"differs past layer 0; use grow_net.py for hidden-width changes")
+    if arch[0] < src.arch[0]:
+        raise ValueError(f"target input width {arch[0]} is narrower than the source's {src.arch[0]}")
+    net = PolicyNet(arch).to(device)
+    with torch.no_grad():
+        net.linears[0].weight.zero_()
+        net.linears[0].weight[:, :src.arch[0]] = src.linears[0].weight
+        net.linears[0].bias.copy_(src.linears[0].bias)
+        for i in range(1, len(net.linears)):
+            net.linears[i].weight.copy_(src.linears[i].weight)
+            net.linears[i].bias.copy_(src.linears[i].bias)
+        net.noop_bias.copy_(src.noop_bias)
+    return net
+
+
 def to_json(net):
     layers = []
     for i, lin in enumerate(net.linears):
