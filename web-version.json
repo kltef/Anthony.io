@@ -1,9 +1,9 @@
 {
-  "web": 40,
+  "web": 41,
   "notes": [
-    "Fixed Nightmare/Nightmare+ coordinated multi-state attacks (Depth mode) failing to actually capture a defended state - they now account for how sequential waves really resolve instead of committing armies that land but don't flip the target"
+    "Fixed the AI wasting time on tiny chip attacks against a nearly-even neutral state in the opening - it now waits a few seconds for growth to tip the balance and takes it in one clean strike instead"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/74a71f836d0b64ea22f6a79f32325d014c0b6c4d/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/86302fb2d92921277fc9a6eaebb118d1e5e814c0/src/web/",
   "files": [
     "index.html",
     "gnn_policy.json",
@@ -18,6 +18,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 41,
+      "date": "2026-09-19",
+      "notes": [
+        "Fixed the AI wasting time on tiny chip attacks against a nearly-even neutral state in the opening - it now waits a few seconds for growth to tip the balance and takes it in one clean strike instead"
+      ]
+    },
     {
       "web": 40,
       "date": "2026-09-19",
