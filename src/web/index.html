@@ -1917,7 +1917,14 @@
   // a strong opening can no longer be parlayed into a safe runaway lead.
   function aiHunt(){
     const lv = LEVELS[levelIdx], base = lv.hunt || 0;
-    if (!lv.rope) return base;
+    // Opening ease-in: no LEVELS tier currently sets `rope`, so without this every hunt>0 tier
+    // (Grandmaster/Nightmare/Nightmare+) applied its full hunt bias from gameElapsed===0 — the
+    // AI would lunge at the player on the very first decision instead of grabbing its immediate
+    // neutral neighborhood first. Ramp hunt up from 0 over the first few seconds of every game so
+    // the opening is always calm, independent of the (currently unused) rope mechanic below.
+    const openT = lv.huntOpenT || 5;
+    const eased = base * Math.min(1, gameElapsed / openT);
+    if (!lv.rope) return eased;
     const R = lv.ropeT || 35, t = gameElapsed, lo = 0.12, peak = lv.crush || 1.6;
     let H = t < R ? lo + (base - lo) * (t / R)
                   : base + (peak - base) * Math.min(1, (t - R) / R);
