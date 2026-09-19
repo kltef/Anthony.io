@@ -2110,6 +2110,21 @@
   // then launches a coordinated salvo from the strongest states until the math wins. Because
   // the player's mega-stack is above MAX_TROOPS it can't regrow, so staggered waves chip it
   // down cumulatively and flip it. Returns true if it committed a salvo (consumes the tick).
+  // Mirrors arrive()'s depth-mode Lanchester resolution for a whole salvo landing in sequence
+  // (fastest/closest state first — same orb speed for everyone), instead of pooling troops
+  // linearly. Staggered waves are deliberately weaker than one combined strike (see arrive()),
+  // so a salvo sized by simple addition can land, chip the target, and still fail to flip it.
+  function salvoFlips(salvoArr, tg, tm) {
+    const order = salvoArr.slice().sort((a, b) =>
+      Math.hypot(tg.cx-a.cx, tg.cy-a.cy) - Math.hypot(tg.cx-b.cx, tg.cy-b.cy));
+    let def = tg.troops;
+    for (const s of order) {
+      const defEff = def * tm;
+      if (s.troops > defEff) return true;
+      def = Math.pow(Math.pow(defEff, LANCH) - Math.pow(s.troops, LANCH), 1/LANCH) / tm;
+    }
+    return false;
+  }
   function coordinatedAssault(owner) {
     const mine = states.filter(s => s.owner === owner);
     if (mine.length < 2) return false;                      // need multiple states to coordinate
@@ -2140,6 +2155,15 @@
       for (const s of force) { salvo.push(s); sum += s.troops; if (sum >= needed) break; }
       if (sum < needed) continue;                          // can't beat this wall even jointly — try next
       if (salvo.length < 2) continue;                      // a single state suffices; let normal logic handle it
+      if (depthOn()) {
+        // The linear `needed` above assumes one pooled hit; under Depth mode the waves actually
+        // land one at a time (see salvoFlips()), so pull in more of `force` until the real
+        // sequential resolution would flip the target — or give up on this wall if even the
+        // whole force can't.
+        const tm = terrMult(tg.id) * (tg.offSupply ? OFFSUP_DEF : 1);
+        while (!salvoFlips(salvo, tg, tm) && salvo.length < force.length){ sum += force[salvo.length].troops; salvo.push(force[salvo.length]); }
+        if (!salvoFlips(salvo, tg, tm)) continue;
+      }
       for (const s of salvo) sendTroops(s, tg);            // fire the coordinated wave
       lastSalvo = { owner, tgt: tg.name, count: salvo.length, troops: Math.round(sum), t: gameElapsed };
       return true;
