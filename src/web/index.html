@@ -2817,6 +2817,7 @@
     var POL=null;                                   // trained policy (set on init)
     var GR=1, EG=1, DIAG=1, ORB=70, HOR=1e9, DT=0.4, AISP=0.85, CPUCT=1.3, K=5, HUNT=0, DESP=0, INF=1, VBLEND=0.5, ATTN=0, OPPB=null, OPPW=null, FREEMOVE=false, DEPTH=false, TERR=null, names=[];
     var LB=1.5;   // Lanchester concentration exponent — CONTRACT: mirrors LANCH in the main thread
+    var OPEN_WAIT_S=6;   // opening-drive growth-wait horizon (seconds) — see computeUntried()
     // Unit-splitting fractions the GNN planner enumerates per (source,target). MUST match FRACTIONS in
     // gnn_net_torch.py / the arena / the main thread. GNN/Impossible only; the flat MLP stays all-in.
     var FRACTIONS=[1.0,0.75,0.5,0.25];
@@ -3436,9 +3437,22 @@
           var obn=s.adj[i];
           for (var ob2=0;ob2<obn.length;ob2++){ var w4=s.owner[obn[ob2]];
             if (w4!==NEUTRAL && w4!==owner){ openingDrive=false; break; } } }
-        if (openingDrive) for (i=0;i<list.length;i++){ var lmv=list[i].mv;   // attack candidates only — a
-          if (lmv && s.owner[lmv[1]]!==owner &&            // beatable-looking reinforcement must not disable it
-              s.troops[lmv[0]]*(lmv.length>2?lmv[2]:1) > s.troops[lmv[1]]){ openingDrive=false; break; } }
+        if (openingDrive){
+          var oGr = growRateFor(owner) || 0;
+          for (i=0;i<list.length && openingDrive;i++){ var lmv=list[i].mv;   // attack candidates only — a
+            if (!lmv || s.owner[lmv[1]]===owner) continue;                  // beatable-looking reinforcement must not disable it
+            var sMult = lmv.length>2 ? lmv[2] : 1, sent = s.troops[lmv[0]]*sMult;
+            if (sent > s.troops[lmv[1]]) { openingDrive=false; break; }     // already an outright winner
+            // A close matchup a short wait would flip on its own doesn't need forcing: growth
+            // (2026-09-19, play-test: a 33-vs-37 opening spent minutes nibbling a neutral down
+            // in small waves — each one barely dented it under the Lanchester/Depth combat math
+            // below — when a few seconds of growth would have made ONE clean all-in attack win
+            // outright). Only cancels the drive when growth alone closes THIS gap soon; a truly
+            // hopeless mismatch still gets the forced chip wave.
+            var gap = s.troops[lmv[1]] - sent;
+            if (oGr>0 && gap <= oGr*OPEN_WAIT_S) { openingDrive=false; break; }
+          }
+        }
       }
       var noopScore = (endgame ? noop-1 : noop) - (cornered?1.5:0);
       if ((freeLunch || openingDrive) && list.length){   // clamp BELOW the best attack so sitting can never win
