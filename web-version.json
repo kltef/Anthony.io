@@ -1,9 +1,9 @@
 {
-  "web": 38,
+  "web": 39,
   "notes": [
-    "Developer tier (Nightmare-X) now runs an experimental search-free AI. No change to any normal difficulty."
+    "Fixed the AI going all-in against you from the first move on hard difficulties - it now eases into a match, grabbing nearby land before turning aggressive"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/04dfc615a341efeae1c970627c75f2d2357a8326/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/04c2655c5852aa146b41936a38d61c372d527941/src/web/",
   "files": [
     "index.html",
     "gnn_policy.json",
@@ -18,6 +18,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 39,
+      "date": "2026-09-19",
+      "notes": [
+        "Fixed the AI going all-in against you from the first move on hard difficulties - it now eases into a match, grabbing nearby land before turning aggressive"
+      ]
+    },
     {
       "web": 38,
       "date": "2026-08-22",
