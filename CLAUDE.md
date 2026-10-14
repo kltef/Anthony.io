@@ -55,75 +55,55 @@ path for existing installs. The shipping line uses one specific keystore (alias 
 store/key password `android`, signer cert SHA-256 `81:2E:C5:...:15:FA`). That `release.keystore` is
 deliberately kept **out of the repo**; keep a private backup and sign every build with it.
 
-## The ML training pipeline (`tools/`)
+## The AI: the Rust engine (`engine/`)
 
-The game's AI is a policy net trained offline and exported as JSON that `index.html` reads at
-runtime. Training is a separate, GPU-oriented track — none of it runs in the app.
+Since web build 43 every AI decision comes from `engine/`, a dependency-free Rust crate compiled to
+WebAssembly and inlined into `index.html` (the `ENGINE_WASM_B64` line). `updateAI` sends the board
+to a Web Worker running the engine and applies the orders it returns through the normal
+`sendTroops` / `doInvest` / `doUpgrade` gates. The old MCTS planner, neural nets, opponent model and
+AI-brain panel were removed. See `PLAN_NEW_AI.md` for the design and `RULES.md` for the rules.
 
-- **`selfplay_arena.js`** — the measurement bedrock. A headless Node arena that extracts the *actual*
-  shipped MCTS planner (`planWorkerMain`) straight out of `src/web/index.html` via regex and plays
-  two net configs head-to-head under an **equal per-move time budget**. Every training change is
-  **gated** here: it must beat the currently-shipped net with no regression vs scripted
-  turtle/rush/economist opponents. A candidate net is only promoted to `src/web/*.json` (and rebuilt
-  into the APK) if it wins this gate.
-- `train_rl.py` — SNES (gradient-free) policy trainer, 12-feature flat MLP, scripted opponent league.
-- `train_value.py` — value-net trainer (Monte-Carlo regression).
-- `train_distill*.py` — distill the Monte-Carlo expert into a net (various widths / 16-feature /
-  value-bootstrapped variants).
-- `train_selfplay_loop.py` / `train_selfplay_planner.py` — autonomous self-improving loops (greedy
-  gate vs. real-planner gate respectively).
-- `policy_net_torch.py` + `train_rl_torch.py` — PyTorch flat-MLP net + GPU loop that distills the
-  real planner's MCTS **visit-count distribution** (AlphaZero-style policy target), with value-net
-  co-training.
-- `gnn_net_torch.py` + `train_gnn_torch.py` — the board-aware graph-attention net (`format:"gnn-v1"`)
-  and its GPU training loop.
-- `parse_play_data.py` — fit an opponent model from exported in-game play-data logs.
+- `engine/src/rules.rs` — the rules (single source of truth). `engine/src/policy.rs` — the fast
+  scripted policy. `engine/src/search.rs` — the search agent (simulates each candidate order in the
+  real rules). `engine/src/ffi.rs` — the WASM interface. `engine/data/policies.txt` — tuned policies.
+- Each `LEVELS` entry names a `brain` (`base`, `t2`, `t4`, `search`) and a `think` cadence.
 
-Typical invocations (see each file's header comment for full args):
 ```sh
-python3 tools/train_rl.py [seconds]
-python3 tools/train_gnn_torch.py --hours 5 --device cuda
-node tools/selfplay_arena.js            # the gate / measurement harness
-python3 tools/test_gnn_batch_equiv.py   # correctness gate: batched GNN loss+grads == per-decision reference
+# from the repo root
+python engine/build.py                                   # build the WASM and inline it into index.html
+node engine/tools/conformance_gen.js 60                  # record traces from the original JS simulation
+node engine/tools/vs_legacy.js --boards 50               # new AI vs the original AI
+# from engine/
+cargo build --release                                    # native tools
+./target/release/conformance target/conformance          # replay the traces through the engine
+./target/release/arena search rush --games 120           # head-to-head, both seats per board
+./target/release/tune --rounds 5                         # evolve scripted policies by league play
 ```
 
-`test_gnn_batch_equiv.py` is a self-contained correctness check (no test framework) — run it after
-changing the batched GNN training path; it verifies both loss values and `.grad` on every parameter
-against the per-decision reference loop.
+**Rule changes must go in `engine/src/rules.rs` AND the game's JS simulation** (the game still
+simulates in JS; the engine is checked against it by the conformance traces). Run the conformance
+check after any rule change.
+
+The `tools/` Python/Node training pipeline belongs to the removed AI and is kept only for reference.
 
 ## Critical constraints when editing
 
 - **LF line endings are mandatory** on `*.js *.py *.json *.html` (enforced via `.gitattributes`).
-  `selfplay_arena.js` extracts `planWorkerMain` from `index.html` with an **LF-anchored regex**; a
-  CRLF checkout makes extraction silently fail. On Windows, do not let an editor rewrite these to
-  CRLF.
-- **`planWorkerMain` runs in a Web Worker built via `.toString()`** and therefore *cannot reference
-  any outside-scope function*. The worker holds its own copies of `computeUntried`,
-  `snapGreedy`/`snapHeuristic`, `snapLegal`, etc. These are **manually kept in sync** with the
-  main-thread versions — if you change the scoring/legal-move logic, change **both** copies (search
-  for the duplicated function names; the worker copies are inside `planWorkerMain`).
-- **Two net formats coexist.** Scoring functions dispatch on `rlPolicy.format`: `'gnn-v1'` computes
-  per-territory node embeddings once per decision, anything else falls through to the flat-MLP path.
-  Keep both branches working; the flat net is what currently ships.
+  The conformance and comparison tools extract functions from `index.html` by text matching. On
+  Windows, do not let an editor rewrite these to CRLF.
 - **Multiplayer now runs the full rule set** (Depth mechanics, cap upgrades, special tiles, adjacency
   movement). `netMode` is `null` (solo vs AI), `'host'` (runs the sim and broadcasts snapshots), or
   `'guest'` (renders snapshots, relays intents). Only the host simulates; the snapshot carries each
   state's level/type/invest/off-supply (`l`,`y`,`v`,`x`), and guest upgrade/invest presses go to the
   host as action intents (`k:'up'|'inv'`). Still solo-only: coin-shop perks, airdrops, Scenario.
-- **The planner has a fallback chain**: inline Web-Worker MCTS → `/api/plan` server (if a worker
-  can't be built) → tiny in-page search. New planner work should keep all three paths coherent.
-- **JS↔Python inference must stay contract-identical.** Nets are trained in Python and run in JS; the
-  JSON export schema is the contract. Changes have historically been verified to ~1e-7 between the
-  PyTorch and JS implementations before shipping (and Python↔JS features to ~2e-16). Preserve
-  `to_json`/`from_json` schema compatibility.
+- **The AI falls back** to a simple legal-move heuristic in `updateAI` when WebAssembly or Web
+  Workers are unavailable (`engFailed`).
 
 ## Landmarks in `src/web/index.html`
 
 Search for these markers rather than scrolling:
 - `SCENARIO BUILDER`, `startScenario`, `allocateTerritory` — the scenario authoring feature.
-- `planWorkerMain` (~line 2179) — the off-thread MCTS worker (the extracted, self-contained copy).
-- `rlEvaluate`, `computeUntried`, `snapGreedy`, `snapHeuristic` — move scoring / candidate generation
-  (each exists in both the main thread and inside `planWorkerMain`).
+- `NEW AI: the Rust engine`, `engineSyncWorld`, `engineRequest`, `engineApply`, `updateAI` — the AI driver.
 - `PLAYER_CAP`, `capOf`, `tryUpgrade` — per-state cap upgrades. `TILE`, `assignTiles`, `tileGrowMult`
   — special tiles.
 - `IS_NATIVE_APP` / `stateio.local` — native-app detection.
