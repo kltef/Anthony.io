@@ -164,6 +164,11 @@ impl Searcher {
         }
     }
 
+    /// Which owner this searcher plays (set by `Agent::reset` in the arena).
+    pub fn set_owner(&mut self, me: u8) {
+        self.me = me;
+    }
+
     /// Play `self.scratch` forward for the horizon against one opponent model; return its value.
     fn rollout(&mut self, w: &World, opp: &PolicyParams) -> f64 {
         let me = self.me;
