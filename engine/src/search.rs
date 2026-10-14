@@ -38,6 +38,11 @@ pub struct SearchParams {
     pub pessimism: f64,
 }
 
+/// The league-tuned base policy (see `bin/tune.rs`).
+fn tuned() -> PolicyParams {
+    crate::roster::policy("t4").unwrap_or_default()
+}
+
 impl Default for SearchParams {
     fn default() -> Self {
         SearchParams {
@@ -49,11 +54,35 @@ impl Default for SearchParams {
             max_candidates: 0,
             min_gain: 0.004,
             kg: 45.0,
-            portfolio: vec![PolicyParams::rush(), PolicyParams::default(), PolicyParams::economist(), PolicyParams::farmer()],
+            portfolio: vec![tuned(), PolicyParams::rush(), PolicyParams::default()],
             refine_rounds: 2,
-            self_model: PolicyParams::rush(),
-            opp_models: vec![PolicyParams::rush(), PolicyParams::default()],
+            self_model: tuned(),
+            opp_models: vec![tuned(), PolicyParams::rush()],
             pessimism: 0.5,
+        }
+    }
+}
+
+impl SearchParams {
+    /// Set one option from text. Policy-valued options take names from the roster, `+`-separated.
+    pub fn set(&mut self, key: &str, val: &str) {
+        let num = || val.parse::<f64>().unwrap_or_else(|_| panic!("bad number for {key}: {val}"));
+        let pol = |n: &str| crate::roster::policy(n).unwrap_or_else(|| panic!("unknown policy {n}"));
+        match key {
+            "cadence" => self.cadence = num(),
+            "h" | "horizon" => self.horizon = num(),
+            "dt" => self.dt = num(),
+            "period" => self.policy_period = num(),
+            "orders" => self.max_orders = num() as usize,
+            "cands" => self.max_candidates = num() as usize,
+            "gain" => self.min_gain = num(),
+            "kg" => self.kg = num(),
+            "r" | "refine" => self.refine_rounds = num() as usize,
+            "pess" => self.pessimism = num(),
+            "self" => self.self_model = pol(val),
+            "opp" => self.opp_models = val.split('+').map(pol).collect(),
+            "port" => self.portfolio = val.split('+').map(pol).collect(),
+            _ => panic!("unknown search option {key}"),
         }
     }
 }

@@ -33,6 +33,14 @@ pub struct PolicyParams {
     pub hoard_ratio: f64,
     /// React to incoming attacks (reinforce or evacuate).
     pub defend: bool,
+    /// Cost per second of travel when scoring an attack.
+    pub eta_w: f64,
+    /// Extra value of a special tile.
+    pub tile_bonus: f64,
+    /// How far above its cap a border state may be stacked by forwarding.
+    pub cap_slack: f64,
+    /// How much the attack threshold drops for a stack sitting at its cap.
+    pub cap_relief: f64,
 }
 
 impl Default for PolicyParams {
@@ -50,6 +58,10 @@ impl Default for PolicyParams {
             forward_min: 12.0,
             hoard_ratio: 0.0,
             defend: true,
+            eta_w: 1.0,
+            tile_bonus: 10.0,
+            cap_slack: 25.0,
+            cap_relief: 10.0,
         }
     }
 }
@@ -161,7 +173,7 @@ pub fn at_arrival(w: &World, s: &State, v: &View, i: usize, j: usize) -> (u8, f6
 pub fn capture_gain(w: &World, s: &State, p: &PolicyParams, me: u8, j: usize, owner: u8, troops: f64) -> f64 {
     let tg = tile_grow(s.tile[j]);
     let mine = w.rules.grow[me as usize] * tg;
-    let tile_bonus = if s.tile[j] != TILE_NONE { 10.0 } else { 0.0 };
+    let tile_bonus = if s.tile[j] != TILE_NONE { p.tile_bonus } else { 0.0 };
     if owner == NEUTRAL {
         (p.kg * mine + tile_bonus) * p.neutral_bias
     } else {
@@ -261,7 +273,7 @@ pub fn act(w: &World, s: &State, me: u8, p: &PolicyParams, out: &mut Vec<Action>
         }
         let over_cap = s.troops[i] >= s.cap(i);
         let mut best_j = usize::MAX;
-        let mut best_net = if over_cap { p.theta - 10.0 } else { p.theta };
+        let mut best_net = if over_cap { p.theta - p.cap_relief } else { p.theta };
         let mut best_amt = 0.0;
         let mut t = w.map.adj_mask[i] & !v.mine & !claimed;
         while t != 0 {
@@ -297,7 +309,7 @@ pub fn act(w: &World, s: &State, me: u8, p: &PolicyParams, out: &mut Vec<Action>
             if surv <= 0.0 {
                 continue;
             }
-            let net = capture_gain(w, s, p, me, j, po, pt) - (avail - surv) - eta;
+            let net = capture_gain(w, s, p, me, j, po, pt) - (avail - surv) - p.eta_w * eta;
             if net > best_net {
                 best_net = net;
                 best_j = j;
@@ -326,6 +338,14 @@ pub fn act(w: &World, s: &State, me: u8, p: &PolicyParams, out: &mut Vec<Action>
     }
 
     // 4. Logistics: interior stacks move up to the border state that needs them most.
+    let mut pending = [0.0f64; MAXN]; // my troops already heading to each state
+    if v.mine & !v.border & !used != 0 {
+        for o in &s.orbs {
+            if o.owner == me {
+                pending[o.dst as usize] += o.count;
+            }
+        }
+    }
     let mut inner = v.mine & !v.border & !used;
     while inner != 0 {
         let i = inner.trailing_zeros() as usize;
@@ -345,7 +365,7 @@ pub fn act(w: &World, s: &State, me: u8, p: &PolicyParams, out: &mut Vec<Action>
             let k = c.trailing_zeros() as usize;
             c &= c - 1;
             // do not pile troops above the cap: the excess just bleeds away
-            if s.troops[k] + amt > s.cap(k) + 25.0 {
+            if s.troops[k] + pending[k] + amt > s.cap(k) + p.cap_slack {
                 continue;
             }
             let pressure = if v.contact >> k & 1 == 1 { 0.6 + (v.enemy_adj_max[k] - s.troops[k]).max(0.0) / 100.0 } else { 0.0 };
@@ -357,7 +377,84 @@ pub fn act(w: &World, s: &State, me: u8, p: &PolicyParams, out: &mut Vec<Action>
         }
         if best != usize::MAX {
             out.push(Action::Send { src: i as u8, dst: best as u8, amount: amt });
+            pending[best] += amt;
         }
     }
     let _ = n;
+}
+
+/// The tunable numbers, in a fixed order, with their search ranges (used by the tuner and the
+/// text format).
+pub const FIELDS: [(&str, f64, f64); 12] = [
+    ("margin", 1.0, 2.5),
+    ("theta", -15.0, 25.0),
+    ("kg", 5.0, 150.0),
+    ("enemy_bias", 0.2, 4.0),
+    ("neutral_bias", 0.2, 4.0),
+    ("guard", 0.0, 1.5),
+    ("invest_max", 0.0, 3.49),
+    ("invest_reserve", 0.0, 40.0),
+    ("forward_min", 2.0, 40.0),
+    ("eta_w", 0.0, 8.0),
+    ("tile_bonus", 0.0, 50.0),
+    ("cap_slack", 0.0, 100.0),
+];
+
+impl PolicyParams {
+    pub fn to_vec(&self) -> Vec<f64> {
+        vec![self.margin, self.theta, self.kg, self.enemy_bias, self.neutral_bias, self.guard, self.invest_max as f64, self.invest_reserve, self.forward_min, self.eta_w, self.tile_bonus, self.cap_slack]
+    }
+
+    /// Build from a vector in `FIELDS` order (values are clamped to their ranges). Fields that are
+    /// not in the vector keep the values of `self`.
+    pub fn with_vec(&self, v: &[f64]) -> PolicyParams {
+        let c = |k: usize| v[k].clamp(FIELDS[k].1, FIELDS[k].2);
+        PolicyParams {
+            margin: c(0),
+            theta: c(1),
+            kg: c(2),
+            enemy_bias: c(3),
+            neutral_bias: c(4),
+            guard: c(5),
+            invest_max: c(6).floor() as u8,
+            invest_reserve: c(7),
+            forward_min: c(8),
+            eta_w: c(9),
+            tile_bonus: c(10),
+            cap_slack: c(11),
+            ..self.clone()
+        }
+    }
+
+    /// One line of `key=value` pairs.
+    pub fn to_text(&self) -> String {
+        let v = self.to_vec();
+        let mut s: Vec<String> = FIELDS.iter().zip(v.iter()).map(|(f, x)| format!("{}={:.4}", f.0, x)).collect();
+        s.push(format!("upgrade={}", self.upgrade as u8));
+        s.push(format!("hoard_ratio={:.3}", self.hoard_ratio));
+        s.push(format!("defend={}", self.defend as u8));
+        s.push(format!("cap_relief={:.3}", self.cap_relief));
+        s.join(" ")
+    }
+
+    pub fn from_text(text: &str) -> PolicyParams {
+        let mut p = PolicyParams::default();
+        let mut v = p.to_vec();
+        for kv in text.split_whitespace() {
+            let (k, val) = kv.split_once('=').unwrap_or_else(|| panic!("bad policy field {kv}"));
+            let x: f64 = val.parse().unwrap_or_else(|_| panic!("bad policy value {kv}"));
+            if let Some(idx) = FIELDS.iter().position(|f| f.0 == k) {
+                v[idx] = x;
+            } else {
+                match k {
+                    "upgrade" => p.upgrade = x != 0.0,
+                    "hoard_ratio" => p.hoard_ratio = x,
+                    "defend" => p.defend = x != 0.0,
+                    "cap_relief" => p.cap_relief = x,
+                    _ => panic!("unknown policy field {k}"),
+                }
+            }
+        }
+        p.with_vec(&v)
+    }
 }

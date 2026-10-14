@@ -16,6 +16,8 @@ struct Tally {
     time: f64,
     timeouts: u32,
     orders: [u64; 2],
+    /// boards where A won from both seats / B won from both seats
+    sweep: [u32; 2],
     rejected: [u64; 2],
 }
 
@@ -60,14 +62,22 @@ fn main() {
                     }
                     let bseed = seed.wrapping_mul(1_000_003).wrapping_add(b as u64);
                     let start = new_game(&world.map, &setup, &mut Rng::new(bseed));
+                    let mut a_wins = 0;
+                    let mut b_wins = 0;
                     for seat in 0..2 {
                         // seat 0: A is owner 1. seat 1: A is owner 2.
                         let mut agents: Vec<Box<dyn Agent>> = if seat == 0 { vec![roster::make(&pos[0]), roster::make(&pos[1])] } else { vec![roster::make(&pos[1]), roster::make(&pos[0])] };
                         let o = play(&world, &start, &mut agents, max_time, bseed ^ (seat as u64) << 40);
                         let a_owner = if seat == 0 { 1u8 } else { 2u8 };
                         match o.winner {
-                            Some(w) if w == a_owner => local.win += 1,
-                            Some(_) => local.loss += 1,
+                            Some(w) if w == a_owner => {
+                                local.win += 1;
+                                a_wins += 1;
+                            }
+                            Some(_) => {
+                                local.loss += 1;
+                                b_wins += 1;
+                            }
                             None => local.draw += 1,
                         }
                         local.time += o.time;
@@ -78,6 +88,8 @@ fn main() {
                         local.rejected[0] += o.rejected[a_owner as usize] as u64;
                         local.rejected[1] += o.rejected[b_owner as usize] as u64;
                     }
+                    local.sweep[0] += (a_wins == 2) as u32;
+                    local.sweep[1] += (b_wins == 2) as u32;
                 }
                 let mut t = total.lock().unwrap();
                 t.win += local.win;
@@ -86,6 +98,7 @@ fn main() {
                 t.time += local.time;
                 t.timeouts += local.timeouts;
                 for k in 0..2 {
+                    t.sweep[k] += local.sweep[k];
                     t.orders[k] += local.orders[k];
                     t.rejected[k] += local.rejected[k];
                 }
@@ -97,8 +110,8 @@ fn main() {
     let score = (t.win as f64 + 0.5 * t.draw as f64) / n;
     let se = (score * (1.0 - score) / n).sqrt();
     println!(
-        "{} vs {} on {}: {}W {}D {}L  score {:.1}% (+/- {:.1})  avg {:.0}s  timeouts {}  orders/game {:.0} vs {:.0}  rejected {:.1}% vs {:.1}%  [{:.1}s wall]",
-        pos[0], pos[1], map_name, t.win, t.draw, t.loss, 100.0 * score, 196.0 * se, t.time / n, t.timeouts,
+        "{} vs {}: {}W {}D {}L  score {:.1}% (+/- {:.1})  boards swept {}-{} of {}  avg {:.0}s  timeouts {}  orders/game {:.0} vs {:.0}  rejected {:.1}% vs {:.1}%  [{:.1}s wall]",
+        pos[0], pos[1], t.win, t.draw, t.loss, 100.0 * score, 196.0 * se, t.sweep[0], t.sweep[1], boards, t.time / n, t.timeouts,
         t.orders[0] as f64 / n, t.orders[1] as f64 / n,
         100.0 * t.rejected[0] as f64 / t.orders[0].max(1) as f64, 100.0 * t.rejected[1] as f64 / t.orders[1].max(1) as f64,
         t0.elapsed().as_secs_f64()
