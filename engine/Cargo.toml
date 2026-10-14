@@ -1,0 +1,17 @@
+[package]
+name = "stateio"
+version = "0.1.0"
+edition = "2021"
+description = "State.io rules engine and AI: one source of truth for the game, the search and training"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.test]
+opt-level = 2
