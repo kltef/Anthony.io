@@ -651,10 +651,15 @@
     factory:  { grow:1.6,  capBonus:0,  glyph:'⚙' },   // pure production
     fortress: { grow:1.0,  capBonus:40, glyph:'🛡', defense:0.75 },  // absorbs 25% of incoming attacks
   };
+  // human-controlled owner: the local player, or (multiplayer host only) a guest's slot. Guests'
+  // slots live in slotControl as { cid, name }; AI slots are the string 'ai'.
+  function isHumanOwner(o){
+    return o===PLAYER || (netMode==='host' && !!slotControl[o] && slotControl[o]!=='ai');
+  }
   function capOf(s){
     // player states cap by their upgrade tier; AI states use the level's aiCap (hard tiers stack
     // higher so shop upgrades can't out-muscle them); neutrals never grow so their cap is moot.
-    const base = (s.owner===PLAYER) ? PLAYER_CAP[s.level||0]
+    const base = isHumanOwner(s.owner) ? PLAYER_CAP[s.level||0]
                : (s.owner>=2 ? (cfg.aiCap || MAX_TROOPS) : MAX_TROOPS);
     const bonus = s.type ? (TILE[s.type].capBonus||0) : 0;
     return base + bonus;
@@ -664,7 +669,7 @@
     if (s.owner===PLAYER && gameElapsed < boomUntil) m *= 1.5;   // Boom-Start shop perk
     return m;
   }
-  let upgradesOn = false, tilesOn = false;   // per-match switches (solo defaults on; off in netplay)
+  let upgradesOn = false, tilesOn = false;   // per-match switches (on for solo and multiplayer)
   let boomUntil = 0;                          // gameElapsed seconds the Boom-Start perk stays active
   let lastCoinAward = 0;                      // coins earned in the just-finished game (for the end screen)
 
@@ -1312,7 +1317,7 @@
   // The planner models #2 and #4 (via req.depth/req.terr — see planWorkerMain CONTRACT); #1/#3
   // follow the special-tiles precedent (real sim only, not the forward model).
   let depthMode = lsGet('depthMode') !== 'off';
-  const depthOn = () => depthMode && !netMode;
+  const depthOn = () => netMode ? true : depthMode;   // multiplayer always plays the full rule set
   const LANCH = 1.5;                                        // concentration exponent (CONTRACT: worker copy)
   // over-cap attrition curve (anti-hoard): decay/s = ATTRITION_Q * excess^2 / cap — QUADRATIC in
   // the excess, so a small tactical buffer above cap is nearly free (200 @cap150 -> 1.0/s) but a
@@ -1328,11 +1333,20 @@
     : adjacency[si].length<=2 ? 1.4 : adjacency[si].length===3 ? 1.2 : 1;
   const investCost = inv => 25 + inv*15;                    // 25 / 40 / 55 to reach invest tier 1..3
   const invGrowMult = s => 1 + 0.4*(s.inv||0);              // +40% growth per invest tier
-  function tryInvest(s){
-    if (!depthOn() || !running || !s || s.owner!==myOwner || (s.inv||0)>=3) return false;
+  function doInvest(s){   // applies the invest (caller has verified ownership); host/solo only
+    if (!depthOn() || !running || !s || (s.inv||0)>=3) return false;
     const cost = investCost(s.inv||0);
     if (s.troops <= cost) return false;
     s.troops -= cost; s.inv = (s.inv||0)+1; s.pulse = 1.2; return true;
+  }
+  function tryInvest(s){
+    if (!depthOn() || !running || !s || s.owner!==myOwner || (s.inv||0)>=3) return false;
+    if (netMode==='guest'){   // the host owns the sim: relay the intent (it re-validates everything)
+      if (s.troops <= investCost(s.inv||0)) return false;
+      api('/api/action?room='+NET.room, { cid:NET.cid, from:s.id, to:s.id, denom:1, k:'inv' });
+      return true;
+    }
+    return doInvest(s);
   }
   // supply: BFS the owner's territory into connected components; the largest is the "core",
   // everything else is off-supply. Recomputed on a 0.5s clock in update() (cheap at N<=56).
@@ -1468,12 +1482,21 @@
     }
   }
   // upgrade a player state's cap one tier, paying troops (player-only; AIs never call this).
-  function tryUpgrade(s){
-    if (!upgradesOn || !s || s.owner!==myOwner || (s.level||0) >= PLAYER_CAP.length-1) return false;
+  function doUpgrade(s){   // applies the upgrade (caller has verified ownership); host/solo only
+    if (!upgradesOn || !s || (s.level||0) >= PLAYER_CAP.length-1) return false;
     const cost = upgradeCost(s.level||0);
     if (s.troops < cost) return false;
     s.troops -= cost; s.level = (s.level||0)+1; s.pulse = 1.2;
     return true;
+  }
+  function tryUpgrade(s){
+    if (!upgradesOn || !s || s.owner!==myOwner || (s.level||0) >= PLAYER_CAP.length-1) return false;
+    if (netMode==='guest'){
+      if (s.troops < upgradeCost(s.level||0)) return false;
+      api('/api/action?room='+NET.room, { cid:NET.cid, from:s.id, to:s.id, denom:1, k:'up' });
+      return true;
+    }
+    return doUpgrade(s);
   }
   // coins earned for finishing a solo game (called from recordResult, which only runs in solo).
   function awardCoins(won){
@@ -1504,7 +1527,7 @@
     buildGeo();
 
     // Cap upgrades, special tiles & shop perks are single-player only (off in netplay → no desync).
-    upgradesOn = tilesOn = !netMode;
+    upgradesOn = tilesOn = true;
     boomUntil = 0;
     applyPlayerColor();   // cosmetic + local-view only -> safe in netplay too (see the function)
 
@@ -2642,7 +2665,7 @@
     // Easy/Medium on a phone must not peg all cores between moves for a 30ms-budget opponent.
     const ponder = aiTeams <= 1 && (lv.workerMs || 0) >= 200;
     const freeMove = !adjacencyMode && !netMode;   // classic-mode movement for the AI too (solo only)
-    const depth = depthMode && !netMode;           // depth mechanics: worker models Lanchester+terrain+supply
+    const depth = depthOn();                       // depth mechanics: worker models Lanchester+terrain+supply
     // TERR is the worker's per-state DEFENCE multiplier: terrain gradient x off-supply penalty.
     // Folding supply in here means the search naturally hunts cut-off exclaves (they read as
     // cheaper captures) with zero extra worker plumbing. Root-static, like the rest of TERR.
@@ -3983,7 +4006,7 @@
       for (let i=0;i<level;i++){ ctx.beginPath(); ctx.arc(x - span/2 + i*gap, y + r + 5*k, pr, 0, Math.PI*2); ctx.fill(); }
     }
     // depth-mechanics badges (solo depth mode only)
-    if (st && depthMode && !netMode){
+    if (st && depthOn()){
       const bf = (markR*0.62*k)+'px "Segoe UI Emoji","Apple Color Emoji",Segoe UI,sans-serif';
       if (terrMult(st.id) > 1){                       // #2: highland (chokepoint/peninsula) — drawn
         // as a canvas triangle: the ⛰ emoji is an outline glyph that vanishes at badge size
@@ -5544,6 +5567,8 @@
     if (a.rb) netRB.add(owner); else netRB.delete(owner);   // guest's dev-skin flag rides its actions
     const from = states.find(s=>s.id===a.from), to = states.find(s=>s.id===a.to);
     if (!from || !to || from.owner!==owner) return;
+    if (a.k==='up'){ doUpgrade(from); return; }   // build intents ride the action channel (from===to)
+    if (a.k==='inv'){ doInvest(from); return; }
     if (!isLegalMove(from, to, owner)) return;   // fail fast on illegal guest actions (anti-cheat boundary for raw /api/action POSTs)
     sendTroops(from, to, a.denom);
   }
@@ -5568,7 +5593,8 @@
     const ri = REGIONS.findIndex(r => r.name===d.regionName); if (ri>=0 && ri!==regionIdx){ regionIdx=ri; buildRegionButtons(); }
     netMode = 'guest'; troops = []; selected=null; dragPos=null; selSet=[]; resetCam();
     if (ready){ buildStatesForRegion(); buildGeo(); }   // match the host's map before rendering snapshots
-    for (const s of states){ s.owner=NEUTRAL; s.troops=0; s.pulse=0; }
+    for (const s of states){ s.owner=NEUTRAL; s.troops=0; s.pulse=0; s.level=0; s.type=null; s.inv=0; s.offSupply=false; }
+    upgradesOn = tilesOn = true;                 // the host runs the full rule set; we only render + relay intents
     nnBtn.classList.add('gone');                 // guests can't open the host's AI panel
     running = true; overlay.classList.add('hidden');
     lastTime = performance.now(); requestAnimationFrame(loop);
@@ -5581,7 +5607,8 @@
   function guestApplySnapshot(snap){
     if (!ready || netMode!=='guest') return;
     netRB = new Set((snap.rb||[]).filter(o => o !== myOwner));   // others' rainbow skins (own is local via devOn)
-    for (const st of snap.states){ const s=states[st.i] || states.find(x=>x.id===st.i); if (s){ if (s.owner!==st.o) s.pulse=1; s.owner=st.o; s.troops=st.t; } }
+    for (const st of snap.states){ const s=states[st.i] || states.find(x=>x.id===st.i); if (s){ if (s.owner!==st.o) s.pulse=1; s.owner=st.o; s.troops=st.t;
+      s.level=st.l||0; s.type=st.y||null; s.inv=st.v||0; s.offSupply=!!st.x; } }
     guestSpeed = snap.speed || 1;
     const now = performance.now();
     const byUid = new Map();
@@ -5625,7 +5652,7 @@
   }
   function rosterText(){ return rosterForSnap().map(p=>p.name).join(', '); }
   function buildSnapshot(){
-    const st = states.map(s => ({ i:s.id, o:s.owner, t:Math.round(s.troops) }));
+    const st = states.map(s => ({ i:s.id, o:s.owner, t:Math.round(s.troops), l:s.level||0, y:s.type||0, v:s.inv||0, x:s.offSupply?1:0 }));
     const orbs = troops.map(t => { const tot=Math.hypot(t.tx-t.ox, t.ty-t.oy)||1, p=Math.min(1, Math.hypot(t.x-t.ox, t.y-t.oy)/tot);
       return { o:t.owner, f:t.fromId, g:t.targetId, p:+p.toFixed(3), c:t.count, u:t.uid }; });
     let player=0, enemy=0, neutral=0;
@@ -6129,7 +6156,7 @@
     // ⬆ Upgrade / 🌱 Invest — PERMANENT while playing solo (mobile can't select-then-press: a
     // state tap starts the drag flow). Press to ARM, then tap your states; a desktop-selected
     // state still applies instantly on press. Armed shows "tap a state".
-    const uShow = upgradesOn && running && !netMode;
+    const uShow = upgradesOn && running;
     const uLabel = !uShow ? '' : (buildArmed==='upgrade') ? '⬆ Tap a state'
       : (selected && selected.owner===myOwner && (selected.level||0) < PLAYER_CAP.length-1)
         ? '⬆ Upgrade ('+upgradeCost(selected.level||0)+')' : '⬆ Upgrade';

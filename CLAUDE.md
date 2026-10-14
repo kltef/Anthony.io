@@ -105,10 +105,11 @@ against the per-decision reference loop.
 - **Two net formats coexist.** Scoring functions dispatch on `rlPolicy.format`: `'gnn-v1'` computes
   per-territory node embeddings once per decision, anything else falls through to the flat-MLP path.
   Keep both branches working; the flat net is what currently ships.
-- **Solo-only features are gated on `netMode === null`.** `netMode` is `null` (solo vs AI), `'host'`
-  (runs the sim and broadcasts snapshots), or `'guest'` (renders snapshots, sends intents). Cap
-  upgrades, special tiles, coin-shop perks, and Scenario apply to **solo only** so multiplayer
-  snapshot sync stays untouched. Preserve these guards when adding features.
+- **Multiplayer now runs the full rule set** (Depth mechanics, cap upgrades, special tiles, adjacency
+  movement). `netMode` is `null` (solo vs AI), `'host'` (runs the sim and broadcasts snapshots), or
+  `'guest'` (renders snapshots, relays intents). Only the host simulates; the snapshot carries each
+  state's level/type/invest/off-supply (`l`,`y`,`v`,`x`), and guest upgrade/invest presses go to the
+  host as action intents (`k:'up'|'inv'`). Still solo-only: coin-shop perks, airdrops, Scenario.
 - **The planner has a fallback chain**: inline Web-Worker MCTS → `/api/plan` server (if a worker
   can't be built) → tiny in-page search. New planner work should keep all three paths coherent.
 - **JS↔Python inference must stay contract-identical.** Nets are trained in Python and run in JS; the
