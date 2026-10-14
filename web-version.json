@@ -1,14 +1,15 @@
 {
-  "web": 42,
+  "web": 43,
   "notes": [
-    "Fixed the AI shuffling troops back and forth between two of its own states instead of expanding - it now recognizes it just made that move and looks for a better one, like attacking the neutral land next door"
+    "Brand-new AI on every difficulty: it now tests each move against the real game rules before playing it. In 100 test games it beat the previous Nightmare AI 80 times (17 losses, 3 unfinished)",
+    "AI opponents can now upgrade their states' troop caps, the same as you",
+    "The highland defence bonus now actually works - the mountain badge was shown before but had no effect",
+    "Online matches now use Depth mechanics, cap upgrades and special tiles",
+    "Removed: the AI-brain viewer and the hidden Nightmare-X tier (developer tools)"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/2d09a70692ef3f5963a00faecb9621c61ef6e4ed/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/3659341978e5046feb24db47ba3c7bc54351246b/src/web/",
   "files": [
     "index.html",
-    "gnn_policy.json",
-    "gnn_policy_x.json",
-    "rl_policy.json",
     "menu.mp3",
     "explore.mp3",
     "battle.mp3",
@@ -18,6 +19,17 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 43,
+      "date": "2026-10-14",
+      "notes": [
+        "Brand-new AI on every difficulty: it now tests each move against the real game rules before playing it. In 100 test games it beat the previous Nightmare AI 80 times (17 losses, 3 unfinished)",
+        "AI opponents can now upgrade their states' troop caps, the same as you",
+        "The highland defence bonus now actually works - the mountain badge was shown before but had no effect",
+        "Online matches now use Depth mechanics, cap upgrades and special tiles",
+        "Removed: the AI-brain viewer and the hidden Nightmare-X tier (developer tools)"
+      ]
+    },
     {
       "web": 42,
       "date": "2026-09-19",
