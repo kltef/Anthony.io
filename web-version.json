@@ -1,9 +1,9 @@
 {
-  "web": 44,
+  "web": 45,
   "notes": [
-    "Removed the 0.25x and 0.5x slow-motion speeds - the speed button now cycles 1x, 2x, 3x, 5x, 10x"
+    "Removed the 5x and 10x speeds - the speed button now cycles 1x, 2x, 3x"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/7998e4c9e4daa37bc42db2cba9af15cf8144a54e/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/ddc211690dcfcbf00bc4600841f7974b265e9f10/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
@@ -15,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 45,
+      "date": "2026-10-22",
+      "notes": [
+        "Removed the 5x and 10x speeds - the speed button now cycles 1x, 2x, 3x"
+      ]
+    },
     {
       "web": 44,
       "date": "2026-10-22",
