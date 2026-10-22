@@ -2094,10 +2094,10 @@
   document.getElementById('zoomIn').addEventListener('click', ()=>zoomAt(W/2,H/2,1.3));
   document.getElementById('zoomOut').addEventListener('click', ()=>zoomAt(W/2,H/2,1/1.3));
   const speedBtn = document.getElementById('speedBtn');
-  const SPEEDS = [0.25,0.5,1,2,3,5,10];   // 0.25×/0.5× = slow-motion, handy for watching the AI think
+  const SPEEDS = [1,2,3,5,10];
   speedBtn.addEventListener('click', ()=>{
     const idx = SPEEDS.indexOf(gameSpeed);
-    gameSpeed = SPEEDS[(idx<0 ? 1 : idx+1) % SPEEDS.length];
+    gameSpeed = SPEEDS[(idx<0 ? 0 : idx+1) % SPEEDS.length];
     speedBtn.innerHTML = gameSpeed + '&times;';
   });
   const nnBtn = document.getElementById('nnBtn');
@@ -3350,7 +3350,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 43;
+  const WEB_VERSION = 44;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
