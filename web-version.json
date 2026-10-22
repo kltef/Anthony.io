@@ -1,13 +1,9 @@
 {
-  "web": 43,
+  "web": 44,
   "notes": [
-    "Brand-new AI on every difficulty: it now tests each move against the real game rules before playing it. In 100 test games it beat the previous Nightmare AI 80 times (17 losses, 3 unfinished)",
-    "AI opponents can now upgrade their states' troop caps, the same as you",
-    "The highland defence bonus now actually works - the mountain badge was shown before but had no effect",
-    "Online matches now use Depth mechanics, cap upgrades and special tiles",
-    "Removed: the AI-brain viewer and the hidden Nightmare-X tier (developer tools)"
+    "Removed the 0.25x and 0.5x slow-motion speeds - the speed button now cycles 1x, 2x, 3x, 5x, 10x"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/3659341978e5046feb24db47ba3c7bc54351246b/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/7998e4c9e4daa37bc42db2cba9af15cf8144a54e/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
@@ -19,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 44,
+      "date": "2026-10-22",
+      "notes": [
+        "Removed the 0.25x and 0.5x slow-motion speeds - the speed button now cycles 1x, 2x, 3x, 5x, 10x"
+      ]
+    },
     {
       "web": 43,
       "date": "2026-10-14",
