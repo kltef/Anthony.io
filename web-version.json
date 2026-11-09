@@ -1,7 +1,8 @@
 {
-  "web": 47,
+  "web": 48,
   "notes": [
-    "New Nightmare and Nightmare+ AI: it now plans several moves ahead - gathers troops into a staging state, waits, then strikes with one big stack - and sticks with a plan instead of changing its mind every moment. In 100 test games it beat the previous Nightmare AI 78 times"
+    "Nightmare AI: no more pointless small attacks on big garrisons, it now plans against players who mass their troops into one big stack, and it can strike with just what it needs instead of emptying its land",
+    "Games now record a full match log (every move by both sides, your taps and drags, zoom and pan) to help improve the AI"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/4cd3aeb58cdfff0c55a5defb70cf246919cd2129/src/web/",
   "files": [
@@ -15,6 +16,14 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 48,
+      "date": "2026-11-08",
+      "notes": [
+        "Nightmare AI: no more pointless small attacks on big garrisons, it now plans against players who mass their troops into one big stack, and it can strike with just what it needs instead of emptying its land",
+        "Games now record a full match log (every move by both sides, your taps and drags, zoom and pan) to help improve the AI"
+      ]
+    },
     {
       "web": 47,
       "date": "2026-11-08",

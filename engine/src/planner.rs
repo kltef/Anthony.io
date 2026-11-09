@@ -74,6 +74,44 @@ impl Plan {
     }
 }
 
+/// How a simulated opponent plays: a scripted style, or the play-tester-style bot (masses into
+/// hubs, only hits what is thin), which the scripted styles never do.
+#[derive(Clone, Debug)]
+pub enum Opp {
+    Policy(PolicyParams),
+    Chris(crate::chris::ChrisParams),
+}
+
+impl Opp {
+    fn act(&self, w: &World, s: &State, me: u8, out: &mut Vec<Action>) {
+        match self {
+            Opp::Policy(p) => policy::act(w, s, me, p, out),
+            Opp::Chris(p) => crate::chris::act(w, s, me, p, out),
+        }
+    }
+    /// A randomised copy (relative perturbation of the numeric parameters).
+    fn perturbed(&self, noise: f64, rng: &mut Rng) -> Opp {
+        let mut jit = |x: f64| x * (1.0 + noise * (2.0 * rng.f64() - 1.0));
+        match self {
+            Opp::Policy(p) => {
+                let v: Vec<f64> = p.to_vec().into_iter().map(&mut jit).collect();
+                Opp::Policy(p.with_vec(&v))
+            }
+            Opp::Chris(c) => Opp::Chris(crate::chris::ChrisParams {
+                neutral_margin: jit(c.neutral_margin).max(1.0),
+                enemy_ratio: jit(c.enemy_ratio).max(1.0),
+                min_feed: jit(c.min_feed),
+                ..c.clone()
+            }),
+        }
+    }
+}
+
+/// The opponent model fitted to the play-tester (see chris.rs; settings from the arena fit).
+pub fn chris_model() -> crate::chris::ChrisParams {
+    crate::chris::ChrisParams { enemy_ratio: 3.0, neutral_margin: 2.0, min_feed: 4.0, ..Default::default() }
+}
+
 #[derive(Clone, Debug)]
 pub struct PlanParams {
     /// Seconds between decisions.
@@ -116,7 +154,13 @@ pub struct PlanParams {
     /// Whole-position scripted plans offered as candidates.
     pub portfolio: Vec<PolicyParams>,
     /// Opponent styles; sample j uses style j mod len, randomised by `noise`.
-    pub pool: Vec<PolicyParams>,
+    pub pool: Vec<Opp>,
+    /// Never consider an attack that cannot take its target on arrival (it only feeds the
+    /// defender: under Lanchester combat a small wave into a big garrison dies for almost nothing).
+    pub no_hopeless: bool,
+    /// Also offer each strike sending only what the capture needs (plus a margin), keeping the rest
+    /// home, next to the all-in version.
+    pub strike_partial: bool,
 }
 
 fn tuned() -> PolicyParams {
@@ -146,7 +190,16 @@ impl Default for PlanParams {
             kg: 45.0,
             self_model: tuned(),
             portfolio: vec![tuned(), PolicyParams::rush(), PolicyParams::default()],
-            pool: vec![tuned(), PolicyParams::rush(), PolicyParams::farmer(), PolicyParams::default(), PolicyParams::economist()],
+            pool: vec![
+                Opp::Policy(tuned()),
+                Opp::Chris(chris_model()),
+                Opp::Policy(PolicyParams::rush()),
+                Opp::Policy(PolicyParams::farmer()),
+                Opp::Policy(PolicyParams::default()),
+                Opp::Policy(PolicyParams::economist()),
+            ],
+            no_hopeless: true,
+            strike_partial: true,
         }
     }
 }
@@ -182,7 +235,14 @@ impl PlanParams {
             "kg" => self.kg = num()?,
             "self" => self.self_model = crate::roster::policy(val).ok_or(format!("unknown policy {val}"))?,
             "port" => self.portfolio = pols()?,
-            "pool" => self.pool = pols()?,
+            "pool" => {
+                self.pool = val
+                    .split('+')
+                    .map(|n| if n == "chris" { Ok(Opp::Chris(chris_model())) } else { crate::roster::policy(n).map(Opp::Policy).ok_or(format!("unknown policy {n}")) })
+                    .collect::<Result<_, _>>()?
+            }
+            "hopeless" => self.no_hopeless = num()? == 0.0,
+            "partial" => self.strike_partial = num()? != 0.0,
             _ => return Err(format!("unknown plan option {key}")),
         }
         Ok(())
@@ -211,7 +271,7 @@ pub struct Planner {
     active: Option<Plan>,
     st: State,
     acts: Vec<Action>,
-    opp: Vec<PolicyParams>,
+    opp: Vec<Opp>,
     phase: Vec<f64>,
     rng: Rng,
     reinf: Vec<(u8, u8, f64)>,
@@ -222,7 +282,7 @@ pub struct Planner {
 
 /// Play `plan` forward from `base` against one opponent sample. None if an order due now is illegal.
 #[allow(clippy::too_many_arguments)]
-fn rollout(w: &World, p: &PlanParams, me: u8, base: &State, plan: &Plan, opp: &PolicyParams, phase: f64, st: &mut State, acts: &mut Vec<Action>) -> Option<f64> {
+fn rollout(w: &World, p: &PlanParams, me: u8, base: &State, plan: &Plan, opp: &Opp, phase: f64, st: &mut State, acts: &mut Vec<Action>) -> Option<f64> {
     st.copy_from(base);
     let t0 = st.time;
     let end = t0 + p.horizon;
@@ -258,7 +318,7 @@ fn rollout(w: &World, p: &PlanParams, me: u8, base: &State, plan: &Plan, opp: &P
                 let o = m.trailing_zeros() as u8;
                 m &= m - 1;
                 acts.clear();
-                policy::act(w, st, o, opp, acts);
+                opp.act(w, st, o, acts);
                 for &a in acts.iter() {
                     st.apply(w, o, a);
                 }
@@ -342,14 +402,9 @@ impl Planner {
         self.phase.clear();
         let n = self.p.samples.max(self.p.screen);
         for j in 0..n {
-            let base = &self.p.pool[j % self.p.pool.len()];
-            let mut v = base.to_vec();
-            if j > 0 && self.p.noise > 0.0 {
-                for x in v.iter_mut() {
-                    *x *= 1.0 + self.p.noise * (2.0 * self.rng.f64() - 1.0);
-                }
-            }
-            self.opp.push(base.with_vec(&v));
+            let base = self.p.pool[j % self.p.pool.len()].clone();
+            let o = if j >= self.p.pool.len() && self.p.noise > 0.0 { base.perturbed(self.p.noise, &mut self.rng) } else { base };
+            self.opp.push(o);
             self.phase.push(0.1 + 0.6 * self.rng.f64());
         }
     }
@@ -394,13 +449,19 @@ impl Planner {
             while t != 0 {
                 let j = t.trailing_zeros() as usize;
                 t &= t - 1;
-                out.push(Action::Send { src: i as u8, dst: j as u8, amount: have });
                 let (po, pt, _) = policy::at_arrival(w, s, v, i, j);
-                if po != me {
-                    let need = (need_to_take(pt, s.tile[j], s.def_mult(w, j)) * 1.2 + 2.0).ceil();
-                    if need < have * 0.8 {
-                        out.push(Action::Send { src: i as u8, dst: j as u8, amount: need });
-                    }
+                if po == me {
+                    continue; // already being taken by troops in flight
+                }
+                let take = need_to_take(pt, s.tile[j], s.def_mult(w, j));
+                // a wave that cannot take the target only feeds the defender
+                if self.p.no_hopeless && have < take {
+                    continue;
+                }
+                out.push(Action::Send { src: i as u8, dst: j as u8, amount: have });
+                let need = (take * 1.2 + 2.0).ceil();
+                if need < have * 0.8 {
+                    out.push(Action::Send { src: i as u8, dst: j as u8, amount: need });
                 }
             }
             if have >= 4.0 {
@@ -488,12 +549,20 @@ impl Planner {
                             continue;
                         }
                         let need = need_to_take(pt, s.tile[t], s.def_mult(w, t));
-                        if est < 0.85 * need {
+                        if est < (if self.p.no_hopeless { 1.0 } else { 0.85 }) * need {
                             continue;
                         }
-                        let mut ops: Vec<Op> = set.iter().map(|&k| Op { at: now, act: Action::Send { src: k as u8, dst: st as u8, amount: ALL } }).collect();
+                        let feed: Vec<Op> = set.iter().map(|&k| Op { at: now, act: Action::Send { src: k as u8, dst: st as u8, amount: ALL } }).collect();
+                        let mut ops = feed.clone();
                         ops.push(Op { at, act: Action::Send { src: st as u8, dst: t as u8, amount: ALL } });
                         out.push((est / need, Plan { kind: Kind::Strike, ops, target: Some(t as u8), stage: Some(st as u8) }));
+                        // the same strike sending only what the capture needs plus a margin
+                        let part = (need * 1.3 + 4.0).ceil();
+                        if self.p.strike_partial && part < 0.8 * est {
+                            let mut ops = feed;
+                            ops.push(Op { at, act: Action::Send { src: st as u8, dst: t as u8, amount: part } });
+                            out.push((est / need, Plan { kind: Kind::Strike, ops, target: Some(t as u8), stage: Some(st as u8) }));
+                        }
                     }
                 }
             }
