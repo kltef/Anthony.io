@@ -3,7 +3,7 @@
   "notes": [
     "Each saved game now records which game version and app version it was played on, and which AI it faced"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/b31cb7ab629bd17adb07dbeb046f161f555b4c67/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/147b38e9d64d948ce8200acfa473b1fad8b9ec70/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
