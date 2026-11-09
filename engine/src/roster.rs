@@ -71,8 +71,11 @@ pub fn plan_tier(name: &str) -> Option<&'static str> {
         "medium" => "cadence=1.4,h=12,screen=1,samples=2,k=4,cands=40,waits=0/4,feeders=2,refine=0,pess=0.25,temp=0.01,port=base+t2,pool=t2+rush+base",
         "hard" => "cadence=0.85,h=16,screen=1,samples=3,k=4,cands=60,waits=0/3/7,feeders=3,refine=1,pess=0.4,self=t2",
         "grandmaster" => "cadence=0.5,h=18,screen=2,samples=4,k=5,cands=90,waits=0/3/7,feeders=4,refine=1",
-        "nightmare" => "cadence=0.3",
-        "nightmare+" => "cadence=0.2,samples=8,k=8",
+        // Nightmare: human input limits (see PlanParams::human) at a human-like 0.4 s rhythm.
+        "nightmare" => "cadence=0.4,human=1",
+        // Nightmare+: superhuman. Decides every 50 ms, twice the opponent samples, finalists and
+        // a steadier commitment for that rhythm, samples reused for 1 s, and varied plans / timing.
+        "nightmare+" => "cadence=0.05,samples=16,k=12,resample=1,bonus=0.08,vary=0.01,jitter=2",
         _ => return None,
     })
 }

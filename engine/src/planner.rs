@@ -161,6 +161,24 @@ pub struct PlanParams {
     /// Also offer each strike sending only what the capture needs (plus a margin), keeping the rest
     /// home, next to the all-in version.
     pub strike_partial: bool,
+    /// Unpredictability: when starting a NEW plan, pick at random among new plans within this much
+    /// of the best (a plan already under way is never dropped for this).
+    pub vary: f64,
+    /// Unpredictability: random extra seconds (0..jitter) added to each strike wait, per decision.
+    pub jitter: f64,
+    /// Seconds to keep the same opponent samples across decisions (0 = fresh every decision).
+    /// Fast cadences re-score plans many times a second; reusing samples stops pure sampling
+    /// noise from flipping the choice.
+    pub resample: f64,
+    /// Human input limits (the Nightmare tier). Measured from the play-tester's recorded games: he
+    /// sweeps up to ~10 states in half a second, but always into one or two targets with one
+    /// gesture, and sustains at most ~4.5 sends a second. With this on, orders over a limit wait
+    /// for the next decision, and amounts snap to the Send button's All / Half / Quarter.
+    pub human: bool,
+    /// Most distinct targets (a send's target, or the state tapped to invest / upgrade) in 0.5 s.
+    pub h_targets: usize,
+    /// Most sends in 0.5 s, in 1 s and in 10 s.
+    pub h_sends: [usize; 3],
 }
 
 fn tuned() -> PolicyParams {
@@ -200,6 +218,12 @@ impl Default for PlanParams {
             ],
             no_hopeless: true,
             strike_partial: true,
+            vary: 0.0,
+            jitter: 0.0,
+            resample: 0.0,
+            human: false,
+            h_targets: 2,
+            h_sends: [7, 10, 45],
         }
     }
 }
@@ -243,6 +267,11 @@ impl PlanParams {
             }
             "hopeless" => self.no_hopeless = num()? == 0.0,
             "partial" => self.strike_partial = num()? != 0.0,
+            "vary" => self.vary = num()?,
+            "jitter" => self.jitter = num()?,
+            "resample" => self.resample = num()?,
+            "human" => self.human = num()? != 0.0,
+            "h_targets" => self.h_targets = num()?.max(1.0) as usize,
             _ => return Err(format!("unknown plan option {key}")),
         }
         Ok(())
@@ -275,6 +304,10 @@ pub struct Planner {
     phase: Vec<f64>,
     rng: Rng,
     reinf: Vec<(u8, u8, f64)>,
+    waits_now: Vec<f64>,
+    sampled_at: f64,
+    /// (time, target) of recent orders, for the human input limits.
+    fired: Vec<(f64, u16)>,
     pub last: PlanLog,
     pub total_rollouts: u64,
     pub decisions: u64,
@@ -382,6 +415,9 @@ impl Planner {
             phase: Vec::new(),
             rng: Rng::new(1),
             reinf: Vec::new(),
+            waits_now: Vec::new(),
+            sampled_at: f64::NEG_INFINITY,
+            fired: Vec::new(),
             last: PlanLog::default(),
             total_rollouts: 0,
             decisions: 0,
@@ -393,6 +429,8 @@ impl Planner {
         self.me = me;
         self.active = None;
         self.reinf.clear();
+        self.sampled_at = f64::NEG_INFINITY;   // a new match draws fresh opponent samples
+        self.fired.clear();
         self.rng = Rng::new(0x5EED ^ me as u64);
     }
 
@@ -538,7 +576,7 @@ impl Planner {
                 for set in &sets {
                     let arrive = set.iter().map(|&k| eta(w, k, st)).fold(0.0f64, f64::max);
                     let pool: f64 = s.troops[st] + set.iter().map(|&k| s.troops[k].floor()).sum::<f64>();
-                    for &wait in &self.p.waits {
+                    for &wait in &self.waits_now {
                         if set.is_empty() && wait <= 0.0 {
                             continue; // that is a direct attack
                         }
@@ -567,6 +605,48 @@ impl Planner {
                 }
             }
         }
+    }
+
+    /// Human input limits: None if `act` would exceed them now (it waits for the next decision),
+    /// otherwise the order with its amount snapped to All / Half / Quarter.
+    fn humanize(&mut self, s: &State, now: f64, act: Action) -> Option<Action> {
+        self.fired.retain(|&(t, _)| now - t < 10.0);
+        let (target, is_send) = match act {
+            Action::Send { dst, .. } => (dst as u16, true),
+            Action::Invest(i) | Action::Upgrade(i) => (256 + i as u16, false),
+        };
+        let recent = |w: f64| self.fired.iter().filter(move |&&(t, _)| now - t < w);
+        let mut targets: Vec<u16> = recent(0.5).map(|&(_, x)| x).collect();
+        targets.sort_unstable();
+        targets.dedup();
+        if !targets.contains(&target) && targets.len() >= self.p.h_targets {
+            return None;
+        }
+        if is_send {
+            let sends = |w: f64| recent(w).filter(|&&(_, x)| x < 256).count();
+            if sends(0.5) >= self.p.h_sends[0] || sends(1.0) >= self.p.h_sends[1] || sends(10.0) >= self.p.h_sends[2] {
+                return None;
+            }
+        }
+        let out = match act {
+            Action::Send { src, dst, amount } => {
+                let have = s.troops[src as usize].floor();
+                // the smallest button that still sends at least what the plan wants
+                let amt = if amount >= have {
+                    ALL
+                } else if amount <= (have / 4.0).floor() && (have / 4.0).floor() >= 1.0 {
+                    (have / 4.0).floor()
+                } else if amount <= (have / 2.0).floor() && (have / 2.0).floor() >= 1.0 {
+                    (have / 2.0).floor()
+                } else {
+                    ALL
+                };
+                Action::Send { src, dst, amount: amt }
+            }
+            a => a,
+        };
+        self.fired.push((now, target));
+        Some(out)
     }
 
     /// What is left of the current plan, if its premises still hold.
@@ -598,7 +678,17 @@ impl Planner {
             self.active = None;
             return;
         }
-        self.sample_opponents();
+        let n_need = self.p.samples.max(self.p.screen);
+        if self.p.resample <= 0.0 || now - self.sampled_at >= self.p.resample || self.opp.len() != n_need {
+            self.sample_opponents();
+            self.sampled_at = now;
+        }
+        self.waits_now = self.p.waits.clone();
+        if self.p.jitter > 0.0 {
+            for x in self.waits_now.iter_mut() {
+                *x += self.p.jitter * self.rng.f64();
+            }
+        }
         let inc = self.incumbent(s);
 
         // 1. candidates, in priority order (kept first when `max_cands` truncates)
@@ -681,6 +771,12 @@ impl Planner {
                 pick = near[self.rng.below(near.len())];
             }
         }
+        if self.p.vary > 0.0 && pick != 0 && !continues(pick) {
+            let near: Vec<usize> = finals.iter().filter(|x| x.0 >= best_v - self.p.vary && x.1 != 0 && !continues(x.1)).map(|x| x.1).collect();
+            if !near.is_empty() {
+                pick = near[self.rng.below(near.len())];
+            }
+        }
         let mut plan = cands[pick].clone();
         self.last.value = best_v;
         self.last.kind = Some(plan.kind);
@@ -723,8 +819,19 @@ impl Planner {
         let mut rest = Vec::new();
         for op in plan.ops.drain(..) {
             if op.at <= due_by {
-                out.push(op.act);
-                if let Action::Send { src, dst, .. } = op.act {
+                let act = if self.p.human {
+                    match self.humanize(s, now, op.act) {
+                        Some(a) => a,
+                        None => {
+                            rest.push(op); // over a human limit: try again next decision
+                            continue;
+                        }
+                    }
+                } else {
+                    op.act
+                };
+                out.push(act);
+                if let Action::Send { src, dst, .. } = act {
                     if s.owner[dst as usize] == me {
                         self.reinf.push((src, dst, now));
                     }

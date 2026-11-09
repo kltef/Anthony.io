@@ -1,7 +1,8 @@
 {
-  "web": 53,
+  "web": 54,
   "notes": [
-    "Data button: can now send your games straight to the developer's computer over Wi-Fi - no cable or USB debugging needed (you tap twice to confirm)"
+    "Nightmare+ upgraded: a faster, sharper superhuman AI",
+    "Nightmare now plays within human limits - no more hitting several places in the same instant, and it sends All / Half / Quarter like you do"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/6ef1ad7cc72862b30358f0e9d95c42bddb6d0753/src/web/",
   "files": [
@@ -15,6 +16,14 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 54,
+      "date": "2026-11-09",
+      "notes": [
+        "Nightmare+ upgraded: a faster, sharper superhuman AI",
+        "Nightmare now plays within human limits - no more hitting several places in the same instant, and it sends All / Half / Quarter like you do"
+      ]
+    },
     {
       "web": 53,
       "date": "2026-11-09",
