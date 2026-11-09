@@ -4,7 +4,7 @@
     "Nightmare+ upgraded: a faster, sharper superhuman AI",
     "Nightmare now plays within human limits - no more hitting several places in the same instant, and it sends All / Half / Quarter like you do"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/6ef1ad7cc72862b30358f0e9d95c42bddb6d0753/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/8a54e897e3d30ba6158e8e1ad178bfcd24f0d053/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
