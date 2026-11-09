@@ -1245,7 +1245,7 @@
     autoLevelChange = '';
     const lv = LEVELS[levelIdx];
     cfg = lv;
-    troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; resetCam();
+    troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; resetCam(); resetMatchControls();
     if (typeof hideRecap==='function') hideRecap();
     if (lesson) endLesson();
     startGameLog();
@@ -2221,6 +2221,11 @@
     updateFracBtn();
   });
   updateFracBtn();
+  // every match starts at the defaults: 1x speed and "Send: All" (they used to carry over)
+  function resetMatchControls(){
+    gameSpeed = 1; const sb = document.getElementById('speedBtn'); if (sb) sb.innerHTML = '1&times;';
+    stickyDenom = 1; ctrlDown = false; sendDenom = 1; updateFracBtn();
+  }
 
   startBtn.addEventListener('click', newGame);
 
@@ -2463,7 +2468,7 @@
     if (!ready || netMode) return;
     scenarioMode = false; scenarioObserver = false;
     cfg = { name:'Practice', brain:null, think:1, enemies:1, growRate:1, enemyGrow:1, neutralMin:30, neutralMax:30, playerStart:40, enemyStart:40, aiAggro:0 };
-    troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; resetCam();
+    troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; resetCam(); resetMatchControls();
     if (typeof hideRecap==='function') hideRecap();
     matchTrack = null;                                   // practice is never recorded
     myOwner = PLAYER;
@@ -2673,7 +2678,7 @@
     applyPlayerColor();   // cosmetic recolour of the slot WE control — local-view only, no desync
     const li = LEVELS.findIndex(l => l.name===d.levelName); if (li>=0) levelIdx = li;
     const ri = REGIONS.findIndex(r => r.name===d.regionName); if (ri>=0 && ri!==regionIdx){ regionIdx=ri; buildRegionButtons(); }
-    netMode = 'guest'; troops = []; selected=null; dragPos=null; selSet=[]; resetCam();
+    netMode = 'guest'; troops = []; selected=null; dragPos=null; selSet=[]; resetCam(); resetMatchControls();
     if (ready){ buildStatesForRegion(); buildGeo(); }   // match the host's map before rendering snapshots
     for (const s of states){ s.owner=NEUTRAL; s.troops=0; s.pulse=0; s.level=0; s.type=null; s.inv=0; s.offSupply=false; }
     upgradesOn = tilesOn = true;                 // the host runs the full rule set; we only render + relay intents
@@ -3264,7 +3269,7 @@
     levelIdx = scnLevelIdx; const lv = LEVELS[levelIdx]; cfg = lv;
     if (regionIdx !== scnRegionIdx){ regionIdx = scnRegionIdx; buildStatesForRegion(); buildRegionButtons(); }
     buildGeo();
-    troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; buildArmed=null; aiTimers={}; resetCam();
+    troops = []; selected=null; dragPos=null; selSet=[]; airArmed=false; buildArmed=null; aiTimers={}; resetCam(); resetMatchControls();
     matchTrack = null;
 
     myOwner = PLAYER;
@@ -3688,7 +3693,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 51;
+  const WEB_VERSION = 52;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
