@@ -4,7 +4,7 @@
     "Nightmare AI: no more pointless small attacks on big garrisons, it now plans against players who mass their troops into one big stack, and it can strike with just what it needs instead of emptying its land",
     "Games now record a full match log (every move by both sides, your taps and drags, zoom and pan) to help improve the AI"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/4cd3aeb58cdfff0c55a5defb70cf246919cd2129/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/b31cb7ab629bd17adb07dbeb046f161f555b4c67/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
