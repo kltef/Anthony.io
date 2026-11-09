@@ -1,8 +1,10 @@
 //! State.io engine: rules, board setup, and the AI built on top of them.
 
 pub mod agent;
+pub mod chris;
 pub mod ffi;
 pub mod map;
+pub mod planner;
 pub mod policy;
 pub mod rng;
 pub mod roster;

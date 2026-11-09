@@ -184,13 +184,19 @@ pub fn capture_gain(w: &World, s: &State, p: &PolicyParams, me: u8, j: usize, ow
 
 /// Decide this owner's orders for the current instant. Appends to `out`; at most one order per state.
 pub fn act(w: &World, s: &State, me: u8, p: &PolicyParams, out: &mut Vec<Action>) {
+    act_locked(w, s, me, p, out, 0);
+}
+
+/// Like `act`, but never issues an order from a state in `lock` (states a plan has reserved),
+/// except to evacuate a locked state that cannot be held.
+pub fn act_locked(w: &World, s: &State, me: u8, p: &PolicyParams, out: &mut Vec<Action>, lock: u64) {
     let v = View::new(w, s, me);
     if v.mine == 0 {
         return;
     }
     let n = s.n;
     let speed = w.rules.orb_speed;
-    let mut used = 0u64; // states that already have an order this call
+    let mut used = lock; // states that already have an order this call (or are reserved)
     let mut claimed = 0u64; // targets already being attacked this call
     let hoarding = p.hoard_ratio > 0.0 && v.my_troops < p.hoard_ratio * v.enemy_troops;
 

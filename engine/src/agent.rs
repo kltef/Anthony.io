@@ -9,6 +9,14 @@ pub trait Agent: Send {
     fn reset(&mut self, w: &World, me: u8, seed: u64);
     /// Called every tick with the current state. Push any orders for `me` onto `out`.
     fn act(&mut self, w: &World, s: &State, out: &mut Vec<Action>);
+    /// (decisions, rollouts) so far, for benchmarks. Scripted agents report (0, 0).
+    fn stats(&self) -> (u64, u64) {
+        (0, 0)
+    }
+    /// One line describing the last decision, if the agent keeps one.
+    fn log(&self) -> Option<String> {
+        None
+    }
 }
 
 /// The base policy on a fixed decision cadence.

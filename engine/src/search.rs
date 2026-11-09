@@ -398,4 +398,7 @@ impl Agent for Searcher {
         self.next = s.time + self.p.cadence;
         self.decide(w, s, out);
     }
+    fn stats(&self) -> (u64, u64) {
+        (self.decisions, self.total_rollouts)
+    }
 }

@@ -19,6 +19,7 @@ const BUF: usize = 16384;
 enum Brain {
     Script(PolicyParams),
     Search(Box<Searcher>),
+    Plan(Box<crate::planner::Planner>),
 }
 
 struct Ctx {
@@ -81,7 +82,15 @@ pub extern "C" fn sio_agent(owner: u32, len: u32) -> u32 {
     CTX.with(|c| {
         let mut c = c.borrow_mut();
         let spec: String = c.buf[..len as usize].iter().map(|x| *x as u8 as char).collect();
-        let brain = if spec == "search" || spec.starts_with("search:") {
+        let brain = if spec == "plan" || spec.starts_with("plan:") {
+            match crate::roster::make_planner(&spec) {
+                Ok(mut pl) => {
+                    pl.set_owner(owner as u8);
+                    Brain::Plan(Box::new(pl))
+                }
+                Err(_) => return 0,
+            }
+        } else if spec == "search" || spec.starts_with("search:") {
             let mut p = SearchParams::default();
             if let Some((_, opts)) = spec.split_once(':') {
                 for kv in opts.split(',') {
@@ -151,6 +160,7 @@ pub extern "C" fn sio_decide(owner: u32) -> u32 {
         match c.brains.get_mut(owner as usize).and_then(|x| x.as_mut()) {
             Some(Brain::Script(p)) => policy::act(w, st, owner as u8, p, &mut c.out),
             Some(Brain::Search(s)) => s.decide(w, st, &mut c.out),
+            Some(Brain::Plan(p)) => p.decide(w, st, &mut c.out),
             None => return 0,
         }
         let mut k = 0;
@@ -175,6 +185,7 @@ pub extern "C" fn sio_decide(owner: u32) -> u32 {
 pub extern "C" fn sio_last_rollouts(owner: u32) -> u32 {
     CTX.with(|c| match c.borrow().brains.get(owner as usize).and_then(|x| x.as_ref()) {
         Some(Brain::Search(s)) => s.last.rollouts as u32,
+        Some(Brain::Plan(p)) => p.last.rollouts as u32,
         _ => 0,
     })
 }
