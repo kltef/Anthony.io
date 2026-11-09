@@ -3,7 +3,7 @@
   "notes": [
     "Fix: every new game now starts at 1x speed and Send: All - your speed and send choice no longer carry over from the last game"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/471b5fc587567a8a9b43f6578a362d5fd45e120d/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/aa76fe0581e51cb57a883773ff81f5c82ca20ee7/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
