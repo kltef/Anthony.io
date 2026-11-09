@@ -2799,10 +2799,19 @@
   const exportBtn = document.getElementById('exportBtn');
   function refreshExportBtn(){ if (!exportBtn) return; const mb=(typeof playLogBytes==='function'?playLogBytes():0)/1048576;
     exportBtn.textContent = '⬇ Data ('+playLogCount()+(mb>=0.1?', '+mb.toFixed(mb>=10?0:1)+'MB':'')+')'; }
+  let pendingRx = null;   // a developer receiver found on the first tap, waiting for the confirming tap
   async function exportPlayDataUI(){
     const n = playLogCount();
     if (n === 0) {
       if (exportBtn){ exportBtn.textContent = '⚠ No games yet'; setTimeout(refreshExportBtn, 2000); }
+      return;
+    }
+    if (pendingRx){   // second tap: the player confirmed sending to the receiver named on the button
+      const rx = pendingRx; pendingRx = null; clearTimeout(rx.expire);
+      if (exportBtn) exportBtn.textContent = '… sending';
+      const ok = await rx.send(rx.data).catch(() => false);
+      rx.close();
+      if (exportBtn){ exportBtn.textContent = ok ? ('✓ sent '+n+' games to '+rx.name) : '⚠ send failed'; setTimeout(refreshExportBtn, 2500); }
       return;
     }
     if (exportBtn) exportBtn.textContent = '… exporting';
@@ -2810,10 +2819,61 @@
     try {
       const data = await window.exportPlayData();
       sent = await sendToComputer(data);
-      if (!sent) await shareFile(data, 'stateio_playdata.json', 'application/json');
+      if (!sent){
+        const rx = await findDevReceiver(5000);
+        if (rx){
+          rx.data = data; pendingRx = rx;
+          rx.expire = setTimeout(() => { if (pendingRx === rx){ pendingRx = null; rx.close(); refreshExportBtn(); } }, 10000);
+          if (exportBtn) exportBtn.textContent = '📤 Tap again to send to '+rx.name;
+          return;
+        }
+        await shareFile(data, 'stateio_playdata.json', 'application/json');
+      }
       ok = true;
     } catch(e){ console.error('[stateio] exportPlayData failed:', e); }
     if (exportBtn){ exportBtn.textContent = sent ? ('✓ sent '+n+' games to computer') : ok ? ('✓ saved '+n+' games') : '⚠ export failed'; setTimeout(refreshExportBtn, 2000); }
+  }
+  // Developer path that needs no cable and no adb: a receiver page on the developer's computer
+  // (tools/stateio_receiver.js) registers this fixed id on the PeerJS broker the multiplayer mode
+  // already uses, and the export travels over a WebRTC data channel (direct on the same Wi-Fi). The
+  // receiver must answer with a hello first, and nothing is sent until the player taps a second
+  // time on a button that names the receiver. With no receiver online this is a silent no-op.
+  const DEV_RX_ID = 'stateio-v1-devrx-07c118ee2207cc40';
+  function findDevReceiver(ms){
+    return new Promise(resolve => {
+      if (typeof window.Peer !== 'function') return resolve(null);
+      let peer = null, conn = null, done = false;
+      const close = () => { try { conn && conn.close(); } catch(e){} try { peer && peer.destroy(); } catch(e){} };
+      const finish = v => { if (done) return; done = true; clearTimeout(timer); if (!v) close(); resolve(v); };
+      const timer = setTimeout(() => finish(null), ms);
+      try {
+        peer = new Peer(undefined, { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] } });
+      } catch(e){ return finish(null); }
+      peer.on('error', () => finish(null));
+      peer.on('open', () => {
+        conn = peer.connect(DEV_RX_ID, { reliable: true, serialization: 'raw' });   // raw strings: no 16 KB message cap
+        conn.on('error', () => finish(null));
+        let waiter = null;
+        const tx = o => conn.send(JSON.stringify(o));
+        conn.on('data', raw => {
+          let m = null; try { m = typeof raw === 'string' ? JSON.parse(raw) : null; } catch(e){}
+          if (m && m.t === 'hello' && !done){
+            finish({ name: String(m.name || 'computer').slice(0, 40), close, send: data => new Promise(res => {
+              waiter = res;
+              setTimeout(() => { if (waiter){ waiter = null; res(false); } }, 120000);
+              (async () => {
+                const CH = 60000, total = Math.ceil(data.length / CH);
+                for (let i = 0; i < total; i++){
+                  while (conn.dataChannel && conn.dataChannel.bufferedAmount > 4e6) await new Promise(r => setTimeout(r, 25));
+                  tx({ t: 'c', i, d: data.slice(i * CH, (i + 1) * CH) });
+                }
+                tx({ t: 'end', n: total, len: data.length });
+              })().catch(() => { if (waiter){ waiter = null; res(false); } });
+            }) });
+          } else if (m && (m.t === 'ok' || m.t === 'err') && waiter){ const w = waiter; waiter = null; w(m.t === 'ok'); }
+        });
+      });
+    });
   }
   // Developer path for exports too big for the share sheet / clipboard: a computer connected over
   // adb runs `adb reverse tcp:8765 tcp:8765` plus a small receiver, and the export goes straight to
@@ -3693,7 +3753,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 52;
+  const WEB_VERSION = 53;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
