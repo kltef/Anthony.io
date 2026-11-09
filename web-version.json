@@ -3,7 +3,7 @@
   "notes": [
     "New: after every game, see how the match went - a chart of states or troops over time for you and the AI, every state that changed hands, when the AI pulled ahead, and side-by-side numbers (first move, prices paid, orders per minute, invests, upgrades)"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/147b38e9d64d948ce8200acfa473b1fad8b9ec70/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/88069d9bb34795a08a092b11e3c3224f52874351/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
