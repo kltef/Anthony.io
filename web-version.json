@@ -1,7 +1,7 @@
 {
-  "web": 49,
+  "web": 50,
   "notes": [
-    "Each saved game now records which game version and app version it was played on, and which AI it faced"
+    "New: after every game, see how the match went - a chart of states or troops over time for you and the AI, every state that changed hands, when the AI pulled ahead, and side-by-side numbers (first move, prices paid, orders per minute, invests, upgrades)"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/147b38e9d64d948ce8200acfa473b1fad8b9ec70/src/web/",
   "files": [
@@ -15,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 50,
+      "date": "2026-11-09",
+      "notes": [
+        "New: after every game, see how the match went - a chart of states or troops over time for you and the AI, every state that changed hands, when the AI pulled ahead, and side-by-side numbers (first move, prices paid, orders per minute, invests, upgrades)"
+      ]
+    },
     {
       "web": 49,
       "date": "2026-11-08",

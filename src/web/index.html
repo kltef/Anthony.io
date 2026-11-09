@@ -286,6 +286,28 @@
   #upgradeBtn.armed, #investBtn.armed { background: var(--green) !important; color: var(--ink); }
   #airdropBtn.armed { background: var(--green); color: var(--ink);
     box-shadow: 0 3px 0 var(--ink), 0 0 0 4px var(--gold); }
+
+  /* ---- post-game recap: race chart + You vs AI comparison ---- */
+  .recap { pointer-events: auto; width: min(460px, 100%); box-sizing: border-box; background: var(--white);
+    border: 2.5px solid var(--ink); border-radius: 16px; box-shadow: 0 3px 0 var(--ink); padding: 12px 12px 10px;
+    color: var(--ink); text-align: left; font-family: inherit; }
+  .recap[hidden] { display: none; }
+  .recap .rc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .recap .rc-title { font-weight: 800; font-size: 15px; }
+  .recap .rc-seg { display: inline-flex; border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; }
+  .recap .rc-seg button { pointer-events: auto; border: 0; background: var(--white); color: var(--ink); font: inherit;
+    font-weight: 700; font-size: 13px; padding: 5px 10px; min-height: 32px; cursor: pointer; }
+  .recap .rc-seg button + button { border-left: 2px solid var(--ink); }
+  .recap .rc-seg button[aria-pressed="true"] { background: var(--ink); color: var(--white); }
+  .recap .rc-legend { display: flex; gap: 14px; font-size: 13px; font-weight: 700; margin: 2px 0 4px; }
+  .recap .rc-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  .recap .rc-legend .rc-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  .recap svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+  .recap .rc-note { font-size: 13px; font-weight: 700; color: var(--slate); margin: 4px 0 6px; min-height: 1em; }
+  .recap table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .recap th, .recap td { padding: 4px 6px; text-align: right; font-weight: 600; border-top: 1px solid #e3e7ec; }
+  .recap th:first-child, .recap td:first-child { text-align: left; color: var(--slate); }
+  .recap thead th { border-top: 0; font-weight: 800; color: var(--ink); }
   .coinline { pointer-events: auto; background: var(--gold); color: var(--ink); border: 2.5px solid var(--ink);
     border-radius: 999px; padding: 7px 16px; font-weight: 900; font-size: 15px; margin-top: -6px;
     box-shadow: 0 3px 0 var(--ink); }
@@ -376,6 +398,14 @@
 <div id="overlay">
   <h1>STATE<span class="io">.IO</span></h1>
   <p class="result" id="resultText"></p>
+  <section class="recap" id="recap" hidden aria-label="How the match went">
+    <div class="rc-head"><span class="rc-title">How the match went</span>
+      <span class="rc-seg" role="group" aria-label="Chart measure"><button type="button" data-m="states" aria-pressed="true">States</button><button type="button" data-m="troops" aria-pressed="false">Troops</button></span></div>
+    <div class="rc-legend" id="rcLegend"></div>
+    <svg id="rcChart" viewBox="0 0 440 190" role="img" aria-labelledby="rcNote"></svg>
+    <p class="rc-note" id="rcNote"></p>
+    <table id="rcTable" aria-label="You versus the AI"></table>
+  </section>
 
   <div class="modes" id="modes">
     <div class="mode active" data-mode="solo">vs Computer</div>
@@ -1198,6 +1228,7 @@
     const lv = LEVELS[levelIdx];
     cfg = lv;
     troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; resetCam();
+    if (typeof hideRecap==='function') hideRecap();
     startGameLog();
     if (netMode!=='host') myOwner = PLAYER;
     if (!netMode && regionIdx!==DEFAULT_REGION){ regionIdx=DEFAULT_REGION; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default (50-state) map
@@ -1270,6 +1301,7 @@
 
   function toMenu() {
     running = false;
+    if (typeof hideRecap==='function') hideRecap();
     scenarioMode = false; scenarioObserver = false;
     upgradesOn = tilesOn = false; boomUntil = 0;
     if (NET.es) { NET.es.close(); NET.es = null; }
@@ -2665,6 +2697,115 @@
       return r.ok;
     } catch(e){ return false; }
   }
+
+  // ---- post-game recap: how the match went (race chart + You vs AI comparison) ----
+  // Built from the match record (rec v2) and the board snapshots, so it shows exactly what was
+  // logged: states (or troops) over time for you and the AI, every state that changed hands
+  // between you, when the AI pulled ahead for good, and side-by-side numbers (first move, prices
+  // paid, orders per minute, invests, upgrades). Solo games only.
+  const recapEl = document.getElementById('recap');
+  let recapData = null, recapMeasure = 'states';
+  function hideRecap(){ if (recapEl) recapEl.hidden = true; recapData = null; }
+  function buildRecap(g){
+    if (!g || !g.rec || !g.rec.ev || !g.snaps || !g.snaps.length) return null;
+    const me = (g.rec.start && g.rec.start.myOwner) || PLAYER, isAI = o => o >= 2 && o !== me;
+    const pts = g.snaps.map(s => { let ms=0, mt=0, as=0, at=0;
+      for (let i=0;i<s.own.length;i++){ const o=s.own[i]; if (o===me){ ms++; mt+=s.tr[i]; } else if (isAI(o)){ as++; at+=s.tr[i]; } }
+      return { t:s.t, ms, mt, as, at }; });
+    if (g.finalBoard){ const s=g.finalBoard; let ms=0, mt=0, as=0, at=0;
+      for (let i=0;i<s.own.length;i++){ const o=s.own[i]; if (o===me){ ms++; mt+=s.tr[i]; } else if (isAI(o)){ as++; at+=s.tr[i]; } }
+      pts.push({ t: Math.max(g.duration||0, pts.length ? pts[pts.length-1].t : 0), ms, mt, as, at }); }
+    const side = o => o===me ? 'me' : isAI(o) ? 'ai' : null;
+    // troops in flight count toward the army: a big stack mid-air must not look like it vanished
+    const fl = [];   // [time, side, delta]
+    for (const e of g.rec.ev){ if (e[0]==='s'){ const k=side(e[3]); if (k) fl.push([e[1], k, e[6]]); } else if (e[0]==='l'){ const k=side(e[3]); if (k) fl.push([e[1], k, -e[5]]); } }
+    fl.sort((a,b) => a[0]-b[0]);
+    { let i=0, air={ me:0, ai:0 }; for (const p of pts){ while (i<fl.length && fl[i][0] <= p.t){ air[fl[i][1]] += fl[i][2]; i++; } p.mt += Math.max(0, air.me); p.at += Math.max(0, air.ai); } }
+    const st = { me:{ first:null, n:0, paid:0, took:0, sends:0, inv:0, upg:0, peak:0 }, ai:{ first:null, n:0, paid:0, took:0, sends:0, inv:0, upg:0, peak:0 } };
+    const flips = [], ms = { me:[], ai:[] };
+    for (const e of g.rec.ev){
+      if (e[0]==='s'){ const k=side(e[3]); if (!k) continue; const x=st[k]; x.sends++; if (x.first==null) x.first=e[1]; ms[k].push(e[2]); }
+      else if (e[0]==='l' && e[6]!==e[8]){ const k=side(e[8]); if (!k || side(e[3])!==k) continue;
+        if (e[6]===NEUTRAL){ st[k].n++; st[k].paid += e[7]; }
+        else if (side(e[6]) && side(e[6])!==k){ st[k].took++; flips.push({ t:e[1], k }); } }
+      else if (e[0]==='i' || e[0]==='u'){ const k=side(e[3]); if (k) st[k][e[0]==='i'?'inv':'upg']++; }
+    }
+    for (const k of ['me','ai']){ const a=ms[k].sort((x,y)=>x-y); let j=0; for (let i=0;i<a.length;i++){ while (a[i]-a[j]>500) j++; st[k].peak=Math.max(st[k].peak,i-j+1); } }
+    // when the side that finished ahead (in states) took the lead for good
+    let lead = null;
+    if (pts.length > 2){ const last = pts[pts.length-1], k = last.as > last.ms ? 'ai' : last.ms > last.as ? 'me' : null;
+      if (k){ let i = pts.length-1; while (i>0 && (k==='ai' ? pts[i-1].as > pts[i-1].ms : pts[i-1].ms > pts[i-1].as)) i--;
+        lead = { k, t:pts[i].t, a: k==='ai' ? pts[i].as : pts[i].ms, b: k==='ai' ? pts[i].ms : pts[i].as }; } }
+    return { pts, st, flips, lead, dur: g.duration||0, multi: new Set(g.snaps[0].own.filter(isAI)).size > 1 };
+  }
+  function renderRecap(){
+    const d = recapData; if (!d || !recapEl) return;
+    const svg = document.getElementById('rcChart'), W=440, H=190, L=34, R=58, T=10, B=24, pw=W-L-R, ph=H-T-B;
+    const cMe = DARK[PLAYER] || '#2c7fc4', cAI = DARK[2] || '#c43d36', aiName = d.multi ? 'AIs' : 'AI';
+    const key = recapMeasure==='states' ? ['ms','as'] : ['mt','at'];
+    const tMax = Math.max(1, d.pts[d.pts.length-1].t), vMax0 = Math.max(1, ...d.pts.map(p => Math.max(p[key[0]], p[key[1]])));
+    const step = [1,2,5,10,20,25,50,100,200,250,500,1000].find(s => vMax0/s <= 4) || 1000, vMax = Math.ceil(vMax0/step)*step;
+    const X = t => L + pw*t/tMax, Y = v => T + ph*(1 - v/vMax);
+    const line = k => d.pts.map((p,i) => (i?'L':'M') + X(p.t).toFixed(1) + ' ' + Y(p[k]).toFixed(1)).join('');
+    let s = '';
+    for (let v=0; v<=vMax; v+=step) s += `<line x1="${L}" x2="${L+pw}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e3e7ec" stroke-width="1"/><text x="${L-6}" y="${Y(v)+4}" text-anchor="end" font-size="10" fill="#55657D">${v}</text>`;
+    const tStep = [10,15,20,30,60,120].find(x => tMax/x <= 5) || 120;
+    for (let x=0; x<=tMax+0.01; x+=tStep) s += `<text x="${X(x)}" y="${H-6}" text-anchor="middle" font-size="10" fill="#55657D">${x}s</text>`;
+    if (d.lead) s += `<line x1="${X(d.lead.t)}" x2="${X(d.lead.t)}" y1="${T}" y2="${T+ph}" stroke="#55657D" stroke-width="1" stroke-dasharray="3 3"/>`;
+    s += `<path d="${line(key[1])}" fill="none" stroke="${cAI}" stroke-width="2" stroke-linejoin="round"/>`;
+    s += `<path d="${line(key[0])}" fill="none" stroke="${cMe}" stroke-width="2" stroke-linejoin="round"/>`;
+    // states that changed hands between you and the AI, on the taker's line
+    const at = t => { let p = d.pts[0]; for (const q of d.pts){ if (q.t <= t) p = q; else break; } return p; };
+    for (const f of d.flips){ const p = at(f.t), v = p[f.k==='me' ? key[0] : key[1]];
+      s += `<circle cx="${X(f.t)}" cy="${Y(v)}" r="4" fill="${f.k==='me' ? cMe : cAI}" stroke="#fff" stroke-width="2"/>`; }
+    const last = d.pts[d.pts.length-1];
+    let ym = Y(last[key[0]]), ya = Y(last[key[1]]); if (Math.abs(ym-ya) < 13){ if (ym <= ya){ ym -= 6; ya += 6; } else { ym += 6; ya -= 6; } }
+    s += `<text x="${L+pw+6}" y="${ym+4}" font-size="11" font-weight="700" fill="#2E3A4A">You ${last[key[0]]}</text>`;
+    s += `<text x="${L+pw+6}" y="${ya+4}" font-size="11" font-weight="700" fill="#2E3A4A">${aiName} ${last[key[1]]}</text>`;
+    s += `<g id="rcHover" visibility="hidden"><line id="rcHL" y1="${T}" y2="${T+ph}" stroke="#2E3A4A" stroke-width="1"/>
+      <circle id="rcHM" r="4" fill="${cMe}" stroke="#fff" stroke-width="2"/><circle id="rcHA" r="4" fill="${cAI}" stroke="#fff" stroke-width="2"/>
+      <rect id="rcHB" height="20" rx="6" fill="#2E3A4A"/><text id="rcHT" font-size="11" font-weight="700" fill="#fff"></text></g>`;
+    s += `<rect x="${L}" y="${T}" width="${pw}" height="${ph}" fill="transparent" id="rcHit"/>`;
+    svg.innerHTML = s;
+    document.getElementById('rcLegend').innerHTML = `<span><i style="background:${cMe}"></i>You</span><span><i style="background:${cAI}"></i>${aiName}</span>`
+      + (d.flips.length ? `<span><i class="rc-dot" style="background:var(--slate)"></i>state taken from the other side</span>` : '');
+    const unit = recapMeasure==='states' ? 'states' : 'troops';
+    document.getElementById('rcNote').textContent = d.lead
+      ? (d.lead.k==='ai' ? `${aiName} ahead in states from ${Math.round(d.lead.t)}s on (${d.lead.a} vs your ${d.lead.b}).` : `You were ahead in states from ${Math.round(d.lead.t)}s on (${d.lead.a} vs ${d.lead.b}).`)
+      : 'Even on states at the end.';
+    // touch / hover readout
+    const hit = document.getElementById('rcHit'), hov = document.getElementById('rcHover');
+    const show = ev => { const r = svg.getBoundingClientRect(), x = (ev.clientX - r.left) * W / r.width;
+      const t = Math.max(0, Math.min(tMax, (x - L) / pw * tMax)); let p = d.pts[0];
+      for (const q of d.pts) if (Math.abs(q.t - t) < Math.abs(p.t - t)) p = q;
+      const cx = X(p.t); hov.setAttribute('visibility', 'visible');
+      document.getElementById('rcHL').setAttribute('x1', cx); document.getElementById('rcHL').setAttribute('x2', cx);
+      const hm = document.getElementById('rcHM'), ha = document.getElementById('rcHA');
+      hm.setAttribute('cx', cx); hm.setAttribute('cy', Y(p[key[0]])); ha.setAttribute('cx', cx); ha.setAttribute('cy', Y(p[key[1]]));
+      const txt = `${Math.round(p.t)}s · You ${p[key[0]]} · ${aiName} ${p[key[1]]} ${unit}`, tw = txt.length * 5.9 + 12;
+      const bx = Math.max(2, Math.min(W - tw - 2, cx - tw/2));
+      const b = document.getElementById('rcHB'); b.setAttribute('x', bx); b.setAttribute('y', T); b.setAttribute('width', tw);
+      const tt = document.getElementById('rcHT'); tt.textContent = txt; tt.setAttribute('x', bx + 6); tt.setAttribute('y', T + 14); };
+    hit.addEventListener('pointermove', show); hit.addEventListener('pointerdown', show);
+    hit.addEventListener('pointerleave', () => hov.setAttribute('visibility', 'hidden'));
+    // You vs AI numbers
+    const f1 = v => v==null ? '–' : v.toFixed(1) + 's', avg = x => x.n ? Math.round(x.paid / x.n) : '–';
+    const perMin = x => d.dur ? Math.round(x.sends / (d.dur / 60)) : '–', a = d.st.me, b = d.st.ai;
+    const rows = [['First move', f1(a.first), f1(b.first)], ['Neutral states taken', a.n, b.n], ['Average garrison paid', avg(a), avg(b)],
+      ['States taken from the other', a.took, b.took], ['Orders per minute', perMin(a), perMin(b)], ['Most orders in ½ second', a.peak, b.peak],
+      ['Invests', a.inv, b.inv], ['Upgrades', a.upg, b.upg]];
+    document.getElementById('rcTable').innerHTML = `<thead><tr><th></th><th>You</th><th>${aiName}</th></tr></thead><tbody>`
+      + rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('') + '</tbody>';
+    for (const btn of recapEl.querySelectorAll('.rc-seg button')) btn.setAttribute('aria-pressed', String(btn.dataset.m === recapMeasure));
+  }
+  function showRecap(g){
+    if (!recapEl || netMode) return;
+    try { recapData = buildRecap(g); } catch(e){ recapData = null; }
+    if (!recapData){ recapEl.hidden = true; return; }
+    recapEl.hidden = false; renderRecap();
+  }
+  if (recapEl) for (const btn of recapEl.querySelectorAll('.rc-seg button'))
+    btn.addEventListener('click', () => { recapMeasure = btn.dataset.m; renderRecap(); });
   if (exportBtn) exportBtn.addEventListener('click', exportPlayDataUI);
   document.addEventListener('visibilitychange', () => recEv(['ui', recT(), recMs(), 'visible', document.hidden ? 0 : 1]));
   playInit();   // open IndexedDB, compute stats, migrate any old localStorage archive
@@ -2703,6 +2844,7 @@
       finalBoard: a ? boardSnapshot() : null };
     api('/api/record', gameLog).catch(()=>{});
     savePlayLog(gameLog);
+    try { showRecap(gameLog); } catch(e){}
     if (typeof refreshExportBtn==='function') refreshExportBtn();
     matchTrack = null;
   }
@@ -3418,7 +3560,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 49;
+  const WEB_VERSION = 50;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
