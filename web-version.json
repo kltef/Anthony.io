@@ -3,7 +3,7 @@
   "notes": [
     "New: 🎓 Practice - a guided lesson on the real map that shows how investing and cap upgrades work, step by step, against a scripted red side that never attacks"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/88069d9bb34795a08a092b11e3c3224f52874351/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/471b5fc587567a8a9b43f6578a362d5fd45e120d/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
