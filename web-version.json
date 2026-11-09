@@ -3,7 +3,7 @@
   "notes": [
     "Data button: can now send your games straight to the developer's computer over Wi-Fi - no cable or USB debugging needed (you tap twice to confirm)"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/aa76fe0581e51cb57a883773ff81f5c82ca20ee7/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/6ef1ad7cc72862b30358f0e9d95c42bddb6d0753/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
