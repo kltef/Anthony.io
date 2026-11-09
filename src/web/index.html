@@ -308,6 +308,17 @@
   .recap th, .recap td { padding: 4px 6px; text-align: right; font-weight: 600; border-top: 1px solid #e3e7ec; }
   .recap th:first-child, .recap td:first-child { text-align: left; color: var(--slate); }
   .recap thead th { border-top: 0; font-weight: 800; color: var(--ink); }
+  /* ---- practice lesson coach card ---- */
+  #coach { position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 70px); transform: translateX(-50%);
+    width: min(420px, 92vw); box-sizing: border-box; z-index: 30; pointer-events: auto; background: var(--white);
+    border: 2.5px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); padding: 10px 12px; color: var(--ink); }
+  #coach.gone { display: none; }
+  #coach .co-title { font-weight: 800; font-size: 15px; margin-bottom: 3px; }
+  #coach .co-text { font-size: 14px; line-height: 1.45; font-weight: 600; }
+  #coach .co-live { font-size: 14px; font-weight: 800; margin-top: 6px; min-height: 1em; font-variant-numeric: tabular-nums; }
+  #coach .co-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  #coach .co-row span { flex: 1; font-size: 12px; color: var(--slate); font-weight: 700; }
+  #coach .co-row button { min-height: 36px; }
   .coinline { pointer-events: auto; background: var(--gold); color: var(--ink); border: 2.5px solid var(--ink);
     border-radius: 999px; padding: 7px 16px; font-weight: 900; font-size: 15px; margin-top: -6px;
     box-shadow: 0 3px 0 var(--ink); }
@@ -416,7 +427,7 @@
 
   <div class="who">Playing as <b id="playerNameDisp">Player</b>
     <button class="mini2" id="changeNameBtn" title="Change your name">✎</button>
-    <button class="mini2" id="settingsBtn" title="Settings">⚙</button><button class="mini2" id="tutBtn" title="How to play">❓</button>
+    <button class="mini2" id="settingsBtn" title="Settings">⚙</button><button class="mini2" id="tutBtn" title="How to play">❓</button><button class="mini2" id="lessonBtn" title="Practice investing and cap upgrades on a scripted board">🎓 Practice</button>
     <button class="mini2" id="lbBtn">🏆 Leaderboard</button>
     <button class="mini2" id="shopBtn">🪙 Shop</button>
     <button class="mini2" id="exportBtn" title="Export your recorded play data">⬇ Data</button>
@@ -512,6 +523,12 @@
     <button class="btn" id="tutNext">Next</button>
   </div>
   <button id="tutSkip" style="position:absolute;top:7px;right:11px;background:none;border:none;font-size:18px;cursor:pointer;color:var(--slate)">×</button>
+</div>
+<div id="coach" class="gone" role="status" aria-live="polite">
+  <div class="co-title" id="coTitle"></div>
+  <div class="co-text" id="coText"></div>
+  <div class="co-live" id="coLive"></div>
+  <div class="co-row"><span id="coStep"></span><button class="mini2" id="coExit">Exit</button><button class="mini2" id="coNext">Next</button></div>
 </div>
 <div id="tutToast" class="gone" style="position:fixed;left:50%;bottom:76px;transform:translateX(-50%);z-index:35;background:var(--ink);color:#fff;border-radius:12px;padding:10px 16px;font-size:14px;max-width:88vw;box-shadow:0 6px 18px rgba(0,0,0,.35);pointer-events:none;text-align:center"></div>
 <div id="settingsPanel" class="gone" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:30;background:var(--white);border:3px solid var(--ink);border-radius:18px;padding:22px 24px;box-shadow:0 6px 0 rgba(46,58,74,.28),0 14px 34px rgba(21,68,88,.32);width:min(330px,92vw);text-align:center;pointer-events:auto">
@@ -1031,7 +1048,8 @@
   // The planner models #2 and #4 (via req.depth/req.terr — see planWorkerMain CONTRACT); #1/#3
   // follow the special-tiles precedent (real sim only, not the forward model).
   let depthMode = lsGet('depthMode') !== 'off';
-  const depthOn = () => netMode ? true : depthMode;   // multiplayer always plays the full rule set
+  let lesson = null;   // the guided practice lesson, while one runs (see PRACTICE LESSON)
+  const depthOn = () => (netMode || lesson) ? true : depthMode;   // multiplayer always plays the full rule set
   const LANCH = 1.5;                                        // concentration exponent (CONTRACT: worker copy)
   // over-cap attrition curve (anti-hoard): decay/s = ATTRITION_Q * excess^2 / cap — QUADRATIC in
   // the excess, so a small tactical buffer above cap is nearly free (200 @cap150 -> 1.0/s) but a
@@ -1229,6 +1247,7 @@
     cfg = lv;
     troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; resetCam();
     if (typeof hideRecap==='function') hideRecap();
+    if (lesson) endLesson();
     startGameLog();
     if (netMode!=='host') myOwner = PLAYER;
     if (!netMode && regionIdx!==DEFAULT_REGION){ regionIdx=DEFAULT_REGION; buildStatesForRegion(); buildRegionButtons(); }  // solo always uses the default (50-state) map
@@ -1301,6 +1320,7 @@
 
   function toMenu() {
     running = false;
+    if (lesson) endLesson();
     if (typeof hideRecap==='function') hideRecap();
     scenarioMode = false; scenarioObserver = false;
     upgradesOn = tilesOn = false; boomUntil = 0;
@@ -1657,9 +1677,10 @@
   window.__sioDebug = () => { const by = {}; for (const s of states){ const o = by[s.owner] || (by[s.owner] = { states:0, troops:0 }); o.states++; o.troops += Math.round(s.troops); }
     return { running, t:+gameElapsed.toFixed(1), level:LEVELS[levelIdx].name, brain:cfg.brain, engReady, engFailed, engStats, orbs:troops.length, owners:by,
       // screen (CSS px) positions of the local player's states and their neighbours, for input tests
-      mine: states.filter(s=>s.owner===myOwner).map(s=>({ id:s.id, troops:Math.round(s.troops), x:Math.round(s.cx*cam.scale+cam.ox), y:Math.round(s.cy*cam.scale+cam.oy),
+      mine: states.filter(s=>s.owner===myOwner).map(s=>({ id:s.id, name:s.name, troops:Math.round(s.troops), x:Math.round(s.cx*cam.scale+cam.ox), y:Math.round(s.cy*cam.scale+cam.oy),
         nb:[...adjacency[s.id]].map(j=>{ const n=states[j]; return { id:j, owner:n.owner, troops:Math.round(n.troops), x:Math.round(n.cx*cam.scale+cam.ox), y:Math.round(n.cy*cam.scale+cam.oy) }; }) })) }; };
   function updateAI(dt) {
+    if (lesson){ lessonTick(dt); return; }   // scripted red side, no AI engine
     const lv = LEVELS[levelIdx];
     const enemies = new Set();
     for (const s of states) if (s.owner>=2) enemies.add(s.owner);
@@ -1760,7 +1781,7 @@
     }
     updateAI(dt);
 
-    if (running) {
+    if (running && !lesson) {
       const alive = ownersAlive();
       if (netMode==='host') {
         // multiplayer: the host keeps simulating until a single owner is left,
@@ -1970,6 +1991,7 @@
 
     // nodes
     for (const s of states) node(s.cx, s.cy, s.troops, s.owner, selected===s, s.pulse, s.type, s.level, s);
+    if (lesson) lessonDraw();
 
     updateBar();
   }
@@ -2065,6 +2087,7 @@
   function gameDown(cssPt){
     if (scnEdit){ scnPainting = scnEditPaintAt(cssPt); return; }
     if (!running) return;
+    if (lesson && LESSON[lesson.i].lock) return;   // practice lesson: a "watch" step
     const pos=screenToWorld(cssPt); const s=stateAt(pos);
     recEv(['pd', recT(), recMs(), ...recPt(cssPt), selected ? selected.id : -1]);
     // 🪂 Airdrop armed: this tap drops reinforcements on the tapped state (if it's yours), then disarms.
@@ -2395,6 +2418,111 @@
         if (ps) ps.addEventListener('click', () => setTimeout(tutOpen, 350), { once:true }); }
     }
   }
+
+  // ================= PRACTICE LESSON: investing and cap upgrades =================
+  // A guided lesson on the real map with the real rules and rendering. The red side is SCRIPTED
+  // (no AI engine, it never attacks): the lesson teaches the mechanics only - what investing does,
+  // what the cap is, what happens above it, and what an upgrade buys. No recording, coins or result.
+  const coachEl = document.getElementById('coach');
+  const LS = n => states.find(s => s.name === n);
+  const LESSON = [
+    { title:'🎓 Practice: invest & upgrade', next:true,
+      text:'A practice board on the real map. Your states are <b>blue</b>; the red side is scripted and <b>won’t attack</b>. Nothing here counts.' },
+    { title:'🌱 Invest', focus:['Indiana'],
+      enter(){ const s = LS('Indiana'); s.troops = Math.max(s.troops, 45); },
+      text:'Investing spends troops now so a state grows faster for the rest of the game. Tap <b>🌱 Invest</b>, then tap <b>Indiana</b>.',
+      done(){ return (LS('Indiana').inv||0) >= 1; } },
+    { title:'Watch the difference', focus:['Indiana','Ohio'], lock:true,
+      enter(d){ for (const n of ['Indiana','Ohio']){ const s = LS(n); s.troops = 20; s.growAcc = 0; }
+        const m = LS('Michigan'); if (m && m.owner===2 && (m.inv||0) < 1 && m.troops > investCost(0)) doInvest(m); },
+      text:'Indiana (invested) and Ohio (not) both start at 20. Invested states grow <b>+40% per tier</b>. Red just invested Michigan too — the <b>green dots</b> beside a state show its invest tier.',
+      live(){ return `Indiana +${Math.round(LS('Indiana').troops-20)}   ·   Ohio +${Math.round(LS('Ohio').troops-20)}`; },
+      done(d){ return d.t >= 12; } },
+    { title:'🌱 Invest tiers', focus:['Indiana'],
+      enter(){ LS('Indiana').troops = 120; },
+      text:'Tiers cost <b>25, 40, 55</b> troops, paid from that state. Tier 3 grows <b>2.2×</b> as fast. Invest <b>Indiana</b> up to tier 3.',
+      live(){ return `Indiana tier ${LS('Indiana').inv||0} / 3`; },
+      done(){ return (LS('Indiana').inv||0) >= 3; } },
+    { title:'The cap', focus:['Ohio','Indiana','Pennsylvania'],
+      enter(){ LS('Ohio').troops = 110; LS('Indiana').troops = 90; LS('Pennsylvania').troops = 90; },
+      text:'A state only grows up to its <b>cap (150)</b>. Drag from <b>Pennsylvania</b> across <b>Indiana</b> and release on <b>Ohio</b> to stack them there.',
+      done(){ return LS('Ohio').troops > 200; } },
+    { title:'Above the cap', focus:['Ohio'], lock:true,
+      enter(d){ d.max = LS('Ohio').troops; },
+      text:'Troops above the cap <b>desert</b> — the further above, the faster. Watch Ohio.',
+      live(d){ const o = LS('Ohio'); d.max = Math.max(d.max, o.troops); return `Ohio ${Math.round(o.troops)}  (cap ${capOf(o)})  ·  lost ${Math.max(0, Math.round(d.max - o.troops))}`; },
+      done(d){ return d.t >= 8; } },
+    { title:'⬆ Upgrade', focus:['Ohio'],
+      text:'An upgrade raises a state’s cap <b>+25 per level</b> (up to 250) for <b>40, 70, 100, 130</b> troops, paid from that state. Tap <b>⬆ Upgrade</b>, then tap <b>Ohio</b>.',
+      live(){ const o = LS('Ohio'); return `Ohio ${Math.round(o.troops)}  ·  cap ${capOf(o)}`; },
+      done(){ return (LS('Ohio').level||0) >= 1; } },
+    { title:'✔ Done', next:true, last:true,
+      text:'Invest early so it has time to pay back. Upgrade a state that keeps hitting its cap. Both are paid in troops from that state.' },
+  ];
+  function startLesson(){
+    if (!ready || netMode) return;
+    scenarioMode = false; scenarioObserver = false;
+    cfg = { name:'Practice', brain:null, think:1, enemies:1, growRate:1, enemyGrow:1, neutralMin:30, neutralMax:30, playerStart:40, enemyStart:40, aiAggro:0 };
+    troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; resetCam();
+    if (typeof hideRecap==='function') hideRecap();
+    matchTrack = null;                                   // practice is never recorded
+    myOwner = PLAYER;
+    if (regionIdx!==DEFAULT_REGION){ regionIdx=DEFAULT_REGION; buildStatesForRegion(); buildRegionButtons(); }
+    buildGeo();
+    upgradesOn = true; tilesOn = false; boomUntil = 0;
+    applyPlayerColor();
+    for (const s of states){ s.owner = NEUTRAL; s.troops = 30; s.growAcc = 0; s.pulse = 0; s.level = 0; s.type = null; s.inv = 0; s.offSupply = false; }
+    for (const n of ['Ohio','Indiana','Pennsylvania']){ const s = LS(n); if (s){ s.owner = PLAYER; s.troops = 40; } }
+    for (const n of ['Michigan','Wisconsin']){ const s = LS(n); if (s){ s.owner = 2; s.troops = 60; } }
+    slotControl = { 2:'lesson' };                        // not an AI slot: the engine never drives it
+    gameSpeed = 1; const sb = document.getElementById('speedBtn'); if (sb) sb.innerHTML = '1&times;';
+    lesson = { i:0, d:{ t:0 } };
+    running = true; gameTick = 0; gameElapsed = 0;
+    overlay.classList.add('hidden');
+    const o = LS('Ohio');
+    if (o){ cam.scale = Math.min(MAX_SCALE, 2.6); cam.ox = W/2 - o.cx*cam.scale; cam.oy = H*0.58 - o.cy*cam.scale; clampOffset(); }
+    lessonEnter(0);
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+  }
+  function lessonEnter(i){
+    lesson.i = i; lesson.d = { t:0 };
+    const st = LESSON[i];
+    if (st.enter) st.enter(lesson.d);
+    buildArmed = null; hudUpg = hudInv = null;
+    document.getElementById('coTitle').textContent = st.title;
+    document.getElementById('coText').innerHTML = st.text;
+    document.getElementById('coStep').textContent = (i+1) + ' / ' + LESSON.length;
+    const nb = document.getElementById('coNext');
+    nb.style.display = st.next ? '' : 'none'; nb.textContent = st.last ? 'Finish' : 'Next';
+    document.getElementById('coLive').textContent = st.live ? st.live(lesson.d) : '';
+    coachEl.classList.remove('gone');
+  }
+  function lessonTick(dt){
+    const st = LESSON[lesson.i]; lesson.d.t += dt;
+    if (st.live) document.getElementById('coLive').textContent = st.live(lesson.d);
+    if (st.done && st.done(lesson.d)){
+      if (lesson.i < LESSON.length-1) lessonEnter(lesson.i+1);
+    }
+  }
+  function lessonDraw(){
+    const st = LESSON[lesson.i]; if (!st.focus) return;
+    const tk = zk(), pulse = 0.5 + 0.5*Math.sin(performance.now()/260);
+    ctx.save(); ctx.strokeStyle = '#f2b705'; ctx.lineWidth = 3*tk;
+    for (const n of st.focus){ const s = LS(n); if (!s) continue;
+      ctx.globalAlpha = 0.55 + 0.45*pulse; ctx.beginPath(); ctx.arc(s.cx, s.cy, (24 + 4*pulse)*tk, 0, Math.PI*2); ctx.stroke(); }
+    ctx.restore();
+  }
+  function endLesson(){ lesson = null; if (coachEl) coachEl.classList.add('gone'); slotControl = {}; }
+  if (coachEl){
+    document.getElementById('lessonBtn').onclick = startLesson;
+    document.getElementById('coExit').onclick = () => toMenu();
+    document.getElementById('coNext').onclick = () => {
+      if (!lesson) return;
+      if (LESSON[lesson.i].last) toMenu(); else lessonEnter(lesson.i+1);
+    };
+  }
+
   // in-game hint toasts (one game's worth, armed by finishing the tutorial)
   const tutToastEl = document.getElementById('tutToast');
   let _tutToastT = null;
@@ -2406,7 +2534,7 @@
   }
   const tutFired = {};
   function tutHintsTick(){                    // called each update() while a solo game runs
-    if (lsGet('tutHints')!=='on' || netMode) return;
+    if (lsGet('tutHints')!=='on' || netMode || lesson) return;
     let mine=0, cut=false;
     for (const s of states) if (s.owner===myOwner){ mine++; if (s.offSupply) cut=true; }
     if (!tutFired.start && gameElapsed>1){ tutFired.start=1; tutHint('🎯 Drag from your blue state to a neighbour to send troops'); }
@@ -3560,7 +3688,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 50;
+  const WEB_VERSION = 51;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;

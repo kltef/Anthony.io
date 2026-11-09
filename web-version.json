@@ -1,7 +1,7 @@
 {
-  "web": 50,
+  "web": 51,
   "notes": [
-    "New: after every game, see how the match went - a chart of states or troops over time for you and the AI, every state that changed hands, when the AI pulled ahead, and side-by-side numbers (first move, prices paid, orders per minute, invests, upgrades)"
+    "New: 🎓 Practice - a guided lesson on the real map that shows how investing and cap upgrades work, step by step, against a scripted red side that never attacks"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/88069d9bb34795a08a092b11e3c3224f52874351/src/web/",
   "files": [
@@ -15,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 51,
+      "date": "2026-11-09",
+      "notes": [
+        "New: 🎓 Practice - a guided lesson on the real map that shows how investing and cap upgrades work, step by step, against a scripted red side that never attacks"
+      ]
+    },
     {
       "web": 50,
       "date": "2026-11-09",
