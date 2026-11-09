@@ -1,8 +1,7 @@
 {
-  "web": 48,
+  "web": 49,
   "notes": [
-    "Nightmare AI: no more pointless small attacks on big garrisons, it now plans against players who mass their troops into one big stack, and it can strike with just what it needs instead of emptying its land",
-    "Games now record a full match log (every move by both sides, your taps and drags, zoom and pan) to help improve the AI"
+    "Each saved game now records which game version and app version it was played on, and which AI it faced"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/b31cb7ab629bd17adb07dbeb046f161f555b4c67/src/web/",
   "files": [
@@ -16,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 49,
+      "date": "2026-11-08",
+      "notes": [
+        "Each saved game now records which game version and app version it was played on, and which AI it faced"
+      ]
+    },
     {
       "web": 48,
       "date": "2026-11-08",

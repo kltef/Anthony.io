@@ -2693,7 +2693,9 @@
       };
     }
     // full game log: header + expanded profile + every move's board context + trajectory samples
-    const gameLog = { v:1, name: playerName, ts: Date.now(), won: !!won,
+    let shell = null; try { shell = (window.AndroidHost && AndroidHost.nativeVersion) ? AndroidHost.nativeVersion() : null; } catch(e){}
+    // web: the game build the match was played on; shell: the installed app version; brain: the AI it faced
+    const gameLog = { v:1, name: playerName, ts: Date.now(), won: !!won, web: WEB_VERSION, shell, brain: cfg && cfg.brain,
       difficulty: LEVELS[levelIdx].name, region: REGIONS[regionIdx] && REGIONS[regionIdx].name,
       duration: Math.round(gameElapsed), outcome: won ? 'win' : 'loss',
       header: a && a.header, profile, moves: (a && a.moves) || [], snaps: (a && a.snaps) || [],
@@ -3416,7 +3418,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 48;
+  const WEB_VERSION = 49;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
