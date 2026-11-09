@@ -3,7 +3,7 @@
   "notes": [
     "Data export: can now send very large play-data exports straight to a connected computer (developer tool; nothing changes for players)"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/ddc211690dcfcbf00bc4600841f7974b265e9f10/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/92c88e431af0e6be853b85ec3c27138a69c60951/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
