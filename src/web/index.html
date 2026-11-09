@@ -2593,13 +2593,29 @@
       return;
     }
     if (exportBtn) exportBtn.textContent = '… exporting';
-    let ok = false;
+    let ok = false, sent = false;
     try {
       const data = await window.exportPlayData();
-      await shareFile(data, 'stateio_playdata.json', 'application/json');
+      sent = await sendToComputer(data);
+      if (!sent) await shareFile(data, 'stateio_playdata.json', 'application/json');
       ok = true;
     } catch(e){ console.error('[stateio] exportPlayData failed:', e); }
-    if (exportBtn){ exportBtn.textContent = ok ? ('✓ saved '+n+' games') : '⚠ export failed'; setTimeout(refreshExportBtn, 2000); }
+    if (exportBtn){ exportBtn.textContent = sent ? ('✓ sent '+n+' games to computer') : ok ? ('✓ saved '+n+' games') : '⚠ export failed'; setTimeout(refreshExportBtn, 2000); }
+  }
+  // Developer path for exports too big for the share sheet / clipboard: a computer connected over
+  // adb runs `adb reverse tcp:8765 tcp:8765` plus a small receiver, and the export goes straight to
+  // it through the phone's loopback. On every other device nothing listens there, the ping fails
+  // within ~1.5s, and the normal share/modal flow runs exactly as before.
+  async function sendToComputer(data){
+    const base = 'http://127.0.0.1:8765';
+    try {
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 1500);
+      const ping = await fetch(base + '/stateio-ping', { signal: ctl.signal });
+      clearTimeout(t);
+      if (!ping.ok || (await ping.text()) !== 'stateio-receiver') return false;
+      const r = await fetch(base + '/stateio-upload', { method:'POST', headers:{ 'content-type':'text/plain' }, body:data });
+      return r.ok;
+    } catch(e){ return false; }
   }
   if (exportBtn) exportBtn.addEventListener('click', exportPlayDataUI);
   playInit();   // open IndexedDB, compute stats, migrate any old localStorage archive
@@ -3350,7 +3366,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 45;
+  const WEB_VERSION = 46;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;

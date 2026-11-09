@@ -1,7 +1,7 @@
 {
-  "web": 45,
+  "web": 46,
   "notes": [
-    "Removed the 5x and 10x speeds - the speed button now cycles 1x, 2x, 3x"
+    "Data export: can now send very large play-data exports straight to a connected computer (developer tool; nothing changes for players)"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/ddc211690dcfcbf00bc4600841f7974b265e9f10/src/web/",
   "files": [
@@ -15,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 46,
+      "date": "2026-11-08",
+      "notes": [
+        "Data export: can now send very large play-data exports straight to a connected computer (developer tool; nothing changes for players)"
+      ]
+    },
     {
       "web": 45,
       "date": "2026-10-22",
