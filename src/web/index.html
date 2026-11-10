@@ -346,6 +346,8 @@
   .shop-sw { width: 26px; height: 26px; border-radius: 8px; cursor: pointer; pointer-events: auto; border: 2px solid rgba(46,58,74,.3); }
   .shop-sw.on { border-color: var(--ink); box-shadow: 0 0 0 3px var(--gold); }
   .shop-sw.lock { opacity: .42; }
+  .shop-sw.armed { opacity: 1; box-shadow: 0 0 0 3px #38c46f; }
+  .shop-msg { margin-top: 4px; font-size: 12px; font-weight: 800; color: #1f7a45; }
   .shop-colors { flex-wrap: wrap; }
   .shop-rank { color: var(--slate); font-size: 12px; font-weight: 700; padding: 2px 4px 8px; text-align: left; }
   .shop-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
@@ -3702,6 +3704,19 @@
   }
   setTimeout(backfillShop, 3000);
   function refreshShopBtn(){ if (shopBtn) shopBtn.textContent='🪙 Shop ('+PERK.coins+')'; }
+  // Buying a single item: the first tap arms it and the row says the price, the second tap buys.
+  // (No confirm()/alert(): the app's WebView silently swallows browser dialogs, so the old
+  // "Buy X for N?" box never appeared on phones and nothing could be bought.)
+  let shopArm = null, shopMsg = null;            // armed "kind:id"; {kind, text} shown in that row
+  function lockedTap(kind, ch){
+    const key = kind+':'+ch.id, pr = shopPrice(ch.price), nm = ch.name || 'this';
+    if (PERK.coins < pr){ shopArm = null; shopMsg = { kind, text:nm+' costs '+pr+' 🪙 — you have '+PERK.coins+'.' }; return false; }
+    if (shopArm !== key){ shopArm = key; shopMsg = { kind, text:'Tap '+nm+' again to buy it · '+pr+' 🪙' }; return false; }
+    PERK.coins -= pr; savePerk('coins'); PERK.owned.add(key); saveOwned(); refreshShopBtn();
+    shopArm = null; shopMsg = { kind, text:'Bought '+nm+'!' };
+    return true;
+  }
+  const rowMsg = kind => (shopMsg && shopMsg.kind===kind) ? '<div class="shop-msg">'+esc(shopMsg.text)+'</div>' : '';
   function buyItem(item){
     if (item.owned && item.owned()) return;
     const cost = item.cost();
@@ -3767,20 +3782,19 @@
       const row=document.createElement('div'); row.className='shop-item';
       const ic=document.createElement('div'); ic.className='shop-ic'; ic.textContent=o.ic; row.appendChild(ic);
       const meta=document.createElement('div'); meta.className='shop-meta';
+      const extras = o.choices.some(c => c.price);
       meta.innerHTML='<div class="shop-name">'+esc(o.title)+'</div><div class="shop-desc">'+
-        esc(PERK[o.unlockedKey] ? o.subOn : o.subOff)+'</div>';
+        esc((PERK[o.unlockedKey] ? o.subOn : o.subOff) + (extras ? ' Faded ones are sold separately — tap one to buy it.' : ''))+'</div>'+rowMsg(o.kind);
       const sw=document.createElement('div'); sw.className='shop-colors';
       o.choices.forEach(ch=>{ const d=document.createElement('div');
         const extra = !!ch.price, have = extra ? PERK.owned.has(o.kind+':'+ch.id) : PERK[o.unlockedKey];
-        d.className='shop-sw'+(o.isOn(ch)?' on':'')+(have?'':' lock'); o.render(ch, d);
+        d.className='shop-sw'+(o.isOn(ch)?' on':'')+(have?'':' lock')+(shopArm===o.kind+':'+ch.id?' armed':''); o.render(ch, d);
         if (extra) d.title = (ch.name||'') + (have ? '' : ' · '+shopPrice(ch.price)+' 🪙');
         d.onclick=()=>{
           if (!have){
-            if (!extra) return;                                   // comes with the row's unlock
-            const pr=shopPrice(ch.price);
-            if (PERK.coins < pr){ alert((ch.name||'This')+' costs '+pr+' 🪙 — you have '+PERK.coins+'.'); return; }
-            if (!confirm('Buy '+(ch.name||'this emblem')+' for '+pr+' 🪙?')) return;
-            PERK.coins-=pr; savePerk('coins'); PERK.owned.add(o.kind+':'+ch.id); saveOwned(); refreshShopBtn(); }
+            if (!extra){ shopMsg = { kind:o.kind, text:'Unlock this row first (button on the right).' }; buildShop(); return; }
+            if (!lockedTap(o.kind, ch)){ buildShop(); return; } }
+          else { shopArm = null; if (!(shopMsg && shopMsg.text.startsWith('Bought'))) shopMsg = null; }
           o.pick(ch); buildShop(); };
         sw.appendChild(d); });
       meta.appendChild(sw); row.appendChild(meta);
@@ -3796,17 +3810,15 @@
       const row=document.createElement('div'); row.className='shop-item';
       const ic=document.createElement('div'); ic.className='shop-ic'; ic.textContent=o.ic; row.appendChild(ic);
       const meta=document.createElement('div'); meta.className='shop-meta';
-      meta.innerHTML='<div class="shop-name">'+esc(o.title)+'</div><div class="shop-desc">'+esc(o.sub)+'</div>';
+      meta.innerHTML='<div class="shop-name">'+esc(o.title)+'</div><div class="shop-desc">'+esc(o.sub+' Faded ones are for sale — tap one to buy it.')+'</div>'+rowMsg(o.kind);
       const sw=document.createElement('div'); sw.className='shop-colors';
       o.choices.forEach(ch=>{ const d=document.createElement('div');
         const have = !ch.price || PERK.owned.has(o.kind+':'+ch.id);
-        d.className='shop-sw'+(o.isOn(ch)?' on':'')+(have?'':' lock'); o.render(ch, d);
+        d.className='shop-sw'+(o.isOn(ch)?' on':'')+(have?'':' lock')+(shopArm===o.kind+':'+ch.id?' armed':''); o.render(ch, d);
         d.title = ch.name + (have ? '' : ' · '+shopPrice(ch.price)+' 🪙');
         d.onclick=()=>{
-          if (!have){ const pr=shopPrice(ch.price);
-            if (PERK.coins < pr){ alert(ch.name+' costs '+pr+' 🪙 — you have '+PERK.coins+'.'); return; }
-            if (!confirm('Buy '+ch.name+' for '+pr+' 🪙?')) return;
-            PERK.coins-=pr; savePerk('coins'); PERK.owned.add(o.kind+':'+ch.id); saveOwned(); refreshShopBtn(); }
+          if (!have){ if (!lockedTap(o.kind, ch)){ buildShop(); return; } }
+          else { shopArm = null; if (!(shopMsg && shopMsg.text.startsWith('Bought'))) shopMsg = null; }
           o.pick(ch); buildShop(); };
         sw.appendChild(d); });
       meta.appendChild(sw); row.appendChild(meta); shopBody.appendChild(row);
@@ -3878,7 +3890,7 @@
       meta.appendChild(sw); row.appendChild(meta); shopBody.appendChild(row); }
   }
   refreshShopBtn(); showTitle();
-  if (shopBtn) shopBtn.onclick = ()=>{ buildShop(); shopPanel.classList.remove('gone'); };
+  if (shopBtn) shopBtn.onclick = ()=>{ shopArm = null; shopMsg = null; buildShop(); shopPanel.classList.remove('gone'); };
   if (shopClose) shopClose.onclick = ()=> shopPanel.classList.add('gone');
 
   // ---- download toast ----
@@ -4044,7 +4056,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 55;
+  const WEB_VERSION = 56;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
@@ -4246,8 +4258,8 @@
           if (typeof applyPlayerColor === 'function') applyPlayerColor();
           if (ready){ buildBackground(); render(); }
           buildShop(); refreshShopBtn(); showTitle();
-          alert('Save data restored!');
-        } catch(_) { alert('Could not read save file.'); }
+          showDlToast('Save data restored!');
+        } catch(_) { showDlToast('Could not read save file.'); }
       };
       reader.readAsText(file);
     };

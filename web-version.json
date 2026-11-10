@@ -1,10 +1,7 @@
 {
-  "web": 55,
+  "web": 56,
   "notes": [
-    "Nightmare+ thinks 4x harder and no longer ferries its army back and forth",
-    "Shop fix: items you bought now stay unlocked after restarting (and come back if they vanished)",
-    "New in the shop: map themes, victory and capture effects, more trails, skins and emblems, titles and badges",
-    "Shop prices now scale with your rank (lifetime coins earned, up to x3) - anything you own stays yours"
+    "Shop fix: map themes, victory and capture effects and the new trails, skins and emblems can now be bought - tap a faded item, then tap it again to buy"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/266a8d68f8def873d365661332fd6276e9510cd0/src/web/",
   "files": [
@@ -18,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 56,
+      "date": "2026-11-09",
+      "notes": [
+        "Shop fix: map themes, victory and capture effects and the new trails, skins and emblems can now be bought - tap a faded item, then tap it again to buy"
+      ]
+    },
     {
       "web": 55,
       "date": "2026-11-09",
