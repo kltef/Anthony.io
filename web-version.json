@@ -4,7 +4,7 @@
     "Nightmare+ no longer moves its army in circles between its own states",
     "Nightmare+ no longer freezes when it is boxed in - it keeps expanding"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/866c73b3a875f42f9cecc16da3588d395218069d/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/3aacae5cc6f88acd7657d54dea372f493f08be0a/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
