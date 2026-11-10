@@ -1,7 +1,7 @@
 {
-  "web": 60,
+  "web": 61,
   "notes": [
-    "New setting: Allow developer connection - lets the developer watch your games live and help test new AI (a 🛠 badge shows when connected; turn it off in Settings any time)"
+    "Developer mode tools for testing (off unless developer mode is turned on)"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/0fa53fcce2419ae1b4e2a001fb9f015222d48f62/src/web/",
   "files": [
@@ -15,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 61,
+      "date": "2026-11-09",
+      "notes": [
+        "Developer mode tools for testing (off unless developer mode is turned on)"
+      ]
+    },
     {
       "web": 60,
       "date": "2026-11-09",
