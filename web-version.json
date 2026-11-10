@@ -1,7 +1,7 @@
 {
-  "web": 59,
+  "web": 60,
   "notes": [
-    "Check for update now sees a new build the moment it is published"
+    "New setting: Allow developer connection - lets the developer watch your games live and help test new AI (a 🛠 badge shows when connected; turn it off in Settings any time)"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/8ddbcb28fde564332148b64bcdb6a2ad947e7d22/src/web/",
   "files": [
@@ -15,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 60,
+      "date": "2026-11-09",
+      "notes": [
+        "New setting: Allow developer connection - lets the developer watch your games live and help test new AI (a 🛠 badge shows when connected; turn it off in Settings any time)"
+      ]
+    },
     {
       "web": 59,
       "date": "2026-11-09",

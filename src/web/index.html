@@ -551,6 +551,10 @@
     <input type="checkbox" id="depthToggle" style="width:22px;height:22px"> Depth mechanics
   </label>
   <p class="hint" style="opacity:.7;font-size:12px;margin:8px 0 18px">🌱 Invest in growth · ⛰ highlands defend up to 1.4× · ⚠ cut-off states grow slow and fight weak · hoards above the cap desert (faster the bigger the hoard) · neutrals restock over time · concentrated attacks hit harder. Solo games only.</p>
+  <label style="display:flex;align-items:center;gap:12px;justify-content:center;cursor:pointer;color:var(--ink);font-weight:700">
+    <input type="checkbox" id="devLinkToggle" style="width:22px;height:22px"> Allow developer connection
+  </label>
+  <p class="hint" style="opacity:.7;font-size:12px;margin:8px 0 18px">Lets the game's developer watch your games live, pull your play data, push updates and try AI versions on your next game. A 🛠 badge shows whenever they are connected. Nothing outside the game is ever touched.</p>
   <div style="height:1px;background:#e6ebf2;margin:2px 0 16px"></div>
   <label style="display:flex;align-items:center;gap:12px;justify-content:center;cursor:pointer;color:var(--ink);font-weight:700">
     <input type="checkbox" id="musicToggle" style="width:22px;height:22px"> Music
@@ -625,6 +629,7 @@
   </div>
   <button class="dl-close" id="dlToastClose">×</button>
 </div>
+<div id="devBadge" style="display:none;position:fixed;left:8px;top:8px;z-index:70;pointer-events:none;background:#17212f;color:#e7eef6;border:2px solid #46a6ef;border-radius:999px;padding:3px 10px;font:700 12px system-ui,sans-serif;box-shadow:0 2px 0 rgba(0,0,0,.25)">🛠 Developer connected</div>
 <div id="updateBanner">
   <button class="ub-x" id="updateX" aria-label="dismiss">×</button>
   <div class="ub-title">🎉 New update available</div>
@@ -1293,6 +1298,9 @@
     autoLevelChange = '';
     const lv = LEVELS[levelIdx];
     cfg = lv;
+    // developer AI override (admin panel 'ai' command): this phone's Nightmare+ plays the given
+    // planner options instead of the shipped tier, until cleared
+    { const ov = lsGet('aiOverride'); if (ov && !netMode && lv.brain === 'plan:nightmare+') cfg = Object.assign({}, lv, { brain: 'plan:' + ov }); }
     troops = []; selected=null; dragPos=null; airArmed=false; buildArmed=null; aiTimers={}; resetCam(); resetMatchControls();
     if (typeof hideRecap==='function') hideRecap();
     if (lesson) endLesson();
@@ -1364,6 +1372,7 @@
     }
     if (typeof Music!=='undefined') Music.stinger(won);
     if (won && PERK.winFx && !scenarioMode) { try { victoryFx(PERK.winFx); } catch(e){} }
+    if (window.__sioAdmin) window.__sioAdmin.send({ t:'end', won: !!won, duration: gameElapsed });
     startBtn.textContent = 'Play Again';
     lastCoinAward = 0;
     recordResult(won);
@@ -4068,7 +4077,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 59;
+  const WEB_VERSION = 60;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   const UPDATE_API_URL = 'https://api.github.com/repos/kltef/Anthony.io/contents/web-version.json?ref=release';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
@@ -4182,6 +4191,7 @@
       setTimeout(() => location.reload(), 200);   // browser: the server already serves the latest
     };
     if (xBtn) xBtn.onclick = () => banner.classList.remove('show');
+    window.__sioUpd = { check, apply: () => { if (pending) goBtn.click(); return !!pending; } };
 
     check();
     setInterval(check, 10 * 60 * 1000);          // re-check every 10 min for long sessions
@@ -4251,6 +4261,134 @@
     closeBtn.onclick = () => modal.classList.add('gone');
     modal.onclick = e => { if (e.target === modal) modal.classList.add('gone'); };
   }
+
+  // ============================ DEVELOPER ADMIN LINK ============================
+  // While the app is open and "Allow developer connection" is on (Settings, default on), it looks
+  // for the developer's admin panel (tools/stateio_admin.js) every 10 s over PeerJS. Once connected
+  // it streams the board, and carries out commands ONLY when they are signed with the developer's
+  // key (ECDSA P-256; the public half is below), fresh (60 s) and not replayed. A 🛠 badge shows
+  // the whole time it is connected. Protocol: see the header of tools/stateio_admin.js.
+  (function adminLink(){
+    const ADMIN_ID = 'stateio-v1-admin-5c1e9a7d3b2f4e60';
+    const ADMIN_PUB = {"kty":"EC","crv":"P-256","x":"rtQr9dep97MCeybrgfsiAPpmUY6guu_QSoPoPPYLKrM","y":"fS4oa9Ux3uxFLfkUsZHC37SOtkRGwDF2NpJ4hvrlLz0"};
+    const toggle = document.getElementById('devLinkToggle'), badge = document.getElementById('devBadge');
+    const allowed = () => lsGet('devLink') !== 'off';
+    if (toggle){ toggle.checked = allowed(); toggle.onchange = () => { lsSet('devLink', toggle.checked ? 'on' : 'off'); if (!toggle.checked) drop(); }; }
+    let devId = lsGet('devId'); if (!devId){ devId = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); lsSet('devId', devId); }
+    let peer = null, conn = null, rate = 10, snapTimer = null, mapSig = '', hello = '', key = null;
+    const seen = new Map();   // nonce -> ts
+    const tx = o => { try { if (conn && conn.open) conn.send(JSON.stringify(o)); } catch(e){} };
+    window.__sioAdmin = { send: tx, connected: () => !!(conn && conn.open) };
+    const setBadge = on => { if (badge) badge.style.display = on ? '' : 'none'; };
+    function drop(){
+      try { conn && conn.close(); } catch(e){} conn = null; setBadge(false);
+      if (snapTimer){ clearInterval(snapTimer); snapTimer = null; }
+      if (!allowed()){ try { peer && peer.destroy(); } catch(e){} peer = null; }
+    }
+    function helloMsg(){
+      let shell = null; try { shell = (window.AndroidHost && AndroidHost.nativeVersion) ? AndroidHost.nativeVersion() : null; } catch(e){}
+      return { t:'hello', dev:devId, name: playerName || 'Player', web: WEB_VERSION, shell, level: LEVELS[levelIdx].name, running: !!running };
+    }
+    function sendMap(){
+      if (!states.length) return;
+      tx({ t:'map', region: REGIONS[regionIdx] && REGIONS[regionIdx].name, names: states.map(x => x.name),
+           cx: states.map(x => Math.round(x.cx)), cy: states.map(x => Math.round(x.cy)),
+           adj: states.map(x => adjacency && adjacency[x.id] ? [...adjacency[x.id]] : []), W, H });
+    }
+    function snap(){
+      if (!conn || !conn.open) return;
+      const h = JSON.stringify(helloMsg()); if (h !== hello){ hello = h; tx(JSON.parse(h)); }
+      const sig = states.length + ':' + (states[0] ? states[0].name + Math.round(states[0].cx) : '');
+      if (sig !== mapSig){ mapSig = sig; sendMap(); }
+      tx({ t:'snap', t: +gameElapsed.toFixed(1), own: states.map(x => x.owner), tr: states.map(x => Math.round(x.troops)), lv: states.map(x => x.level || 0),
+           orbs: troops.slice(0, 400).map(o => [o.owner, Math.round(o.x), Math.round(o.y), o.count]),
+           level: LEVELS[levelIdx].name, running: !!running, fps,
+           ai: { decisions: engStats.decisions, ms: engStats.ms, rollouts: engStats.rollouts, brain: cfg && cfg.brain } });
+    }
+    function startSnaps(){ if (snapTimer) clearInterval(snapTimer); snapTimer = setInterval(snap, Math.round(1000 / Math.max(1, Math.min(20, rate)))); }
+    const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+    async function verify(p, sig){
+      if (!crypto || !crypto.subtle) return false;
+      if (!key) key = await crypto.subtle.importKey('jwk', ADMIN_PUB, { name:'ECDSA', namedCurve:'P-256' }, false, ['verify']);
+      return crypto.subtle.verify({ name:'ECDSA', hash:'SHA-256' }, key, unb64(sig), new TextEncoder().encode(p));
+    }
+    async function pullData(){
+      const data = await window.exportPlayData();
+      const CH = 60000, total = Math.ceil(data.length / CH);
+      for (let i = 0; i < total; i++){
+        while (conn && conn.dataChannel && conn.dataChannel.bufferedAmount > 4e6) await new Promise(r => setTimeout(r, 25));
+        if (!conn || !conn.open) return false;
+        tx({ t:'c', i, d: data.slice(i * CH, (i + 1) * CH) });
+      }
+      tx({ t:'dend', n: total, len: data.length });
+      return total;
+    }
+    async function onCmd(m){
+      let c;
+      try { if (!(await verify(m.p, m.sig))) return tx({ t:'ack', ok:false, msg:'bad signature' }); c = JSON.parse(m.p); }
+      catch(e){ return tx({ t:'ack', ok:false, msg:'bad command' }); }
+      const now = Date.now();
+      for (const [n, t] of seen) if (now - t > 120000) seen.delete(n);
+      if (Math.abs(now - c.ts) > 60000) return tx({ t:'ack', id:c.id, ok:false, msg:'stale command (check the phone clock)' });
+      if (seen.has(c.nonce)) return tx({ t:'ack', id:c.id, ok:false, msg:'replayed' });
+      seen.set(c.nonce, now);
+      const ack = (ok, msg) => tx({ t:'ack', id:c.id, ok, msg });
+      try {
+        switch (c.cmd){
+          case 'menu':
+            if (!running) return ack(true, 'already on the menu');
+            showDlToast('🛠 The developer ended this game'); toMenu(); return ack(true, 'back on the menu');
+          case 'end':
+            if (!running) return ack(false, 'no game running');
+            if (netMode) return ack(false, 'online match: use Back to menu');
+            showDlToast('🛠 The developer ended this game'); endGame(false); return ack(true, 'game ended as a loss');
+          case 'banner': {
+            const r = window.__sioUpd ? await window.__sioUpd.check(true) : 'error';
+            return ack(r !== 'error', r === 'update' ? 'banner shown' : r === 'current' ? 'already up to date (web ' + WEB_VERSION + ')' : 'could not reach the update server');
+          }
+          case 'update': {
+            const r = window.__sioUpd ? await window.__sioUpd.check(true) : 'error';
+            if (r !== 'update') return ack(false, r === 'current' ? 'already up to date (web ' + WEB_VERSION + ')' : 'could not reach the update server');
+            showDlToast('🛠 Installing an update from the developer'); ack(true, 'installing'); window.__sioUpd.apply(); return;
+          }
+          case 'pull': { ack(true, 'sending play data…'); const n = await pullData(); return; }
+          case 'ai': {
+            const v = String(c.arg || '').trim();
+            if (v && !/^[a-z_]+=[-0-9.\/+a-z_]+(,[a-z_]+=[-0-9.\/+a-z_]+)*$/i.test(v)) return ack(false, 'that does not look like planner options');
+            lsSet('aiOverride', v);
+            return ack(true, v ? 'Nightmare+ override set for the next game' : 'override cleared (shipped AI)');
+          }
+          case 'msg': showDlToast('🛠 ' + String(c.arg || '').slice(0, 140)); return ack(true, 'shown');
+          case 'rate': rate = +c.arg || 10; startSnaps(); return ack(true, rate + ' snapshots/s');
+          default: return ack(false, 'unknown command ' + c.cmd);
+        }
+      } catch(e){ ack(false, String(e && e.message || e)); }
+    }
+    function tryConnect(){
+      if (!allowed() || typeof window.Peer !== 'function' || (conn && conn.open)) return;
+      if (!peer || peer.destroyed){
+        try { peer = new Peer(undefined, { config: { iceServers: [{ urls:'stun:stun.l.google.com:19302' }, { urls:'stun:stun1.l.google.com:19302' }] } }); }
+        catch(e){ peer = null; return; }
+        peer.on('error', () => {});                  // 'peer-unavailable' = the panel is not running; try again later
+        peer.on('disconnected', () => { try { peer.reconnect(); } catch(e){} });
+        peer.on('open', () => tryConnect());
+        return;
+      }
+      if (!peer.open) return;
+      try { if (conn) conn.close(); } catch(e){}
+      const c = peer.connect(ADMIN_ID, { reliable: true, serialization: 'raw' });
+      conn = c;
+      c.on('open', () => { if (conn !== c) return; setBadge(true); hello = ''; mapSig = ''; snap(); startSnaps(); });
+      c.on('data', raw => { let m = null; try { m = typeof raw === 'string' ? JSON.parse(raw) : null; } catch(e){} if (m && m.t === 'cmd') onCmd(m); });
+      c.on('close', () => { if (conn === c) drop(); });
+      c.on('error', () => { if (conn === c) drop(); });
+    }
+    // errors go to the panel while connected
+    window.addEventListener('error', e => tx({ t:'err', msg: String(e.message || e) + (e.lineno ? ' @' + e.lineno : '') }));
+    window.addEventListener('unhandledrejection', e => tx({ t:'err', msg: 'promise: ' + String(e.reason && e.reason.message || e.reason) }));
+    setTimeout(tryConnect, 2000);
+    setInterval(tryConnect, 10000);
+  })();
 
   // ---- export / import shop save data (coins, perks) ----
   // every saved shop key (the trail / skin / emblem unlocks were missing, so a restore lost them)
