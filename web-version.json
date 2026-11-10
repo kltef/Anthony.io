@@ -1,8 +1,7 @@
 {
-  "web": 58,
+  "web": 59,
   "notes": [
-    "Nightmare+ no longer moves its army in circles between its own states",
-    "Nightmare+ no longer freezes when it is boxed in - it keeps expanding"
+    "Check for update now sees a new build the moment it is published"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/3aacae5cc6f88acd7657d54dea372f493f08be0a/src/web/",
   "files": [
@@ -16,6 +15,13 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 59,
+      "date": "2026-11-09",
+      "notes": [
+        "Check for update now sees a new build the moment it is published"
+      ]
+    },
     {
       "web": 58,
       "date": "2026-11-09",

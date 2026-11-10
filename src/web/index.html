@@ -4068,8 +4068,9 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 58;
+  const WEB_VERSION = 59;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
+  const UPDATE_API_URL = 'https://api.github.com/repos/kltef/Anthony.io/contents/web-version.json?ref=release';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
       // DEVELOPER MODE unlock: tap the build tag 5x. Toggles the whole dev bundle on/off —
@@ -4093,8 +4094,16 @@
     async function check(fresh){
       if (pending) return 'update';              // already offered
       try {
-        // a manual check adds a throwaway query so GitHub's CDN can't hand back a cached manifest
-        const r = await fetch(UPDATE_MANIFEST_URL + (fresh ? '?t=' + Date.now() : ''), { cache: 'no-store' });
+        // A manual check asks the GitHub API (no 5-minute CDN cache: raw.githubusercontent.com
+        // ignores a cache-busting query on some edges, so the button could still see the old build).
+        // 60 unauthenticated calls/hour per IP is plenty for a button; fall back to the raw URL.
+        let r = null;
+        if (fresh){
+          try { r = await fetch(UPDATE_API_URL, { cache: 'no-store', headers: { 'Accept': 'application/vnd.github.raw+json' } }); }
+          catch(e){ r = null; }
+          if (r && !r.ok) r = null;
+        }
+        if (!r) r = await fetch(UPDATE_MANIFEST_URL + (fresh ? '?t=' + Date.now() : ''), { cache: 'no-store' });
         if (!r.ok) return 'error';
         const j = await r.json();
         // A native APK update (shell/native change) takes priority when we're in the shell. Baseline
