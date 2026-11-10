@@ -212,6 +212,14 @@ pub struct PlanParams {
     pub fronts: usize,
     /// Evacuation: a state about to fall sends its troops to a safe state of mine instead.
     pub evac: bool,
+    /// Anti-stall: after this many seconds without gaining a state while the strongest opponent is
+    /// stronger, judge plans on the average outcome (no worst-case blend) and take a capture plan
+    /// over waiting if it is within `stall_slack` of it. A cornered AI facing a huge army otherwise
+    /// waits forever, since over the horizon every expansion looks punishable (the play-tester's
+    /// Nov 9 20:30 win: 6 minutes in New Hampshire with 200 troops next to two 53-troop neutrals).
+    /// 0 = off.
+    pub stall: f64,
+    pub stall_slack: f64,
     /// Human input limits (the Nightmare tier). Measured from the play-tester's recorded games: he
     /// sweeps up to ~10 states in half a second, but always into one or two targets with one
     /// gesture, and sustains at most ~4.5 sends a second. With this on, orders over a limit wait
@@ -270,6 +278,8 @@ impl Default for PlanParams {
             chain: 0,
             fronts: 0,
             evac: false,
+            stall: 0.0,
+            stall_slack: 0.05,
             human: false,
             h_targets: 2,
             h_sends: [7, 10, 45],
@@ -330,6 +340,8 @@ impl PlanParams {
             "chain" => self.chain = num()? as usize,
             "fronts" => self.fronts = num()? as usize,
             "evac" => self.evac = num()? != 0.0,
+            "stall" => self.stall = num()?,
+            "stall_slack" => self.stall_slack = num()?,
             "human" => self.human = num()? != 0.0,
             "h_targets" => self.h_targets = num()?.max(1.0) as usize,
             _ => return Err(format!("unknown plan option {key}")),
@@ -366,6 +378,11 @@ pub struct Planner {
     reinf: Vec<(u8, u8, f64)>,
     /// (state, time) where a big stack from another of my states recently landed (anti-dither).
     settled: Vec<(u8, f64)>,
+    /// anti-stall bookkeeping: most states held so far, when that was reached, and this
+    /// decision's worst-case weight
+    owned_best: u32,
+    gained_at: f64,
+    pess_now: f64,
     waits_now: Vec<f64>,
     sampled_at: f64,
     /// (time, target) of recent orders, for the human input limits.
@@ -478,6 +495,9 @@ impl Planner {
             rng: Rng::new(1),
             reinf: Vec::new(),
             settled: Vec::new(),
+            owned_best: 0,
+            gained_at: 0.0,
+            pess_now: 0.5,
             waits_now: Vec::new(),
             sampled_at: f64::NEG_INFINITY,
             fired: Vec::new(),
@@ -493,6 +513,8 @@ impl Planner {
         self.active = None;
         self.reinf.clear();
         self.settled.clear();
+        self.owned_best = 0;
+        self.gained_at = 0.0;
         self.sampled_at = f64::NEG_INFINITY;   // a new match draws fresh opponent samples
         self.fired.clear();
         self.rng = Rng::new(0x5EED ^ me as u64);
@@ -523,7 +545,7 @@ impl Planner {
             worst = worst.min(v);
         }
         let mean = sum / n as f64;
-        Some(mean + self.p.pessimism * (worst - mean))
+        Some(mean + self.pess_now * (worst - mean))
     }
 
     fn reversed_recently(&self, src: u8, dst: u8, now: f64) -> bool {
@@ -831,6 +853,23 @@ impl Planner {
             self.active = None;
             return;
         }
+        let held = v.mine.count_ones();
+        if held > self.owned_best {
+            self.owned_best = held;
+            self.gained_at = now;
+        }
+        let stalled = self.p.stall > 0.0 && now - self.gained_at > self.p.stall && {
+            let mine = crate::agent::strength(w, s, me);
+            let mut top = 0.0f64;
+            let alive = s.alive();
+            for o in 1..=8u8 {
+                if o != me && alive >> o & 1 == 1 {
+                    top = top.max(crate::agent::strength(w, s, o));
+                }
+            }
+            top > mine
+        };
+        self.pess_now = if stalled { 0.0 } else { self.p.pessimism };
         let n_need = self.p.samples.max(self.p.screen);
         if self.p.resample <= 0.0 || now - self.sampled_at >= self.p.resample || self.opp.len() != n_need {
             self.sample_opponents();
@@ -960,10 +999,28 @@ impl Planner {
             }
         }
         self.last.wait_value = wait_v;
+        // stalled: the best capture plan within `stall_slack` of waiting beats waiting
+        let captures = |pl: &Plan| match pl.kind {
+            Kind::Strike => pl.target.map_or(false, |t| s.owner[t as usize] != me),
+            Kind::Direct => pl.ops.iter().any(|o| matches!(o.act, Action::Send { dst, .. } if s.owner[dst as usize] != me)),
+            _ => false,
+        };
+        let stall_pick = if stalled {
+            finals.iter().filter(|&&(val, k)| k != 0 && captures(&cands[k]) && val >= wait_v - self.p.stall_slack)
+                .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap()).copied()
+        } else {
+            None
+        };
         // a new plan has to beat waiting by `min_gain`; continuing the current one does not
         finals.retain(|&(val, k)| k == 0 || continues(k) || val >= wait_v + self.p.min_gain);
         finals.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-        let (best_v, mut pick) = finals.first().copied().unwrap_or((wait_v, 0));
+        let (mut best_v, mut pick) = finals.first().copied().unwrap_or((wait_v, 0));
+        if let Some((sv, sk)) = stall_pick {
+            if pick == 0 || !captures(&cands[pick]) {
+                best_v = sv;
+                pick = sk;
+            }
+        }
         if self.p.temperature > 0.0 {
             let near: Vec<usize> = finals.iter().filter(|x| x.0 >= best_v - self.p.temperature).map(|x| x.1).collect();
             if !near.is_empty() {

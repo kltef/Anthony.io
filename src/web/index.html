@@ -520,6 +520,7 @@
 
   <p class="hint"><a id="watchLink" href="watch.html" target="_blank" style="color:inherit;pointer-events:auto">Open spectator view ↗</a></p>
   <p class="hint" id="buildTag" style="opacity:.55;font-size:12px;margin-top:2px"></p>
+  <button class="mini2" id="checkUpdBtn" style="margin-top:4px;font-size:12px">🔄 Check for update</button>
 </div>
 
 <div id="tutPanel" class="gone" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;background:var(--white);border:3px solid var(--ink);border-radius:18px;padding:22px 24px;box-shadow:0 6px 0 rgba(46,58,74,.28),0 14px 34px rgba(21,68,88,.32);width:min(360px,92vw);text-align:center;pointer-events:auto">
@@ -1220,9 +1221,9 @@
 
 
   // ---- new game ----
-  function farthestPick(starters) {
+  function farthestPick(starters, pool) {
     let best=null, bestD=-1;
-    for (const s of states) {
+    for (const s of (pool || states)) {
       if (starters.includes(s)) continue;
       let d = 1e9;
       for (const st of starters) { const dx=st.cx-s.cx, dy=st.cy-s.cy; d=Math.min(d, dx*dx+dy*dy); }
@@ -1312,11 +1313,22 @@
     }
     const enemyCount = Math.max(1, Math.min((mpEnemies!=null) ? mpEnemies : lv.enemies, states.length-1));
     const starters = [];
-    const first = states[Math.floor(Math.random()*states.length)];
+    // Fair starts. Every start needs room to grow: at least 3 neighbouring states (a corner like
+    // Maine, with one 48-troop neighbour, left the AI boxed in for a minute - the play-tester won
+    // that game). Then each enemy start's cheapest neighbours are set to the same troop counts as
+    // the player's, so nobody gets an easier or harder opening by luck of the draw.
+    const roomy = states.filter(s => adjacency && adjacency[s.id] && adjacency[s.id].size >= 3);
+    const pool = roomy.length > enemyCount + 1 ? roomy : states;
+    const first = pool[Math.floor(Math.random()*pool.length)];
     first.owner = PLAYER; first.troops = lv.playerStart; starters.push(first);
     for (let e=0; e<enemyCount; e++) {
-      const b = farthestPick(starters);
+      const b = farthestPick(starters, pool);
       b.owner = 2+e; b.troops = lv.enemyStart; starters.push(b);
+    }
+    if (adjacency){
+      const cheapest = st => [...adjacency[st.id]].map(j => states[j]).filter(n => n.owner===NEUTRAL).sort((a,b) => a.troops-b.troops);
+      const ref = cheapest(first).slice(0, 3).map(n => n.troops);
+      for (const b of starters.slice(1)) cheapest(b).slice(0, 3).forEach((n, k) => { if (k < ref.length) n.troops = ref[k]; });
     }
     // solo / guest-less: every enemy is AI. (Host sets slotControl before calling.)
     if (netMode!=='host') { slotControl = {}; for (let e=0; e<enemyCount; e++) slotControl[2+e] = 'ai'; }
@@ -4056,7 +4068,7 @@
   Music.boot();
 
   // WEB_VERSION is bumped in lockstep with web-version.json's "web" when new web assets are published.
-  const WEB_VERSION = 56;
+  const WEB_VERSION = 57;
   const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/kltef/Anthony.io/release/web-version.json';
   // show the live web build on the menu — a visible confirmation that an OTA actually landed
   { const bt = document.getElementById('buildTag'); if (bt){ bt.textContent = 'web build ' + WEB_VERSION;
@@ -4075,14 +4087,15 @@
     if (!banner || !goBtn) return;
     const host = (typeof window !== 'undefined') ? window.AndroidHost : null;   // only in the rebuilt shell
     const canApply = !!host || !IS_NATIVE_APP;   // shell (bridge) or browser (server reload); else stay silent
-    if (!canApply) return;
+    if (!canApply){ const b = document.getElementById("checkUpdBtn"); if (b) b.style.display = "none"; return; }
     let pending = null;                          // { kind:'web' } | { kind:'apk', url, apk }
 
-    async function check(){
-      if (pending) return;                       // already offered
+    async function check(fresh){
+      if (pending) return 'update';              // already offered
       try {
-        const r = await fetch(UPDATE_MANIFEST_URL, { cache: 'no-store' });
-        if (!r.ok) return;
+        // a manual check adds a throwaway query so GitHub's CDN can't hand back a cached manifest
+        const r = await fetch(UPDATE_MANIFEST_URL + (fresh ? '?t=' + Date.now() : ''), { cache: 'no-store' });
+        if (!r.ok) return 'error';
         const j = await r.json();
         // A native APK update (shell/native change) takes priority when we're in the shell. Baseline
         // the seen apk version on first launch so it only alerts when the apk bumps AFTER that.
@@ -4115,9 +4128,20 @@
             }
           }
           banner.classList.add('show');
+          return 'update';
         }
-      } catch(e){ /* offline / manifest missing -> no banner */ }
+        return 'current';
+      } catch(e){ return 'error'; /* offline / manifest missing -> no banner */ }
     }
+    const cuBtn = document.getElementById('checkUpdBtn');
+    if (cuBtn) cuBtn.onclick = async () => {
+      if (pending){ banner.classList.add('show'); return; }
+      cuBtn.disabled = true; cuBtn.textContent = 'Checking…';
+      const res = await check(true);
+      cuBtn.disabled = false;
+      cuBtn.textContent = res === 'update' ? '⬆ Update available' : res === 'current' ? '✓ Up to date (web build ' + WEB_VERSION + ')' : '⚠ Could not reach the update server';
+      if (res !== 'update') setTimeout(() => { cuBtn.textContent = '🔄 Check for update'; }, 4000);
+    };
 
     goBtn.onclick = () => {
       if (!pending) return;

@@ -1,7 +1,8 @@
 {
-  "web": 56,
+  "web": 57,
   "notes": [
-    "Shop fix: map themes, victory and capture effects and the new trails, skins and emblems can now be bought - tap a faded item, then tap it again to buy"
+    "Fair starts: nobody starts boxed into a corner any more, and the AI's cheapest neighbours match yours",
+    "New Check for update button at the bottom of the menu"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/92fefc4e3d2455687efdd6a06cffec770e4777db/src/web/",
   "files": [
@@ -15,6 +16,14 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 57,
+      "date": "2026-11-09",
+      "notes": [
+        "Fair starts: nobody starts boxed into a corner any more, and the AI's cheapest neighbours match yours",
+        "New Check for update button at the bottom of the menu"
+      ]
+    },
     {
       "web": 56,
       "date": "2026-11-09",
