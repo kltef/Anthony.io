@@ -3,7 +3,7 @@
   "notes": [
     "Check for update now sees a new build the moment it is published"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/3aacae5cc6f88acd7657d54dea372f493f08be0a/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/8ddbcb28fde564332148b64bcdb6a2ad947e7d22/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
