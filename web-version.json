@@ -1,8 +1,10 @@
 {
-  "web": 54,
+  "web": 55,
   "notes": [
-    "Nightmare+ upgraded: a faster, sharper superhuman AI",
-    "Nightmare now plays within human limits - no more hitting several places in the same instant, and it sends All / Half / Quarter like you do"
+    "Nightmare+ thinks 4x harder and no longer ferries its army back and forth",
+    "Shop fix: items you bought now stay unlocked after restarting (and come back if they vanished)",
+    "New in the shop: map themes, victory and capture effects, more trails, skins and emblems, titles and badges",
+    "Shop prices now scale with your rank (lifetime coins earned, up to x3) - anything you own stays yours"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/8a54e897e3d30ba6158e8e1ad178bfcd24f0d053/src/web/",
   "files": [
@@ -16,6 +18,16 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 55,
+      "date": "2026-11-09",
+      "notes": [
+        "Nightmare+ thinks 4x harder and no longer ferries its army back and forth",
+        "Shop fix: items you bought now stay unlocked after restarting (and come back if they vanished)",
+        "New in the shop: map themes, victory and capture effects, more trails, skins and emblems, titles and badges",
+        "Shop prices now scale with your rank (lifetime coins earned, up to x3) - anything you own stays yours"
+      ]
+    },
     {
       "web": 54,
       "date": "2026-11-09",

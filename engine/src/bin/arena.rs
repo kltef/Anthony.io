@@ -8,8 +8,72 @@ use stateio::{roster, Map, Rng};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+/// Wraps agent A and measures how it moves troops: the share sent onto its own states in big
+/// moves (30+), stacks sent A->B then straight back B->A within 12 s, and states held at 60 s.
+struct Probe {
+    inner: Box<dyn Agent>,
+    me: u8,
+    big: Vec<(f64, u8, u8)>,
+    own: f64,
+    total: f64,
+    st60: Option<u32>,
+}
+
+impl Agent for Probe {
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+    fn reset(&mut self, w: &World, me: u8, seed: u64) {
+        self.me = me;
+        self.inner.reset(w, me, seed);
+    }
+    fn act(&mut self, w: &World, s: &State, out: &mut Vec<Action>) {
+        let n0 = out.len();
+        self.inner.act(w, s, out);
+        let mut left = s.troops.clone();
+        for a in &out[n0..] {
+            if let Action::Send { src, dst, amount } = *a {
+                let amt = amount.floor().min(left[src as usize].floor()).max(0.0);
+                left[src as usize] -= amt;
+                self.total += amt;
+                if s.owner[dst as usize] == self.me && amt >= 30.0 {
+                    self.own += amt;
+                    self.big.push((s.time, src, dst));
+                }
+            }
+        }
+        if self.st60.is_none() && s.time >= 60.0 {
+            self.st60 = Some(s.owned_mask(self.me).count_ones());
+        }
+    }
+}
+
+impl Probe {
+    fn bounces(&self) -> u32 {
+        let mut n = 0;
+        for (i, a) in self.big.iter().enumerate() {
+            for b in &self.big[i + 1..] {
+                if b.0 - a.0 > 12.0 {
+                    break;
+                }
+                if b.1 == a.2 && b.2 == a.1 {
+                    n += 1;
+                    break;
+                }
+            }
+        }
+        n
+    }
+}
+
 #[derive(Default, Clone)]
 struct Tally {
+    probe_games: u32,
+    probe_own: f64,
+    probe_total: f64,
+    probe_bounce: u64,
+    probe_st60: u64,
+    probe_st60_n: u32,
     win: u32,
     draw: u32,
     loss: u32,
@@ -66,8 +130,22 @@ fn main() {
                     let mut b_wins = 0;
                     for seat in 0..2 {
                         // seat 0: A is owner 1. seat 1: A is owner 2.
-                        let mut agents: Vec<Box<dyn Agent>> = if seat == 0 { vec![roster::make(&pos[0]), roster::make(&pos[1])] } else { vec![roster::make(&pos[1]), roster::make(&pos[0])] };
+                        let a_agent: Box<dyn Agent> = Box::new(Probe { inner: roster::make(&pos[0]), me: 0, big: Vec::new(), own: 0.0, total: 0.0, st60: None });
+                        let mut agents: Vec<Box<dyn Agent>> = if seat == 0 { vec![a_agent, roster::make(&pos[1])] } else { vec![roster::make(&pos[1]), a_agent] };
                         let o = play(&world, &start, &mut agents, max_time, bseed ^ (seat as u64) << 40);
+                        {
+                            // read the probe back (it is the agent in A's seat)
+                            let pa: &Box<dyn Agent> = &agents[seat];
+                            let pr = unsafe { &*(pa.as_ref() as *const dyn Agent as *const Probe) };
+                            local.probe_games += 1;
+                            local.probe_own += pr.own;
+                            local.probe_total += pr.total;
+                            local.probe_bounce += pr.bounces() as u64;
+                            if let Some(c) = pr.st60 {
+                                local.probe_st60 += c as u64;
+                                local.probe_st60_n += 1;
+                            }
+                        }
                         let a_owner = if seat == 0 { 1u8 } else { 2u8 };
                         match o.winner {
                             Some(w) if w == a_owner => {
@@ -97,6 +175,12 @@ fn main() {
                 t.loss += local.loss;
                 t.time += local.time;
                 t.timeouts += local.timeouts;
+                t.probe_games += local.probe_games;
+                t.probe_own += local.probe_own;
+                t.probe_total += local.probe_total;
+                t.probe_bounce += local.probe_bounce;
+                t.probe_st60 += local.probe_st60;
+                t.probe_st60_n += local.probe_st60_n;
                 for k in 0..2 {
                     t.sweep[k] += local.sweep[k];
                     t.orders[k] += local.orders[k];
@@ -115,5 +199,9 @@ fn main() {
         t.orders[0] as f64 / n, t.orders[1] as f64 / n,
         100.0 * t.rejected[0] as f64 / t.orders[0].max(1) as f64, 100.0 * t.rejected[1] as f64 / t.orders[1].max(1) as f64,
         t0.elapsed().as_secs_f64()
+    );
+    println!(
+        "   A moves: {:.0}% of troops sent onto its own states in 30+ moves, {:.1} back-and-forth bounces/game, {:.1} states at 60 s",
+        100.0 * t.probe_own / t.probe_total.max(1.0), t.probe_bounce as f64 / t.probe_games.max(1) as f64, t.probe_st60 as f64 / t.probe_st60_n.max(1) as f64
     );
 }

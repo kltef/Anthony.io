@@ -51,6 +51,7 @@ pub enum Kind {
     Script,
     Direct,
     Strike,
+    Hold,
 }
 
 #[derive(Clone, Debug)]
@@ -60,11 +61,21 @@ pub struct Plan {
     pub ops: Vec<Op>,
     pub target: Option<u8>,
     pub stage: Option<u8>,
+    /// States this plan keeps where they are (a Hold plan: the stack stays as a deterrent), and
+    /// until when.
+    pub hold: u64,
+    pub until: f64,
+    /// A chain's first capture: (state, time it should be mine by). Orders from it are not
+    /// "a reserved state was lost" while that capture is still on its way.
+    pub via: Option<(u8, f64)>,
 }
 
 impl Plan {
     fn wait() -> Plan {
-        Plan { kind: Kind::Wait, ops: Vec::new(), target: None, stage: None }
+        Plan::new(Kind::Wait, Vec::new(), None, None)
+    }
+    fn new(kind: Kind, ops: Vec<Op>, target: Option<u8>, stage: Option<u8>) -> Plan {
+        Plan { kind, ops, target, stage, hold: 0, until: 0.0, via: None }
     }
     fn src(a: Action) -> u8 {
         match a {
@@ -80,6 +91,8 @@ impl Plan {
 pub enum Opp {
     Policy(PolicyParams),
     Chris(crate::chris::ChrisParams),
+    /// The play-tester's funnel (one roaming spearhead fed by every other state).
+    Funnel(crate::chris::ChrisParams),
 }
 
 impl Opp {
@@ -87,6 +100,7 @@ impl Opp {
         match self {
             Opp::Policy(p) => policy::act(w, s, me, p, out),
             Opp::Chris(p) => crate::chris::act(w, s, me, p, out),
+            Opp::Funnel(p) => crate::chris::act_funnel_stateless(w, s, me, p, out),
         }
     }
     /// A randomised copy (relative perturbation of the numeric parameters).
@@ -103,6 +117,11 @@ impl Opp {
                 min_feed: jit(c.min_feed),
                 ..c.clone()
             }),
+            Opp::Funnel(c) => Opp::Funnel(crate::chris::ChrisParams {
+                neutral_margin: jit(c.neutral_margin).max(1.0),
+                enemy_ratio: jit(c.enemy_ratio).max(1.0),
+                ..c.clone()
+            }),
         }
     }
 }
@@ -110,6 +129,11 @@ impl Opp {
 /// The opponent model fitted to the play-tester (see chris.rs; settings from the arena fit).
 pub fn chris_model() -> crate::chris::ChrisParams {
     crate::chris::ChrisParams { enemy_ratio: 3.0, neutral_margin: 2.0, min_feed: 4.0, ..Default::default() }
+}
+
+/// The funnel he won with on Nov 9: one spearhead, everything else swiped into it every second.
+pub fn funnel_model() -> crate::chris::ChrisParams {
+    crate::chris::ChrisParams { funnel: true, min_feed: 1.0, neutral_margin: 1.2, enemy_ratio: 3.0, ..Default::default() }
 }
 
 #[derive(Clone, Debug)]
@@ -170,6 +194,24 @@ pub struct PlanParams {
     /// Fast cadences re-score plans many times a second; reusing samples stops pure sampling
     /// noise from flipping the choice.
     pub resample: f64,
+    /// Anti-dither: for this many seconds after a big stack (`settle_min`+ troops) lands on one
+    /// of my states from another, it may strike but not be moved on to another of my states, and
+    /// no move (strike feeders included) may send troops straight back the way they came.
+    /// Against a roaming enemy spearhead the planner otherwise re-picks its staging state every
+    /// decision and ferries its army back and forth (the play-tester's Nov 9 wins). 0 = off.
+    pub settle: f64,
+    pub settle_min: f64,
+    /// Also park a big stack that just arrived (no onward own-to-own move for `settle` s). Off =
+    /// only the straight-back move is blocked (strike feeders included).
+    pub settle_park: bool,
+    /// Also consider holding my biggest stacks where they are (deterrence) as a plan.
+    pub hold: bool,
+    /// Chains: the best N strikes may roll on from the captured state into a second target.
+    pub chain: usize,
+    /// Two-front plans: pair the best N strikes that use disjoint states into one plan.
+    pub fronts: usize,
+    /// Evacuation: a state about to fall sends its troops to a safe state of mine instead.
+    pub evac: bool,
     /// Human input limits (the Nightmare tier). Measured from the play-tester's recorded games: he
     /// sweeps up to ~10 states in half a second, but always into one or two targets with one
     /// gesture, and sustains at most ~4.5 sends a second. With this on, orders over a limit wait
@@ -221,6 +263,13 @@ impl Default for PlanParams {
             vary: 0.0,
             jitter: 0.0,
             resample: 0.0,
+            settle: 0.0,
+            settle_min: 20.0,
+            settle_park: true,
+            hold: false,
+            chain: 0,
+            fronts: 0,
+            evac: false,
             human: false,
             h_targets: 2,
             h_sends: [7, 10, 45],
@@ -262,7 +311,11 @@ impl PlanParams {
             "pool" => {
                 self.pool = val
                     .split('+')
-                    .map(|n| if n == "chris" { Ok(Opp::Chris(chris_model())) } else { crate::roster::policy(n).map(Opp::Policy).ok_or(format!("unknown policy {n}")) })
+                    .map(|n| match n {
+                        "chris" => Ok(Opp::Chris(chris_model())),
+                        "funnel" => Ok(Opp::Funnel(funnel_model())),
+                        _ => crate::roster::policy(n).map(Opp::Policy).ok_or(format!("unknown policy {n}")),
+                    })
                     .collect::<Result<_, _>>()?
             }
             "hopeless" => self.no_hopeless = num()? == 0.0,
@@ -270,6 +323,13 @@ impl PlanParams {
             "vary" => self.vary = num()?,
             "jitter" => self.jitter = num()?,
             "resample" => self.resample = num()?,
+            "settle" => self.settle = num()?,
+            "settle_min" => self.settle_min = num()?,
+            "park" => self.settle_park = num()? != 0.0,
+            "hold" => self.hold = num()? != 0.0,
+            "chain" => self.chain = num()? as usize,
+            "fronts" => self.fronts = num()? as usize,
+            "evac" => self.evac = num()? != 0.0,
             "human" => self.human = num()? != 0.0,
             "h_targets" => self.h_targets = num()?.max(1.0) as usize,
             _ => return Err(format!("unknown plan option {key}")),
@@ -304,6 +364,8 @@ pub struct Planner {
     phase: Vec<f64>,
     rng: Rng,
     reinf: Vec<(u8, u8, f64)>,
+    /// (state, time) where a big stack from another of my states recently landed (anti-dither).
+    settled: Vec<(u8, f64)>,
     waits_now: Vec<f64>,
     sampled_at: f64,
     /// (time, target) of recent orders, for the human input limits.
@@ -359,7 +421,7 @@ fn rollout(w: &World, p: &PlanParams, me: u8, base: &State, plan: &Plan, opp: &O
         }
         if st.time >= next_me {
             next_me += p.policy_period;
-            let mut lock = 0u64;
+            let mut lock = if st.time < plan.until { plan.hold } else { 0 };
             for k in 0..nops {
                 if fired >> k & 1 == 0 {
                     lock |= 1u64 << Plan::src(plan.ops[k].act);
@@ -415,6 +477,7 @@ impl Planner {
             phase: Vec::new(),
             rng: Rng::new(1),
             reinf: Vec::new(),
+            settled: Vec::new(),
             waits_now: Vec::new(),
             sampled_at: f64::NEG_INFINITY,
             fired: Vec::new(),
@@ -429,6 +492,7 @@ impl Planner {
         self.me = me;
         self.active = None;
         self.reinf.clear();
+        self.settled.clear();
         self.sampled_at = f64::NEG_INFINITY;   // a new match draws fresh opponent samples
         self.fired.clear();
         self.rng = Rng::new(0x5EED ^ me as u64);
@@ -466,6 +530,16 @@ impl Planner {
         self.reinf.iter().any(|&(a, b, t)| a == dst && b == src && now - t < REINF_COOLDOWN)
     }
 
+    /// May `src` send troops on to my own state `dst` now? (see `PlanParams::settle`)
+    fn own_move_ok(&self, src: u8, dst: u8, now: f64) -> bool {
+        if self.p.settle <= 0.0 {
+            return !self.reversed_recently(src, dst, now);
+        }
+        let back = self.reinf.iter().any(|&(a, b, t)| a == dst && b == src && now - t < self.p.settle.max(REINF_COOLDOWN));
+        let parked = self.p.settle_park && self.settled.iter().any(|&(k, t)| k == src && now - t < self.p.settle);
+        !back && !parked
+    }
+
     /// Single immediate orders: attacks (everything / just enough), reinforcement, invest, upgrade.
     fn direct_orders(&self, w: &World, s: &State, v: &View, lock: u64, out: &mut Vec<Action>) {
         let me = self.me;
@@ -482,6 +556,32 @@ impl Planner {
             let have = s.troops[i].floor();
             if have < 2.0 {
                 continue;
+            }
+            if self.p.evac && v.hostile_inbound >> i & 1 == 1 && have >= 6.0 {
+                // will it fall to what is already flying at it?
+                let mut last = 0.0f64;
+                for o in &s.orbs {
+                    if o.dst as usize == i && o.owner != me {
+                        last = last.max(o.rem / w.rules.orb_speed);
+                    }
+                }
+                if s.project(w, i, last + 0.1).0 != me {
+                    // nearest of my states that nothing hostile is flying at
+                    let comp = State::flood(w, v.mine, i) & !(1u64 << i) & !v.hostile_inbound;
+                    let (mut best, mut bd) = (usize::MAX, f64::MAX);
+                    let mut c = comp;
+                    while c != 0 {
+                        let k = c.trailing_zeros() as usize;
+                        c &= c - 1;
+                        if w.map.d(i, k) < bd {
+                            bd = w.map.d(i, k);
+                            best = k;
+                        }
+                    }
+                    if best != usize::MAX {
+                        out.push(Action::Send { src: i as u8, dst: best as u8, amount: have });
+                    }
+                }
             }
             let mut t = w.map.adj_mask[i] & !v.mine;
             while t != 0 {
@@ -519,7 +619,7 @@ impl Planner {
                     }
                     dest &= !(1u64 << best);
                     picked += 1;
-                    if !self.reversed_recently(i as u8, best as u8, s.time) {
+                    if self.own_move_ok(i as u8, best as u8, s.time) {
                         out.push(Action::Send { src: i as u8, dst: best as u8, amount: have });
                     }
                 }
@@ -553,7 +653,7 @@ impl Planner {
                 while c != 0 {
                     let k = c.trailing_zeros() as usize;
                     c &= c - 1;
-                    if s.troops[k] >= 4.0 && eta(w, k, st) <= self.p.feed_eta {
+                    if s.troops[k] >= 4.0 && eta(w, k, st) <= self.p.feed_eta && (self.p.settle <= 0.0 || self.own_move_ok(k as u8, st as u8, now)) {
                         feeders.push(k);
                     }
                 }
@@ -593,17 +693,62 @@ impl Planner {
                         let feed: Vec<Op> = set.iter().map(|&k| Op { at: now, act: Action::Send { src: k as u8, dst: st as u8, amount: ALL } }).collect();
                         let mut ops = feed.clone();
                         ops.push(Op { at, act: Action::Send { src: st as u8, dst: t as u8, amount: ALL } });
-                        out.push((est / need, Plan { kind: Kind::Strike, ops, target: Some(t as u8), stage: Some(st as u8) }));
+                        out.push((est / need, Plan::new(Kind::Strike, ops, Some(t as u8), Some(st as u8))));
                         // the same strike sending only what the capture needs plus a margin
                         let part = (need * 1.3 + 4.0).ceil();
                         if self.p.strike_partial && part < 0.8 * est {
                             let mut ops = feed;
                             ops.push(Op { at, act: Action::Send { src: st as u8, dst: t as u8, amount: part } });
-                            out.push((est / need, Plan { kind: Kind::Strike, ops, target: Some(t as u8), stage: Some(st as u8) }));
+                            out.push((est / need, Plan::new(Kind::Strike, ops, Some(t as u8), Some(st as u8))));
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// Chains: after `first` (an all-in strike) captures its target, roll the surviving stack on
+    /// into a neighbouring second target.
+    fn chains(&self, w: &World, s: &State, v: &View, first: &Plan, out: &mut Vec<(f64, Plan)>) {
+        let me = self.me;
+        let (t, st) = match (first.target, first.stage) {
+            (Some(t), Some(st)) => (t as usize, st as usize),
+            _ => return,
+        };
+        let strike_at = first.ops.last().unwrap().at;
+        let pool: f64 = s.troops[st] + first.ops[..first.ops.len() - 1].iter().map(|o| s.troops[Plan::src(o.act) as usize].floor()).sum::<f64>();
+        let est = pool + s.growth(w, st) * (strike_at - s.time);
+        let land1 = strike_at + eta(w, st, t);
+        let (po, pt) = s.project(w, t, land1 - s.time);
+        if po == me {
+            return;
+        }
+        let (o1, left) = land_calc(w.rules.depth, po, pt, s.tile[t], s.def_mult(w, t), me, est);
+        if o1 != me || left < 8.0 {
+            return;
+        }
+        let mut t2s = w.map.adj_mask[t] & !v.mine & !(1u64 << t);
+        let mut best: Vec<(f64, usize)> = Vec::new();
+        while t2s != 0 {
+            let j = t2s.trailing_zeros() as usize;
+            t2s &= t2s - 1;
+            let go = land1 + 0.3;
+            let (qo, qt) = s.project(w, j, go - s.time + eta(w, t, j));
+            if qo == me {
+                continue;
+            }
+            let need = need_to_take(qt, s.tile[j], s.def_mult(w, j));
+            if left >= need {
+                best.push((left / need, j));
+            }
+        }
+        best.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        for &(r, j) in best.iter().take(2) {
+            let mut ops = first.ops.clone();
+            ops.push(Op { at: land1 + 0.3, act: Action::Send { src: t as u8, dst: j as u8, amount: ALL } });
+            let mut pl = Plan::new(Kind::Strike, ops, Some(j as u8), Some(st as u8));
+            pl.via = Some((t as u8, land1 + 1.0));
+            out.push((r, pl));
         }
     }
 
@@ -652,10 +797,16 @@ impl Planner {
     /// What is left of the current plan, if its premises still hold.
     fn incumbent(&mut self, s: &State) -> Option<Plan> {
         let plan = self.active.take()?;
-        if plan.ops.is_empty() {
+        if plan.ops.is_empty() && (plan.hold == 0 || s.time >= plan.until) {
             return None;
         }
-        if plan.ops.iter().any(|op| s.owner[Plan::src(op.act) as usize] != self.me) {
+        if plan.hold & !s.owned_mask(self.me) != 0 {
+            return None; // a held state was lost
+        }
+        let lost = |src: u8| {
+            s.owner[src as usize] != self.me && !matches!(plan.via, Some((v, by)) if v == src && s.time < by)
+        };
+        if plan.ops.iter().any(|op| lost(Plan::src(op.act))) {
             return None; // a reserved state was lost
         }
         if let Some(t) = plan.target {
@@ -672,7 +823,9 @@ impl Planner {
         let now = s.time;
         self.decisions += 1;
         self.last = PlanLog { time: now, ..Default::default() };
-        self.reinf.retain(|&(_, _, t)| now - t < REINF_COOLDOWN);
+        let keep = self.p.settle.max(REINF_COOLDOWN);
+        self.reinf.retain(|&(_, _, t)| now - t < keep);
+        self.settled.retain(|&(_, t)| now - t < keep);
         let v = View::new(w, s, me);
         if v.mine == 0 {
             self.active = None;
@@ -705,22 +858,63 @@ impl Planner {
                 .acts
                 .iter()
                 .filter(|&&a| match a {
-                    Action::Send { src, dst, .. } => !(s.owner[dst as usize] == me && self.reversed_recently(src, dst, now)),
+                    Action::Send { src, dst, .. } => !(s.owner[dst as usize] == me && !self.own_move_ok(src, dst, now)),
                     _ => true,
                 })
                 .map(|&a| Op { at: now, act: a })
                 .collect();
             if !ops.is_empty() {
-                cands.push(Plan { kind: Kind::Script, ops, target: None, stage: None });
+                cands.push(Plan::new(Kind::Script, ops, None, None));
             }
         }
         let mut strikes = Vec::new();
         self.strikes(w, s, &v, &mut strikes);
         strikes.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        if self.p.chain > 0 {
+            let mut chains = Vec::new();
+            for (_, pl) in strikes.iter().filter(|x| x.1.ops.last().map_or(false, |o| matches!(o.act, Action::Send { amount, .. } if amount >= ALL))).take(self.p.chain) {
+                self.chains(w, s, &v, pl, &mut chains);
+            }
+            strikes.extend(chains);
+        }
+        if self.p.fronts > 1 {
+            let top: Vec<Plan> = strikes.iter().take(self.p.fronts).map(|x| x.1.clone()).collect();
+            let used = |pl: &Plan| pl.ops.iter().fold(0u64, |m, o| m | 1u64 << Plan::src(o.act));
+            for a in 0..top.len() {
+                for b in a + 1..top.len() {
+                    if top[a].target == top[b].target || used(&top[a]) & used(&top[b]) != 0 {
+                        continue;
+                    }
+                    let mut ops = top[a].ops.clone();
+                    ops.extend(top[b].ops.iter().copied());
+                    ops.sort_by(|x, y| x.at.partial_cmp(&y.at).unwrap());
+                    strikes.push((0.0, Plan::new(Kind::Strike, ops, top[a].target, top[a].stage)));
+                }
+            }
+        }
         cands.extend(strikes.into_iter().map(|x| x.1));
+        if self.p.hold {
+            // hold my biggest stacks (those big enough to deter) where they are
+            let mut big: Vec<(f64, usize)> = Vec::new();
+            let mut m = v.mine & v.border;
+            while m != 0 {
+                let i = m.trailing_zeros() as usize;
+                m &= m - 1;
+                if s.troops[i] >= self.p.settle_min.max(20.0) {
+                    big.push((s.troops[i], i));
+                }
+            }
+            big.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+            for &(_, i) in big.iter().take(2) {
+                let mut pl = Plan::new(Kind::Hold, Vec::new(), None, Some(i as u8));
+                pl.hold = 1u64 << i;
+                pl.until = now + self.p.horizon.min(10.0);
+                cands.push(pl);
+            }
+        }
         let mut direct = Vec::new();
         self.direct_orders(w, s, &v, 0, &mut direct);
-        cands.extend(direct.iter().map(|&a| Plan { kind: Kind::Direct, ops: vec![Op { at: now, act: a }], target: None, stage: None }));
+        cands.extend(direct.iter().map(|&a| Plan::new(Kind::Direct, vec![Op { at: now, act: a }], None, None)));
         if self.p.max_cands > 0 && cands.len() > self.p.max_cands {
             cands.truncate(self.p.max_cands);
         }
@@ -746,7 +940,12 @@ impl Planner {
         }
         // the same strike (same stage and target) with different timing still counts as continuing
         let inc_key = inc_idx.and_then(|i| cands[i].target.zip(cands[i].stage));
-        let continues = |k: usize| Some(k) == inc_idx || (inc_key.is_some() && cands[k].kind == Kind::Strike && cands[k].target.zip(cands[k].stage) == inc_key);
+        let inc_hold = inc_idx.filter(|&i| cands[i].kind == Kind::Hold).and_then(|i| cands[i].stage);
+        let continues = |k: usize| {
+            Some(k) == inc_idx
+                || (inc_key.is_some() && cands[k].kind == Kind::Strike && cands[k].target.zip(cands[k].stage) == inc_key)
+                || (inc_hold.is_some() && cands[k].kind == Kind::Hold && cands[k].stage == inc_hold)
+        };
         let mut finals: Vec<(f64, usize)> = Vec::new();
         let mut wait_v = wait_screen;
         for &k in &finalists {
@@ -788,7 +987,7 @@ impl Planner {
         let plan_v = scored.iter().find(|x| x.1 == pick).map(|x| x.0);
         if let Some(mut cur) = plan_v {
             for _ in 0..self.p.refine {
-                let mut lock = 0u64;
+                let mut lock = plan.hold;
                 for op in &plan.ops {
                     lock |= 1u64 << Plan::src(op.act);
                 }
@@ -831,9 +1030,12 @@ impl Planner {
                     op.act
                 };
                 out.push(act);
-                if let Action::Send { src, dst, .. } = act {
+                if let Action::Send { src, dst, amount } = act {
                     if s.owner[dst as usize] == me {
                         self.reinf.push((src, dst, now));
+                        if amount.min(s.troops[src as usize]).floor() >= self.p.settle_min {
+                            self.settled.push((dst, now));
+                        }
                     }
                 }
             } else {
@@ -841,7 +1043,7 @@ impl Planner {
             }
         }
         plan.ops = rest;
-        self.active = if plan.ops.is_empty() { None } else { Some(plan) };
+        self.active = if plan.ops.is_empty() && plan.hold == 0 { None } else { Some(plan) };
     }
 }
 

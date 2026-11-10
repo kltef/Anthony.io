@@ -35,11 +35,15 @@ pub struct ChrisParams {
     pub send_half: bool,
     /// Do not attack the enemy before this many seconds (he waits ~60-100 s).
     pub enemy_after: f64,
+    /// Funnel style (his Nov 9 wins): one spearhead stack takes the cheapest neighbour with
+    /// everything it has and becomes the new spearhead there; every other state swipes all its
+    /// troops into the spearhead each decision, so the interior stays near empty but never idle.
+    pub funnel: bool,
 }
 
 impl Default for ChrisParams {
     fn default() -> Self {
-        ChrisParams { cadence: 0.5, neutral_margin: 1.3, enemy_ratio: 6.0, min_feed: 2.0, hub_slack: 20.0, joint: true, send_half: true, enemy_after: 0.0 }
+        ChrisParams { cadence: 0.5, neutral_margin: 1.3, enemy_ratio: 6.0, min_feed: 2.0, hub_slack: 20.0, joint: true, send_half: true, enemy_after: 0.0, funnel: false }
     }
 }
 
@@ -55,6 +59,7 @@ impl ChrisParams {
             "joint" => self.joint = num()? != 0.0,
             "half" => self.send_half = num()? != 0.0,
             "after" => self.enemy_after = num()?,
+            "funnel" => self.funnel = num()? != 0.0,
             _ => return Err(format!("unknown chris option {key}")),
         }
         Ok(())
@@ -196,16 +201,96 @@ pub fn act(w: &World, s: &State, me: u8, p: &ChrisParams, out: &mut Vec<Action>)
     }
 }
 
+/// The funnel style. `hub` is the spearhead (carried between decisions: right after it strikes,
+/// the state it struck becomes the spearhead once the orb lands).
+pub fn act_funnel(w: &World, s: &State, me: u8, p: &ChrisParams, hub: &mut Option<usize>, out: &mut Vec<Action>) {
+    let v = View::new(w, s, me);
+    if v.mine == 0 {
+        return;
+    }
+    let mut pending = [0.0f64; MAXN];
+    let mut inflight = 0u64;
+    for o in &s.orbs {
+        if o.owner == me {
+            pending[o.dst as usize] += o.count;
+            inflight |= 1u64 << o.dst;
+        }
+    }
+    // keep the spearhead while it is mine, or while my strike on it is still in flight
+    let keep = match *hub {
+        Some(h) => s.owner[h] == me || inflight >> h & 1 == 1,
+        None => false,
+    };
+    if !keep {
+        // the biggest stack (counting what is on its way to it) on a border
+        let mut best = (f64::MIN, usize::MAX);
+        let mut m = v.mine;
+        while m != 0 {
+            let i = m.trailing_zeros() as usize;
+            m &= m - 1;
+            let val = s.troops[i] + pending[i] + if v.border >> i & 1 == 1 { 0.5 } else { 0.0 };
+            if val > best.0 {
+                best = (val, i);
+            }
+        }
+        *hub = Some(best.1);
+    }
+    let h = hub.unwrap();
+    if s.owner[h] != me {
+        return; // strike still flying: wait for it to land
+    }
+    // strike: cheapest neighbour of the spearhead the whole stack can take
+    let have = s.troops[h].floor();
+    let mut tgt: Option<(f64, usize)> = None;
+    let mut a = w.map.adj_mask[h] & !v.mine;
+    while a != 0 {
+        let j = a.trailing_zeros() as usize;
+        a &= a - 1;
+        let enemy = s.owner[j] != NEUTRAL;
+        if enemy && s.time < p.enemy_after {
+            continue;
+        }
+        let (po, pt, _) = at_arrival(w, s, &v, h, j);
+        if po == me {
+            continue;
+        }
+        let need = need_to_take(pt, s.tile[j], s.def_mult(w, j));
+        let want = if enemy { p.enemy_ratio * need.max(1.0) } else { p.neutral_margin * need };
+        if have >= want && tgt.map_or(true, |(c, _)| need < c) {
+            tgt = Some((need, j));
+        }
+    }
+    let mut used = 0u64;
+    if let Some((_, j)) = tgt {
+        out.push(Action::Send { src: h as u8, dst: j as u8, amount: have });
+        used |= 1u64 << h;
+        *hub = Some(j);
+    }
+    // swipe: every other state in the spearhead's territory feeds it everything
+    let dst = if s.owner[hub.unwrap()] == me { hub.unwrap() } else { h };
+    let comp = State::flood(w, v.mine, h);
+    let mut c = comp & !used & !(1u64 << dst);
+    while c != 0 {
+        let k = c.trailing_zeros() as usize;
+        c &= c - 1;
+        let t = s.troops[k].floor();
+        if t >= p.min_feed && dst != k {
+            out.push(Action::Send { src: k as u8, dst: dst as u8, amount: t });
+        }
+    }
+}
+
 pub struct Chris {
     pub label: String,
     pub p: ChrisParams,
     me: u8,
     next: f64,
+    hub: Option<usize>,
 }
 
 impl Chris {
     pub fn new(label: &str, p: ChrisParams) -> Chris {
-        Chris { label: label.to_string(), p, me: 0, next: 0.0 }
+        Chris { label: label.to_string(), p, me: 0, next: 0.0, hub: None }
     }
 }
 
@@ -215,6 +300,7 @@ impl crate::agent::Agent for Chris {
     }
     fn reset(&mut self, _w: &World, me: u8, seed: u64) {
         self.me = me;
+        self.hub = None;
         self.next = 0.2 + (seed % 7) as f64 * 0.03;
     }
     fn act(&mut self, w: &World, s: &State, out: &mut Vec<Action>) {
@@ -222,6 +308,25 @@ impl crate::agent::Agent for Chris {
             return;
         }
         self.next = s.time + self.p.cadence;
-        act(w, s, self.me, &self.p, out);
+        if self.p.funnel {
+            act_funnel(w, s, self.me, &self.p, &mut self.hub, out);
+        } else {
+            act(w, s, self.me, &self.p, out);
+        }
     }
+}
+
+/// The funnel without memory, for simulated opponents inside rollouts: a strike of mine still
+/// flying at a state I do not own yet is the spearhead (wait for it); otherwise the biggest stack.
+pub fn act_funnel_stateless(w: &World, s: &State, me: u8, p: &ChrisParams, out: &mut Vec<Action>) {
+    let mut hub = None;
+    let mut best = 0.0;
+    for o in &s.orbs {
+        let j = o.dst as usize;
+        if o.owner == me && s.owner[j] != me && o.count > s.troops[j] && o.count > best {
+            best = o.count;
+            hub = Some(j);
+        }
+    }
+    act_funnel(w, s, me, p, &mut hub, out);
 }

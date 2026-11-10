@@ -73,9 +73,11 @@ pub fn plan_tier(name: &str) -> Option<&'static str> {
         "grandmaster" => "cadence=0.5,h=18,screen=2,samples=4,k=5,cands=90,waits=0/3/7,feeders=4,refine=1",
         // Nightmare: human input limits (see PlanParams::human) at a human-like 0.4 s rhythm.
         "nightmare" => "cadence=0.4,human=1",
-        // Nightmare+: superhuman. Decides every 50 ms, twice the opponent samples, finalists and
-        // a steadier commitment for that rhythm, samples reused for 1 s, and varied plans / timing.
-        "nightmare+" => "cadence=0.05,samples=16,k=12,resample=1,bonus=0.08,vary=0.01,jitter=2",
+        // Nightmare+: superhuman. Decides every 50 ms with 4x the thinking of web 54 (64 opponent
+        // samples, 24 finalists), a steadier commitment for that rhythm, samples reused for 1 s,
+        // varied plans / timing, and the anti-dither guard: no stack straight back the way it came
+        // within 6 s, strike feeders included (the play-tester's Nov 9 funnel exploited that).
+        "nightmare+" => "cadence=0.05,samples=64,k=24,resample=1,bonus=0.08,vary=0.01,jitter=2,settle=6,park=0",
         _ => return None,
     })
 }
