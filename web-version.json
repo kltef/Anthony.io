@@ -4,7 +4,7 @@
     "Fair starts: nobody starts boxed into a corner any more, and the AI's cheapest neighbours match yours",
     "New Check for update button at the bottom of the menu"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/92fefc4e3d2455687efdd6a06cffec770e4777db/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/866c73b3a875f42f9cecc16da3588d395218069d/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
