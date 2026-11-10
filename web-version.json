@@ -3,7 +3,7 @@
   "notes": [
     "Shop fix: map themes, victory and capture effects and the new trails, skins and emblems can now be bought - tap a faded item, then tap it again to buy"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/266a8d68f8def873d365661332fd6276e9510cd0/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/92fefc4e3d2455687efdd6a06cffec770e4777db/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
