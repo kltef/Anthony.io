@@ -6,7 +6,7 @@
     "New in the shop: map themes, victory and capture effects, more trails, skins and emblems, titles and badges",
     "Shop prices now scale with your rank (lifetime coins earned, up to x3) - anything you own stays yours"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/8a54e897e3d30ba6158e8e1ad178bfcd24f0d053/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/266a8d68f8def873d365661332fd6276e9510cd0/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
