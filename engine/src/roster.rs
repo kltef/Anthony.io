@@ -77,7 +77,7 @@ pub fn plan_tier(name: &str) -> Option<&'static str> {
         // samples, 24 finalists), a steadier commitment for that rhythm, samples reused for 1 s,
         // varied plans / timing, and the anti-dither guard: no stack straight back the way it came
         // within 6 s, strike feeders included (the play-tester's Nov 9 funnel exploited that).
-        "nightmare+" => "cadence=0.05,samples=64,k=24,resample=1,bonus=0.08,vary=0.01,jitter=2,settle=6,park=0",
+        "nightmare+" => "cadence=0.05,samples=64,k=24,resample=1,bonus=0.08,vary=0.01,jitter=2,settle=6,park=0,loop=1,stall=20",
         _ => return None,
     })
 }

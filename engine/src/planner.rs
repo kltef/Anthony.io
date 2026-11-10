@@ -204,6 +204,11 @@ pub struct PlanParams {
     /// Also park a big stack that just arrived (no onward own-to-own move for `settle` s). Off =
     /// only the straight-back move is blocked (strike feeders included).
     pub settle_park: bool,
+    /// Also block loops of any length: no own-to-own move onto a state that itself sent troops on
+    /// to another of my states within `settle` seconds (A->B->C->A passes the straight-back check;
+    /// at the 4x rhythm Nightmare+ cycled stacks Vermont->Massachusetts->Connecticut->Vermont
+    /// several times a second, play-tester's Nov 9 20:38 win).
+    pub settle_loop: bool,
     /// Also consider holding my biggest stacks where they are (deterrence) as a plan.
     pub hold: bool,
     /// Chains: the best N strikes may roll on from the captured state into a second target.
@@ -274,6 +279,7 @@ impl Default for PlanParams {
             settle: 0.0,
             settle_min: 20.0,
             settle_park: true,
+            settle_loop: false,
             hold: false,
             chain: 0,
             fronts: 0,
@@ -336,6 +342,7 @@ impl PlanParams {
             "settle" => self.settle = num()?,
             "settle_min" => self.settle_min = num()?,
             "park" => self.settle_park = num()? != 0.0,
+            "loop" => self.settle_loop = num()? != 0.0,
             "hold" => self.hold = num()? != 0.0,
             "chain" => self.chain = num()? as usize,
             "fronts" => self.fronts = num()? as usize,
@@ -557,7 +564,7 @@ impl Planner {
         if self.p.settle <= 0.0 {
             return !self.reversed_recently(src, dst, now);
         }
-        let back = self.reinf.iter().any(|&(a, b, t)| a == dst && b == src && now - t < self.p.settle.max(REINF_COOLDOWN));
+        let back = self.reinf.iter().any(|&(a, b, t)| a == dst && (b == src || self.p.settle_loop) && now - t < self.p.settle.max(REINF_COOLDOWN));
         let parked = self.p.settle_park && self.settled.iter().any(|&(k, t)| k == src && now - t < self.p.settle);
         !back && !parked
     }

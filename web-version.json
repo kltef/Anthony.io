@@ -1,8 +1,8 @@
 {
-  "web": 57,
+  "web": 58,
   "notes": [
-    "Fair starts: nobody starts boxed into a corner any more, and the AI's cheapest neighbours match yours",
-    "New Check for update button at the bottom of the menu"
+    "Nightmare+ no longer moves its army in circles between its own states",
+    "Nightmare+ no longer freezes when it is boxed in - it keeps expanding"
   ],
   "base": "https://raw.githubusercontent.com/kltef/Anthony.io/866c73b3a875f42f9cecc16da3588d395218069d/src/web/",
   "files": [
@@ -16,6 +16,14 @@
     "lose.mp3"
   ],
   "history": [
+    {
+      "web": 58,
+      "date": "2026-11-09",
+      "notes": [
+        "Nightmare+ no longer moves its army in circles between its own states",
+        "Nightmare+ no longer freezes when it is boxed in - it keeps expanding"
+      ]
+    },
     {
       "web": 57,
       "date": "2026-11-09",

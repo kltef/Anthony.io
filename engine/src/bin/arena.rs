@@ -49,6 +49,17 @@ impl Agent for Probe {
 }
 
 impl Probe {
+    /// 30+ stacks sent onto a state of mine that itself sent a 30+ stack on within 12 s (loops of
+    /// any length: A->B->A, A->B->C->A, ...).
+    fn returns(&self) -> u32 {
+        let mut n = 0;
+        for (i, b) in self.big.iter().enumerate() {
+            if self.big[..i].iter().any(|a| b.0 - a.0 <= 12.0 && a.1 == b.2) {
+                n += 1;
+            }
+        }
+        n
+    }
     fn bounces(&self) -> u32 {
         let mut n = 0;
         for (i, a) in self.big.iter().enumerate() {
@@ -72,6 +83,7 @@ struct Tally {
     probe_own: f64,
     probe_total: f64,
     probe_bounce: u64,
+    probe_return: u64,
     probe_st60: u64,
     probe_st60_n: u32,
     win: u32,
@@ -141,6 +153,7 @@ fn main() {
                             local.probe_own += pr.own;
                             local.probe_total += pr.total;
                             local.probe_bounce += pr.bounces() as u64;
+                            local.probe_return += pr.returns() as u64;
                             if let Some(c) = pr.st60 {
                                 local.probe_st60 += c as u64;
                                 local.probe_st60_n += 1;
@@ -179,6 +192,7 @@ fn main() {
                 t.probe_own += local.probe_own;
                 t.probe_total += local.probe_total;
                 t.probe_bounce += local.probe_bounce;
+                t.probe_return += local.probe_return;
                 t.probe_st60 += local.probe_st60;
                 t.probe_st60_n += local.probe_st60_n;
                 for k in 0..2 {
@@ -201,7 +215,7 @@ fn main() {
         t0.elapsed().as_secs_f64()
     );
     println!(
-        "   A moves: {:.0}% of troops sent onto its own states in 30+ moves, {:.1} back-and-forth bounces/game, {:.1} states at 60 s",
-        100.0 * t.probe_own / t.probe_total.max(1.0), t.probe_bounce as f64 / t.probe_games.max(1) as f64, t.probe_st60 as f64 / t.probe_st60_n.max(1) as f64
+        "   A moves: {:.0}% of troops sent onto its own states in 30+ moves, {:.1} back-and-forth bounces/game, {:.1} loop returns/game, {:.1} states at 60 s",
+        100.0 * t.probe_own / t.probe_total.max(1.0), t.probe_bounce as f64 / t.probe_games.max(1) as f64, t.probe_return as f64 / t.probe_games.max(1) as f64, t.probe_st60 as f64 / t.probe_st60_n.max(1) as f64
     );
 }
