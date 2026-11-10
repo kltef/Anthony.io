@@ -3,7 +3,7 @@
   "notes": [
     "New setting: Allow developer connection - lets the developer watch your games live and help test new AI (a 🛠 badge shows when connected; turn it off in Settings any time)"
   ],
-  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/8ddbcb28fde564332148b64bcdb6a2ad947e7d22/src/web/",
+  "base": "https://raw.githubusercontent.com/kltef/Anthony.io/0fa53fcce2419ae1b4e2a001fb9f015222d48f62/src/web/",
   "files": [
     "index.html",
     "menu.mp3",
